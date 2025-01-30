@@ -1,8 +1,8 @@
 <template>
   <div class="min-vh-100 bg-light d-flex flex-column">
-    
 
     <!-- Contenido principal -->
+    <main class="container flex-grow-1 d-flex align-items-center">
       <div class="text-center w-100">
         <h1 class="display-4 mb-4">¿Qué es PuenteDigital?</h1>
         <p class="lead text-muted mx-auto mb-5" style="max-width: 600px;">
