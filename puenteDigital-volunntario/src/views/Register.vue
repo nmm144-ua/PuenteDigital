@@ -167,8 +167,8 @@
   
   <script>
   import { ref, onMounted } from 'vue';
-  import { supabase } from '../../supabase';
   import { useRouter } from 'vue-router';
+  import { supabaseService } from '../services/supabaseService'; // Importar el servicio
   
   export default {
     setup() {
@@ -191,7 +191,7 @@
       const obtenerFechaActual = () => {
         const fecha = new Date();
         const dia = String(fecha.getDate()).padStart(2, '0');
-        const mes = String(fecha.getMonth() + 1).padStart(2, '0'); // Los meses comienzan en 0
+        const mes = String(fecha.getMonth() + 1).padStart(2, '0');
         const año = fecha.getFullYear();
         fechaActual.value = `${dia}/${mes}/${año}`;
       };
@@ -234,44 +234,25 @@
         }
   
         try {
-          // Registro del usuario en auth
-          const { user, error: authError } = await supabase.auth.signUp({
+          // Registrar el usuario usando el servicio
+          const user = await supabaseService.registerUser(form.value.email, form.value.password);
+  
+          // Crear el asistente usando el servicio
+          const asistente = await supabaseService.createAsistente({
+            user_id: user ? user.id : null,
+            nombre: form.value.nombre,
+            telefono: form.value.telefono,
             email: form.value.email,
-            password: form.value.password
+            habilidades: form.value.habilidades
           });
   
-          if (authError) throw authError;
-  
-          // Guardar datos del asistente
-          const { data: asistente, error: profileError } = await supabase
-            .from('asistentes')
-            .insert([
-              {
-                user_id: user ? user.id : null,
-                nombre: form.value.nombre,
-                telefono: form.value.telefono,
-                email: form.value.email,
-                habilidades: form.value.habilidades
-              }
-            ])
-            .select()
-            .single();
-  
-          if (profileError) throw profileError;
-  
-          // Guardar declaración de responsabilidad
-          const { error: declaracionError } = await supabase
-            .from('declaraciones_responsabilidad')
-            .insert([
-              {
-                asistente_id: asistente.id,
-                nombre: form.value.declaracionNombre,
-                dni: form.value.declaracionDNI,
-                fecha: new Date().toISOString()
-              }
-            ]);
-  
-          if (declaracionError) throw declaracionError;
+          // Crear la declaración de responsabilidad usando el servicio
+          await supabaseService.createDeclaracionResponsabilidad({
+            asistente_id: asistente.id,
+            nombre: form.value.declaracionNombre,
+            dni: form.value.declaracionDNI,
+            fecha: new Date().toISOString()
+          });
   
           // Redirigir al home
           router.push('/');
@@ -296,7 +277,6 @@
     }
   };
   </script>
-  
   <style scoped>
   .declaracion-responsabilidad {
     max-height: 400px;
