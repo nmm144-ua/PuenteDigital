@@ -170,6 +170,8 @@
   import { useRouter } from 'vue-router';
   import { useAuthStore } from '../stores/authStore'; // Importar el store de autenticación
   import { supabaseService } from '../services/supabaseService'; // Importar el servicio
+  import { supabase } from '../../supabase'; // Importar el servicio
+
   
   export default {
     setup() {
@@ -236,20 +238,23 @@
         }
   
         try {
-          // Registrar el usuario usando el servicio
-          const user = await supabaseService.registerUser(form.value.email, form.value.password);
+          const { data, error } = await supabase.auth.signUp({
+            email: form.value.email,
+            password: form.value.password,
+          });
+
+          if (error) throw error;
+
+          const userId = data.user.id;
   
-          // Crear el asistente usando el servicio
           const asistente = await supabaseService.createAsistente({
-            user_id: user ? user.id : null,
+            user_id: userId, 
             nombre: form.value.nombre,
             telefono: form.value.telefono,
             email: form.value.email,
             habilidades: form.value.habilidades,
-            role: 'asistente', // Asignar el rol de "asistente"
           });
   
-          // Crear la declaración de responsabilidad usando el servicio
           await supabaseService.createDeclaracionResponsabilidad({
             asistente_id: asistente.id,
             nombre: form.value.declaracionNombre,
@@ -258,7 +263,7 @@
           });
   
           // Actualizar el estado de autenticación en el store
-          authStore.user = user;
+          authStore.user = data.user;
           //authStore.user.role = 'asistente'; // Asignar el rol de "asistente"
   
           // Redirigir al menú del asistente
