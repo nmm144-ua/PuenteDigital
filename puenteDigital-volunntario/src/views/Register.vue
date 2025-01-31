@@ -168,6 +168,7 @@
   <script>
   import { ref, onMounted } from 'vue';
   import { useRouter } from 'vue-router';
+  import { useAuthStore } from '../stores/authStore'; // Importar el store de autenticación
   import { supabaseService } from '../services/supabaseService'; // Importar el servicio
   
   export default {
@@ -186,6 +187,7 @@
       const errorMessage = ref('');
       const fechaActual = ref('');
       const router = useRouter();
+      const authStore = useAuthStore(); // Usar el store de autenticación
   
       // Función para obtener la fecha actual
       const obtenerFechaActual = () => {
@@ -243,7 +245,8 @@
             nombre: form.value.nombre,
             telefono: form.value.telefono,
             email: form.value.email,
-            habilidades: form.value.habilidades
+            habilidades: form.value.habilidades,
+            role: 'asistente', // Asignar el rol de "asistente"
           });
   
           // Crear la declaración de responsabilidad usando el servicio
@@ -254,8 +257,12 @@
             fecha: new Date().toISOString()
           });
   
-          // Redirigir al home
-          router.push('/');
+          // Actualizar el estado de autenticación en el store
+          authStore.user = user;
+          //authStore.user.role = 'asistente'; // Asignar el rol de "asistente"
+  
+          // Redirigir al menú del asistente
+          router.push('/menu-asistente');
         } catch (error) {
           console.error('Error en el registro:', error.message);
           errorMessage.value = 'Hubo un error en el registro. Por favor, inténtalo de nuevo.';
@@ -277,6 +284,7 @@
     }
   };
   </script>
+  
   <style scoped>
   .declaracion-responsabilidad {
     max-height: 400px;
