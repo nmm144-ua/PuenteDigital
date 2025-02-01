@@ -161,7 +161,7 @@
               </div>
 
               <!-- Botón Volver -->
-              <router-link to="/menu-asistente" class="btn btn-link w-100 text-center">
+              <router-link to="/asistente" class="btn btn-link w-100 text-center">
                 Volver al Menú
               </router-link>
             </div>

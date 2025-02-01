@@ -71,7 +71,7 @@ setup() {
       if (authStore.isAdmin) {
         router.push('/menu-admin');
       } else {
-        router.push('/menu-asistente');
+        router.push('/asistente');
       }
     }
   };
