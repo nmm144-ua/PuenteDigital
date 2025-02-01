@@ -203,6 +203,8 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/authStore'; // Importar el store de autenticación
 import { supabaseService } from '../services/supabaseService'; // Importar el servicio
+import { declaracionService } from '../services/declaracionService'; // Importar el servicio
+
 import { supabase } from '../../supabase'; // Importar el cliente de Supabase
 
 export default {
@@ -306,7 +308,7 @@ export default {
           habilidades: form.value.habilidades,
         });
 
-        await supabaseService.createDeclaracionResponsabilidad({
+        await declaracionService.createDeclaracionResponsabilidad({
           asistente_id: asistente.id,
           nombre: form.value.declaracionNombre,
           dni: form.value.declaracionDNI,
