@@ -14,11 +14,43 @@ export const supabaseService = {
 
   // Crear un nuevo asistente
   async createAsistente(asistenteData) {
+    // Por defecto, los nuevos usuarios son asistentes a menos que se especifique lo contrario
+    const datos = {
+      ...asistenteData,
+      rol: asistenteData.rol || 'asistente'
+    };
+
     const { data, error } = await supabase
       .from('asistentes')
-      .insert([asistenteData])
+      .insert([datos])
       .select()
       .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  // Obtener el rol del usuario
+  async getUserRole(userId) {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .select('rol')
+      .eq('user_id', userId)
+      .single();
+
+    if (error) throw error;
+    return data?.rol || 'asistente';
+  },
+
+  // Actualizar el rol de un usuario
+  async updateUserRole(asistenteId, newRole) {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .update({ rol: newRole })
+      .eq('id', asistenteId)
+      .select()
+      .single();
+
     if (error) throw error;
     return data;
   },
