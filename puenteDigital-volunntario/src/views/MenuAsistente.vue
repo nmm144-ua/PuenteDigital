@@ -36,6 +36,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import { asistenteService } from '../services/asistenteService';
+import { jornadasService } from '@/services/jornadasService';
 
 const authStore = useAuthStore();
 const nombreAsistente = ref('');
@@ -43,6 +44,7 @@ const estaActivo = ref(false);
 const loading = ref(false);
 const error = ref('');
 const mensajeExito = ref('');
+const jornada = ref(null);
 
 const cargarDatosAsistente = async () => {
   try {
@@ -71,6 +73,18 @@ const toggleActivacion = async () => {
     mensajeExito.value = nuevoEstado 
       ? 'Te has activado correctamente. Ya puedes recibir solicitudes de ayuda.' 
       : 'Te has desactivado correctamente. No recibirás solicitudes de ayuda.';
+    if (nuevoEstado){
+      const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
+      const nuevaJornada = await jornadasService.createJornada({
+        asistente_id: asistente.id,
+        inicio: new Date().toISOString(),
+      });
+      jornada.value = nuevaJornada;
+    }else{
+      await jornadasService.terminarJornada(jornada.value.id, {
+        fin: new Date().toISOString(),
+      });
+    }
   } catch (err) {
     error.value = 'Error al cambiar el estado';
     console.error(err);

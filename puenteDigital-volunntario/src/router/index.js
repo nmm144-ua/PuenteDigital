@@ -15,48 +15,49 @@ const routes = [
     path: '/login',
     name: 'Login',
     component: Login,
-    meta: { requiresGuest: true } // Solo accesible si NO está autenticado
+    meta: { requiresGuest: true }
   },
   {
     path: '/register',
     name: 'Register',
     component: Register,
-    meta: { requiresGuest: true } // Solo accesible si NO está autenticado
+    meta: { requiresGuest: true }
   },
   {
-    path: '/menu-asistente',
-    component: () => import('../views/MenuAsistente.vue'),
-    meta: { 
-      requiresAuth: true,
-      roles: ['asistente']
-    }
-  },
-  {
-    path: '/perfil-asistente',
-    component: () => import('../views/PerfilAsistente.vue'),
-    meta: { 
-      requiresAuth: true,
-      roles: ['asistente']
-    }
-  },
-  {
-    path: '/historial-asistente',
-    component: () => import('../views/NoDisponible.vue'),
-    meta: { 
-      requiresAuth: true,
-      roles: ['asistente']
-    }
+    path: '/asistente',
+    meta: { requiresAuth: true, roles: ['asistente'] },
+    children: [
+      {
+        path: '',
+        name: 'DashboardAsistente',
+        component: () => import('../views/MenuAsistente.vue')
+      },
+      {
+        path: 'perfil',
+        name: 'PerfilAsistente',
+        component: () => import('../views/PerfilAsistente.vue')
+      },
+      {
+        path: 'historial',
+        name: 'HistorialAsistente',
+        component: () => import('../views/NoDisponible.vue')
+      },
+      {
+        path: 'estado',
+        name: 'EstadoAsistente',
+        component: () => import('../views/NoDisponible.vue')
+      },
+      {
+        path: 'espacio',
+        name: 'EspacioAsistente',
+        component: () => import('../views/NoDisponible.vue')
+      }
+    ]
   },
   {
     path: '/menu-admin',
     component: () => import('../views/NoDisponible.vue'),
-    meta: { 
-      requiresAuth: true,
-      roles: ['admin']
-    },
-    children: [
-      
-    ]
+    meta: { requiresAuth: true, roles: ['admin'] }
   },
   {
     path: '/:pathMatch(.*)*',
@@ -67,6 +68,7 @@ const routes = [
     component: () => import('../views/NoDisponible.vue'),
   },
 ];
+
 
 const router = createRouter({
   history: createWebHistory(),

@@ -161,7 +161,7 @@
               </div>
 
               <!-- Botón Volver -->
-              <router-link to="/menu-asistente" class="btn btn-link w-100 text-center">
+              <router-link to="/asistente" class="btn btn-link w-100 text-center">
                 Volver al Menú
               </router-link>
             </div>
@@ -279,6 +279,12 @@ export default {
         return;
       }
 
+      // Confirmación antes de actualizar
+      const confirmUpdate = confirm('¿Estás seguro de que deseas actualizar tu perfil?');
+      if (!confirmUpdate) {
+        return;
+      }
+
       try {
         const userId = authStore.user?.id;
         if (!userId) throw new Error('No se encontró el ID del usuario');
@@ -301,6 +307,12 @@ export default {
     const handlePasswordChange = async () => {
       if (!validatePasswordForm()) {
         errorMessage.value = 'Por favor, corrige los errores en el formulario';
+        return;
+      }
+
+      // Confirmación antes de cambiar la contraseña
+      const confirmChange = confirm('¿Estás seguro de que deseas cambiar tu contraseña?');
+      if (!confirmChange) {
         return;
       }
 

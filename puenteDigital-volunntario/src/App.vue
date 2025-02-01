@@ -54,10 +54,10 @@ onMounted(() => {
                 <router-link class="nav-link" to="/admin">Panel Admin</router-link>
               </li>
               <template v-else>
-                <li class="nav-item"><router-link class="nav-link" to="/menu-asistente">Mi Panel</router-link></li>
-                <li class="nav-item"><router-link class="nav-link" to="/historial-asistente">Historial</router-link></li>
-                <li class="nav-item"><router-link class="nav-link" to="/estado-asistente">Estado</router-link></li>
-                <li class="nav-item"><router-link class="nav-link" to="/espacio-asistente">MiEspacio</router-link></li>
+                <li class="nav-item"><router-link class="nav-link" to="/asistente">Mi Panel</router-link></li>
+                <li class="nav-item"><router-link class="nav-link" to="/asistente/historial">Historial</router-link></li>
+                <li class="nav-item"><router-link class="nav-link" to="/asistente/estado">Estado</router-link></li>
+                <li class="nav-item"><router-link class="nav-link" to="/asistente/espacio">MiEspacio</router-link></li>
               </template>
             </template>
             <template v-else>
@@ -81,7 +81,7 @@ onMounted(() => {
                   aria-expanded="false"
                 />
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdownMenuButton">
-                  <li><router-link class="dropdown-item" to="/perfil-asistente">Perfil</router-link></li>
+                  <li><router-link class="dropdown-item" to="/asistente/perfil">Perfil</router-link></li>
                   <li><a class="dropdown-item" href="#" @click.prevent="handleLogout">Cerrar Sesión</a></li>
                 </ul>
               </div>

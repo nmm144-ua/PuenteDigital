@@ -321,7 +321,7 @@ export default {
         authStore.user = data.user;
 
         // Redirigir al menú del asistente
-        router.push('/menu-asistente');
+        router.push('/asistente');
       } catch (error) {
         console.error('Error en el registro:', error.message);
         errorMessage.value = 'Hubo un error en el registro. Por favor, inténtalo de nuevo.';
