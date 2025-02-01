@@ -15,19 +15,20 @@ export const useAuthStore = defineStore('auth', {
       this.isLoading = true;
       this.error = null;
       try {
-        console.log(email);
-        const auxAsistente = await asistenteService.getAsistenteByEmail(email);
-        console.log(auxAsistente);
-        if (auxAsistente.cuentaAceptada === false) {
-          throw new Error('Tu cuenta aún no ha sido aceptada por un administrador.');
-        }
-
+        
         // Iniciar sesión con correo y contraseña
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
         if (error) throw error;
+        
+        const auxAsistente = await asistenteService.getAsistenteByEmail(email);
+        if (auxAsistente[0].cuentaAceptada == false) {
+          throw new Error('Tu cuenta aún no ha sido aceptada por un administrador.');
+          supabase.auth.signOut();
+        }
+
 
         // Get user role from asistentes table
         const { data: asistente } = await supabase
