@@ -31,9 +31,25 @@ const routes = [
       roles: ['asistente']
     }
   },
-  /*{
+  {
+    path: '/perfil-asistente',
+    component: () => import('../views/PerfilAsistente.vue'),
+    meta: { 
+      requiresAuth: true,
+      roles: ['asistente']
+    }
+  },
+  {
+    path: '/historial-asistente',
+    component: () => import('../views/NoDisponible.vue'),
+    meta: { 
+      requiresAuth: true,
+      roles: ['asistente']
+    }
+  },
+  {
     path: '/menu-admin',
-    component: () => import('../views/MenuAdmin.vue'),
+    component: () => import('../views/NoDisponible.vue'),
     meta: { 
       requiresAuth: true,
       roles: ['admin']
@@ -41,10 +57,14 @@ const routes = [
     children: [
       
     ]
-  },*/
+  },
   {
     path: '/:pathMatch(.*)*',
     component: () => import('../views/NotFound.vue'),
+  },
+  {
+    path: '/pagina-no-disponible',
+    component: () => import('../views/NoDisponible.vue'),
   },
 ];
 

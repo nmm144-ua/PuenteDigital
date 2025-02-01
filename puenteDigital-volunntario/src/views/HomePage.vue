@@ -1,5 +1,4 @@
 <template>
-  <div class="min-vh-100 bg-light d-flex flex-column">
 
     <!-- Contenido principal -->
     <main class="container flex-grow-1 d-flex align-items-center">
@@ -21,7 +20,6 @@
         </div>
       </div>
     </main>
-  </div>
 </template>
 
 <script>
