@@ -1,16 +1,10 @@
 <template>
-  <div class="min-vh-100 bg-light py-5">
     <div class="container">
       <div class="row justify-content-center">
         <div class="col-md-8 col-lg-6">
           <div class="card shadow-sm">
             <div class="card-body p-4">
               <h2 class="card-title text-center mb-4">Registro Nuevo Asistente</h2>
-
-              <!-- Mensaje de error -->
-              <div v-if="errorMessage" class="alert alert-danger">
-                {{ errorMessage }}
-              </div>
               
               <form @submit.prevent="handleRegister" class="needs-validation" novalidate>
                 <!-- Campos del formulario -->
@@ -190,12 +184,15 @@
                   Volver
                 </router-link>
               </form>
+               <!-- Mensaje de error -->
+               <div v-if="errorMessage" class="alert alert-danger">
+                {{ errorMessage }}
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
 </template>
 
 <script>
@@ -204,6 +201,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/authStore'; // Importar el store de autenticación
 import { supabaseService } from '../services/supabaseService'; // Importar el servicio
 import { declaracionService } from '../services/declaracionService'; // Importar el servicio
+import { asistenteService } from '../services/asistenteService'; // Importar el servicio
 
 import { supabase } from '../../supabase'; // Importar el cliente de Supabase
 
@@ -214,7 +212,7 @@ export default {
       email: '',
       telefono: '',
       password: '',
-      confirmPassword: '', // Nuevo campo para confirmar la contraseña
+      confirmPassword: '', 
       habilidades: '',
       declaracionNombre: '',
       declaracionDNI: ''
@@ -300,12 +298,16 @@ export default {
 
         const userId = data.user.id;
 
-        const asistente = await supabaseService.createAsistente({
+        const asistente = await asistenteService.createAsistente({
           user_id: userId, 
           nombre: form.value.nombre,
           telefono: form.value.telefono,
           email: form.value.email,
           habilidades: form.value.habilidades,
+          rol: 'asistente',
+          cuentaAceptada: false,
+          activo:false,
+          disponible:false
         });
 
         await declaracionService.createDeclaracionResponsabilidad({

@@ -41,14 +41,13 @@ export const asistenteService = {
     if (error) throw error;
     return data;
   },
-  
+
   async getAsistenteByEmail(email) {
     const { data, error } = await supabase
       .from('asistentes')
       .select('*')
-      .eq('email', email)
-      .single();
-    
+      .eq('email', email);
+          
     if (error) throw error;
     return data;
   },
@@ -62,6 +61,20 @@ export const asistenteService = {
         activo: nuevoEstado,
         disponible: nuevoEstado
       })
+      .eq('user_id', userId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
+
+  //modificar asistente
+  async updateAsistente(userId, asistenteData) {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .update(asistenteData)
       .eq('user_id', userId)
       .select()
       .single();

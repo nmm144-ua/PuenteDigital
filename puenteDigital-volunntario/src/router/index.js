@@ -32,6 +32,14 @@ const routes = [
     }
   },
   {
+    path: '/perfil-asistente',
+    component: () => import('../views/PerfilAsistente.vue'),
+    meta: { 
+      requiresAuth: true,
+      roles: ['asistente']
+    }
+  },
+  {
     path: '/historial-asistente',
     component: () => import('../views/NoDisponible.vue'),
     meta: { 

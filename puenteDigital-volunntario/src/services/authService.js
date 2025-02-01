@@ -1,5 +1,6 @@
 // src/services/authService.js
 import { supabase } from '../../supabase';
+import { asistenteService } from './asistenteService';
 
 export const authService = {
   // Registrar un nuevo usuario
@@ -14,7 +15,7 @@ export const authService = {
 
   // Iniciar sesión
   async login(email, password) {
-    const { user, error } = await supabase.auth.signIn({
+    const { user, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });

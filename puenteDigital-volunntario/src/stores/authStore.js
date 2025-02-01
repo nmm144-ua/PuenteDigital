@@ -1,7 +1,6 @@
-// src/stores/authStore.js
 import { defineStore } from 'pinia';
 import { supabase } from '../../supabase'; // Importar el cliente de Supabase
-
+import { asistenteService } from '@/services/asistenteService';
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null, // Usuario autenticado
@@ -16,6 +15,13 @@ export const useAuthStore = defineStore('auth', {
       this.isLoading = true;
       this.error = null;
       try {
+        console.log(email);
+        const auxAsistente = await asistenteService.getAsistenteByEmail(email);
+        console.log(auxAsistente);
+        if (auxAsistente.cuentaAceptada === false) {
+          throw new Error('Tu cuenta aún no ha sido aceptada por un administrador.');
+        }
+
         // Iniciar sesión con correo y contraseña
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
@@ -49,12 +55,10 @@ export const useAuthStore = defineStore('auth', {
       try {
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
-
         // Limpiar el estado
         this.user = null;
         this.session = null;
         this.userRole = null;
-
       } catch (error) {
         this.error = error.message;
       } finally {
@@ -67,9 +71,7 @@ export const useAuthStore = defineStore('auth', {
       this.error = null;
       try {
         const { data, error } = await supabase.auth.getSession();
-
         if (error) throw error;
-
         if (data.session?.user) {
           // Get user role from asistentes table
           const { data: asistente } = await supabase
@@ -83,8 +85,6 @@ export const useAuthStore = defineStore('auth', {
         
         this.user = data.session?.user || null;
         this.session = data.session || null;
-
-
       } catch (error) {
         this.error = error.message;
       } finally {
@@ -101,9 +101,7 @@ export const useAuthStore = defineStore('auth', {
           email,
           password,
         });
-
         if (error) throw error;
-
         const asistenteData = {
           user_id: authData.user.id,
           nombre: userData.nombre,
@@ -116,13 +114,10 @@ export const useAuthStore = defineStore('auth', {
         const { error: profileError } = await supabase
           .from('asistentes')
           .insert([asistenteData]);
-
           if (profileError) throw profileError;
-
           this.user = authData.user;
           this.session = authData.session;
           this.userRole = asistenteData.rol;
-
       } catch (error) {
         this.error = error.message;
       } finally {

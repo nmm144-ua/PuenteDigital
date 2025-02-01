@@ -2,25 +2,40 @@
 import { RouterLink, RouterView } from 'vue-router';
 import { useAuthStore } from './stores/authStore';
 import { useRouter, useRoute } from 'vue-router';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
+import { onMounted } from 'vue';
+import { Dropdown } from 'bootstrap';
 
 const authStore = useAuthStore();
 const router = useRouter();
 const route = useRoute();
 
 const hideNavAndFooter = computed(() => ['NotFound', 'NoDisponible'].includes(route.name));
+const showDropdown = ref(false);
 
 const handleLogout = async () => {
   await authStore.logout();
   router.push('/');
 };
+
+const toggleDropdown = () => {
+  showDropdown.value = !showDropdown.value;
+};
+
+onMounted(() => {
+  const dropdownElement = document.getElementById('dropdownMenuButton');
+  if (dropdownElement) {
+    new Dropdown(dropdownElement);
+  }
+});
+
 </script>
 
 <template>
   <template v-if="!hideNavAndFooter">
     <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <a class="navbar-brand brand-title" href="/">PuenteDigital</a>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary px-3">
+        <a class="navbar-brand brand-title me-auto" href="/">PuenteDigital</a>
         <button 
           class="navbar-toggler" 
           type="button" 
@@ -56,7 +71,20 @@ const handleLogout = async () => {
           </ul>
           <ul class="navbar-nav ms-auto">
             <li class="nav-item" v-if="authStore.isAuthenticated">
-              <a href="#" @click.prevent="handleLogout" class="nav-link">Cerrar Sesión</a>
+              <div class="dropdown">
+                <img 
+                  src="@/assets/avatar.png" 
+                  alt="Avatar" 
+                  class="rounded-circle dropdown-toggle ms-3"
+                  id="dropdownMenuButton" 
+                  data-bs-toggle="dropdown" 
+                  aria-expanded="false"
+                />
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdownMenuButton">
+                  <li><router-link class="dropdown-item" to="/perfil-asistente">Perfil</router-link></li>
+                  <li><a class="dropdown-item" href="#" @click.prevent="handleLogout">Cerrar Sesión</a></li>
+                </ul>
+              </div>
             </li>
           </ul>
         </div>
@@ -107,4 +135,16 @@ const handleLogout = async () => {
   padding: 20px;
 }
 
+/* Estilos para el avatar */
+.rounded-circle {
+  cursor: pointer;
+  width: 40px;
+  height: 40px;
+}
+
+.dropdown-menu {
+  position: absolute;
+  right: 0;
+  left: auto;
+}
 </style>
