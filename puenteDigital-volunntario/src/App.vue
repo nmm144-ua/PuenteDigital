@@ -60,17 +60,10 @@ onMounted(() => {
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/espacio">MiEspacio</router-link></li>
               </template>
             </template>
-            <template v-else>
-              <li class="nav-item">
-                <router-link class="nav-link" to="/login">Iniciar Sesión</router-link>
-              </li>
-              <li class="nav-item">
-                <router-link class="nav-link" to="/register">Registrarse</router-link>
-              </li>
-            </template>
           </ul>
           <ul class="navbar-nav ms-auto">
-            <li class="nav-item" v-if="authStore.isAuthenticated">
+          <template v-if="authStore.isAuthenticated">
+            <li class="nav-item">
               <div class="dropdown">
                 <img 
                   src="@/assets/avatar.png" 
@@ -86,8 +79,17 @@ onMounted(() => {
                 </ul>
               </div>
             </li>
-          </ul>
-        </div>
+          </template>
+          <template v-else>
+            <li class="nav-item">
+              <router-link class="nav-link" to="/login">Iniciar Sesión</router-link>
+            </li>
+            <li class="nav-item">
+              <router-link class="nav-link" to="/register">Registrarse</router-link>
+            </li>
+          </template>
+        </ul>
+      </div>
     </nav>
   </template>
 
