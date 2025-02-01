@@ -1,0 +1,30 @@
+# Archivos de entorno
+.env
+.env.local
+.env.*.local
+
+# Dependencias de Node.js
+node_modules/
+
+# Builds y archivos generados
+dist/
+build/
+*.log
+
+# Archivos de configuración local
+.vscode/
+.idea/
+
+# Archivos de Supabase (si los tienes localmente)
+.supabase/
+
+# Archivos de caché
+.cache/
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de Vue CLI
+.vuepress/
+.vue/

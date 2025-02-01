@@ -1,0 +1,69 @@
+/* Estilos globales */
+.min-vh-100 {
+    min-height: 100vh;
+  }
+  
+  .bg-light {
+    background-color: #f8f9fa;
+  }
+  
+  .py-5 {
+    padding-top: 3rem;
+    padding-bottom: 3rem;
+  }
+  
+  .shadow-sm {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+  }
+  
+  .text-danger {
+    color: #dc3545;
+  }
+  
+  .btn-primary {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+  }
+  
+  .btn-primary:hover {
+    background-color: #0b5ed7;
+    border-color: #0a58ca;
+  }
+  
+  /* Estilos específicos para el formulario de registro */
+  .card {
+    border: none;
+    border-radius: 8px;
+  }
+  
+  .card-body {
+    padding: 2rem;
+  }
+  
+  .form-control {
+    border-radius: 4px;
+    border: 1px solid #ddd;
+  }
+  
+  .form-control:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+  }
+  
+  /* Estilos para el error 404 */
+  .display-4 {
+    font-size: 3.5rem;
+    font-weight: 300;
+    line-height: 1.2;
+  }
+  
+  .lead {
+    font-size: 1.25rem;
+    font-weight: 300;
+  }
+  
+  /* Estilos para el menú de asistente */
+  .menu-asistente {
+    padding: 2rem;
+    text-align: center;
+  }
