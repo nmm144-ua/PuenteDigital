@@ -57,7 +57,6 @@ onMounted(() => {
                 <li class="nav-item"><router-link class="nav-link" to="/asistente">Mi Panel</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/historial">Historial</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/estado">Estado</router-link></li>
-                <li class="nav-item"><router-link class="nav-link" to="/asistente/espacio">MiEspacio</router-link></li>
               </template>
             </template>
           </ul>

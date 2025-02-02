@@ -45,13 +45,8 @@ const routes = [
       {
         path: 'estado',
         name: 'EstadoAsistente',
-        component: () => import('../views/NoDisponible.vue')
+        component: () => import('../views/EstadoAsistente.vue')
       },
-      {
-        path: 'espacio',
-        name: 'EspacioAsistente',
-        component: () => import('../views/NoDisponible.vue')
-      }
     ]
   },
   {
@@ -67,6 +62,16 @@ const routes = [
     path: '/pagina-no-disponible',
     component: () => import('../views/NoDisponible.vue'),
   },
+  {
+    path: '/forgot-password',
+    name: 'ForgotPassword',
+    component: () => import('../views/ForgotPassword.vue')
+  },
+  {
+    path: '/reset-password',
+    name: 'ResetPassword',
+    component: () => import('../views/ResetPassword.vue')
+  }
 ];
 
 

@@ -25,8 +25,8 @@ export const useAuthStore = defineStore('auth', {
         
         const auxAsistente = await asistenteService.getAsistenteByEmail(email);
         if (auxAsistente[0].cuentaAceptada == false) {
-          throw new Error('Tu cuenta aún no ha sido aceptada por un administrador.');
           supabase.auth.signOut();
+          throw new Error('Tu cuenta aún no ha sido aceptada por un administrador.');
         }
 
 
