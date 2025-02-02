@@ -1,119 +1,109 @@
+<!-- MenuAsistente.vue -->
 <template>
-  <div class="container">
-    <div class="row min-vh-100 justify-content-center align-items-center">
-      <div class="col-md-8 text-center">
-        <h1 class="display-4 mb-4">
-          Hola {{ nombreAsistente }}
-          <br>
-          Bienvenid@ a PuenteDigital
-        </h1>
-        
-        <div class="mt-5">
-          <button 
-            @click="toggleActivacion" 
-            class="btn btn-lg"
-            :class="estadoClaseBoton"
-            :disabled="loading"
-          >
-            <span v-if="loading" class="spinner-border spinner-border-sm me-2" role="status"></span>
-            {{ textoBoton }}
-          </button>
-        </div>
-
-        <div v-if="error" class="alert alert-danger mt-3">
-          {{ error }}
-        </div>
-
-        <div v-if="mensajeExito" class="alert alert-success mt-3">
-          {{ mensajeExito }}
-        </div>
+  <div class="dashboard-container">
+    <div class="dashboard-header">
+      <h1 class="dashboard-title">
+        Hola {{ nombreAsistente }}
+      </h1>
+      <p class="dashboard-subtitle">Bienvenid@ a PuenteDigital</p>
+    </div>
+    
+    <div class="widgets-grid">
+      <!-- Widget de Activación -->
+      <div class="widget-container">
+        <ToggleActivacionWidget
+          :userId="authStore.user.id"
+          :estadoInicial="estadoInicial"
+          @estadoCambiado="onEstadoCambiado"
+        />
       </div>
+      
+      <!-- Aquí puedes añadir más widgets en el futuro -->
+      <!-- Ejemplo:
+      <div class="widget-container">
+        <EstadisticasWidget />
+      </div>
+      <div class="widget-container">
+        <UltimasActividadesWidget />
+      </div>
+      -->
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useAuthStore } from '../stores/authStore';
 import { asistenteService } from '../services/asistenteService';
-import { jornadasService } from '@/services/jornadasService';
+import ToggleActivacionWidget from '../components/ToggleActivacion.vue';
 
 const authStore = useAuthStore();
 const nombreAsistente = ref('');
-const estaActivo = ref(false);
-const loading = ref(false);
-const error = ref('');
-const mensajeExito = ref('');
-const jornada = ref(null);
+const estadoInicial = ref(false);
 
 const cargarDatosAsistente = async () => {
   try {
-    loading.value = true;
     const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
     nombreAsistente.value = asistente.nombre;
-    estaActivo.value = asistente.activo;
+    estadoInicial.value = asistente.activo;
   } catch (err) {
-    error.value = 'Error al cargar los datos del asistente';
-    console.error(err);
-  } finally {
-    loading.value = false;
+    console.error('Error al cargar los datos del asistente:', err);
   }
 };
 
-const toggleActivacion = async () => {
-  try {
-    loading.value = true;
-    error.value = '';
-    mensajeExito.value = '';
-    
-    const nuevoEstado = !estaActivo.value;
-    await asistenteService.actualizarEstadoAsistente(authStore.user.id, nuevoEstado);
-    
-    estaActivo.value = nuevoEstado;
-    mensajeExito.value = nuevoEstado 
-      ? 'Te has activado correctamente. Ya puedes recibir solicitudes de ayuda.' 
-      : 'Te has desactivado correctamente. No recibirás solicitudes de ayuda.';
-    if (nuevoEstado){
-      const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
-      const nuevaJornada = await jornadasService.createJornada({
-        asistente_id: asistente.id,
-        inicio: new Date().toISOString(),
-      });
-      jornada.value = nuevaJornada;
-    }else{
-      await jornadasService.terminarJornada(jornada.value.id, {
-        fin: new Date().toISOString(),
-      });
-    }
-  } catch (err) {
-    error.value = 'Error al cambiar el estado';
-    console.error(err);
-  } finally {
-    loading.value = false;
-  }
+const onEstadoCambiado = (nuevoEstado) => {
+  console.log('Estado cambiado:', nuevoEstado);
+  // Aquí puedes agregar cualquier lógica adicional que necesites cuando cambie el estado
 };
-
-const textoBoton = computed(() => {
-  if (loading.value) return 'Procesando...';
-  return estaActivo.value ? 'Desactivarse' : 'Activarse';
-});
-
-const estadoClaseBoton = computed(() => ({
-  'btn-success': !estaActivo.value,
-  'btn-danger': estaActivo.value
-}));
 
 onMounted(cargarDatosAsistente);
 </script>
 
 <style scoped>
-.btn-lg {
-  padding: 1rem 2rem;
-  font-size: 1.25rem;
-  transition: all 0.3s ease;
+.dashboard-container {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
 }
 
-.btn-lg:hover {
-  transform: scale(1.05);
+.dashboard-header {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.dashboard-title {
+  font-size: 2.5rem;
+  color: #2c3e50;
+  margin-bottom: 0.5rem;
+}
+
+.dashboard-subtitle {
+  font-size: 1.25rem;
+  color: #6c757d;
+}
+
+.widgets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+  margin: 0 auto;
+}
+
+.widget-container {
+  min-width: 0; /* Evita que los widgets se desborden */
+}
+
+@media (max-width: 768px) {
+  .dashboard-container {
+    padding: 1rem;
+  }
+  
+  .dashboard-title {
+    font-size: 2rem;
+  }
+  
+  .widgets-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
