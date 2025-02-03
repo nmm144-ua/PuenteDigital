@@ -9,7 +9,8 @@ const routes = [
   {
     path: '/',
     name: 'Home',
-    component: HomePage
+    component: HomePage,
+    meta: { requiresGuest: true }
   },
   {
     path: '/login',
@@ -90,7 +91,7 @@ router.beforeEach(async (to, from, next) => {
 
   // Si la ruta requiere no estar autenticado (login/register) y el usuario está autenticado
   if (to.meta.requiresGuest && authStore.isAuthenticated) {
-    return next(authStore.isAdmin ? '/menu-admin' : '/menu-asistente');
+    return next(authStore.isAdmin ? '/admin' : '/asistente');
   }
 
   // Si la ruta requiere autenticación y el usuario no está autenticado
@@ -102,9 +103,9 @@ router.beforeEach(async (to, from, next) => {
   if (to.meta.roles && !to.meta.roles.includes(authStore.currentRole)) {
     // Redirigir según el rol del usuario
     if (authStore.isAdmin) {
-      return next('/menu-admin');
+      return next('/admin');
     } else {
-      return next('/menu-asistente');
+      return next('/asistente');
     }
   }
 
