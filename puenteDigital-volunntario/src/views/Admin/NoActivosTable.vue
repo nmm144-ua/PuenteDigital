@@ -19,6 +19,7 @@
               <th>Nombre</th>
               <th>Email</th>
               <th>Teléfono</th>
+              <th>Habilidades</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -27,6 +28,7 @@
               <td>{{ asistente.nombre }}</td>
               <td>{{ asistente.email }}</td>
               <td>{{ asistente.telefono }}</td>
+              <td>{{ asistente.habilidades }}</td>
               <td>
                 <div class="btn-group" role="group">
                   <button 

@@ -109,7 +109,7 @@ export const asistenteService = {
     if (error) throw error;
     
     // Eliminar el usuario de autenticación
-    await supabase.auth.deleteUser({ userId: user_id });
+    await supabase.auth.admin.deleteUser({ userId: user_id });
   },
 
   // Obtener todos los asistentes
