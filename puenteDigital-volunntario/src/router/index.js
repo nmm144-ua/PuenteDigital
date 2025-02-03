@@ -48,6 +48,11 @@ const routes = [
         name: 'EstadoAsistente',
         component: () => import('../views/Asistente/EstadoAsistente.vue')
       },
+      {
+        path: 'detalles/{id}',
+        name: 'DetallesAsistente',
+        component: () => import('../components/DetallesAsistente.vue')
+      }
     ]
   },
   {
@@ -65,7 +70,7 @@ const routes = [
       {
         path: 'asistentes',
         name: 'Asistentes',
-        component: () => import('../views/NoDisponible.vue')
+        component: () => import('../views/Admin/ListadoAsistentes.vue')
       },
       {
         path: 'perfil',

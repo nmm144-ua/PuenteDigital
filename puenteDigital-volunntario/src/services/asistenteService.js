@@ -157,4 +157,14 @@ export const asistenteService = {
     return data;
   },
 
+  async getAsistentesByRol(rol) {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .select('*')
+      .eq('rol', rol);
+
+    if (error) throw error;
+    return data;
+  }
+
 };
