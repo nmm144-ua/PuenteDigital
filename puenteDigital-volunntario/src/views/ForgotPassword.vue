@@ -71,7 +71,7 @@
       
       await authService.resetPassword(email.value);
       
-      success.value = 'Te hemos enviado un correo con las instrucciones para restablecer tu contraseña';
+      success.value = 'Te hemos enviado un correo con las instrucciones para restablecer tu contraseña. El envío puede tardar unos minutos :).';
       email.value = ''; // Limpiar el campo
     } catch (err) {
       error.value = 'Ha ocurrido un error al enviar el correo de recuperación. Por favor, inténtalo de nuevo.';
