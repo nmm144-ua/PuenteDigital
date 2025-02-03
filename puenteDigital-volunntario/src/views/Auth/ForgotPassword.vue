@@ -51,7 +51,7 @@
   
   <script setup>
   import { ref } from 'vue';
-  import { authService } from '../services/authService';
+  import { authService } from '@/services/authService';
   
   const email = ref('');
   const loading = ref(false);

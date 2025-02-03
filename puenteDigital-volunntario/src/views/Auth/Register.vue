@@ -198,12 +198,12 @@
 <script>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { useAuthStore } from '../stores/authStore'; // Importar el store de autenticación
-import { supabaseService } from '../services/supabaseService'; // Importar el servicio
-import { declaracionService } from '../services/declaracionService'; // Importar el servicio
-import { asistenteService } from '../services/asistenteService'; // Importar el servicio
+import { useAuthStore } from '@/stores/authStore'; // Importar el store de autenticación
+import { supabaseService } from '@/services/supabaseService'; // Importar el servicio
+import { declaracionService } from '@/services/declaracionService'; // Importar el servicio
+import { asistenteService } from '@/services/asistenteService'; // Importar el servicio
 
-import { supabase } from '../../supabase'; // Importar el cliente de Supabase
+import { supabase } from '../../../supabase'; // Importar el cliente de Supabase
 
 export default {
   setup() {

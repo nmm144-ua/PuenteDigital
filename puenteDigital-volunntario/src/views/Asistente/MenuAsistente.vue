@@ -33,9 +33,9 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { useAuthStore } from '../stores/authStore';
-import { asistenteService } from '../services/asistenteService';
-import ToggleActivacionWidget from '../components/ToggleActivacion.vue';
+import { useAuthStore } from '@/stores/authStore';
+import { asistenteService } from '@/services/asistenteService';
+import ToggleActivacionWidget from '@/components/ToggleActivacion.vue';
 
 const authStore = useAuthStore();
 const nombreAsistente = ref('');
