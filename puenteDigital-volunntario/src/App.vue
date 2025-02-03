@@ -50,9 +50,13 @@ onMounted(() => {
         <div class="collapse navbar-collapse" id="navbarNav">
           <ul class="navbar-nav mx-auto">
             <template v-if="authStore.isAuthenticated">
-              <li class="nav-item" v-if="authStore.isAdmin">
+              <template v-if="authStore.isAdmin">
                 <router-link class="nav-link" to="/admin">Panel Admin</router-link>
-              </li>
+                <router-link class="nav-link" to="/admin/activar-asistente">Activar Asistente</router-link>
+                <router-link class="nav-link" to="/admin/asistentes">Asistentes</router-link>
+                <router-link class="nav-link" to="/admin/usuarios">Usuarios</router-link>
+
+              </template>
               <template v-else>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente">Mi Panel</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/historial">Historial</router-link></li>
@@ -73,7 +77,12 @@ onMounted(() => {
                   aria-expanded="false"
                 />
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdownMenuButton">
-                  <li><router-link class="dropdown-item" to="/asistente/perfil">Perfil</router-link></li>
+                  <template v-if="authStore.isAdmin">
+                    <li><router-link class="dropdown-item" to="/admin/perfil">Perfil</router-link></li>
+                  </template>
+                  <template v-else>
+                    <li><router-link class="dropdown-item" to="/asistente/perfil">Perfil</router-link></li>
+                  </template>
                   <li><a class="dropdown-item" href="#" @click.prevent="handleLogout">Cerrar Sesión</a></li>
                 </ul>
               </div>

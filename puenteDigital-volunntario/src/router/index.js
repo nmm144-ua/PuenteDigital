@@ -51,9 +51,33 @@ const routes = [
     ]
   },
   {
-    path: '/menu-admin',
-    component: () => import('../views/NoDisponible.vue'),
-    meta: { requiresAuth: true, roles: ['admin'] }
+    path: '/admin',
+    meta: { requiresAuth: true, roles: ['admin'] },
+    children: [
+      { path: '',
+        name: 'DashboardAdmin',
+        component: () => import('../views/Admin/MenuAdmin.vue')
+      },
+      { path: 'activar-asistente',
+        name: 'Activar Asistente',
+        component: () => import('../views/Admin/NoActivosTable.vue')
+      },
+      {
+        path: 'asistentes',
+        name: 'Asistentes',
+        component: () => import('../views/NoDisponible.vue')
+      },
+      {
+        path: 'perfil',
+        name: 'PerfilAdmin',
+        component: () => import('../views/Admin/PerfilAdmin.vue')
+      },
+      {
+        path: 'usuarios',
+        name: 'Usuarios',
+        component: () => import('../views/NoDisponible.vue')
+      },
+    ]
   },
   {
     path: '/:pathMatch(.*)*',

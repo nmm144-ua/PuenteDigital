@@ -20,5 +20,25 @@ export const declaracionService = {
       .single();
     if (error) throw error;
     return data;
-  }
+  },
+
+  // Eliminar una declaración por ID
+  async deleteDeclaracionById(declaracionId) {
+    const { data, error } = await supabase
+      .from('declaraciones_responsabilidad')
+      .delete()
+      .eq('id', declaracionId);
+    if (error) throw error;
+    return data;
+  },
+
+  // Obtener todas las declaraciones de un asistente
+  async getDeclaracionByAsistenteId(asistenteId) {
+    const { data, error } = await supabase
+      .from('declaraciones_responsabilidad')
+      .select('*')
+      .eq('asistente_id', asistenteId);
+    if (error) throw error;
+    return data;
+  },
 };
