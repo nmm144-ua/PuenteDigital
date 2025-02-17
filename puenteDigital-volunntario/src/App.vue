@@ -104,7 +104,9 @@ onMounted(() => {
 
   <!-- Contenido principal -->
   <main class="main-container">
+    <div class="router-view-container">
     <router-view></router-view>
+  </div>
   </main>
 
   <template v-if="!hideNavAndFooter">
@@ -157,5 +159,45 @@ onMounted(() => {
   position: absolute;
   right: 0;
   left: auto;
+}
+
+/* Agregar dentro de la sección <style> existente */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: white;
+  overflow-x: hidden;
+}
+
+/* Modificar el main-container existente */
+.main-container {
+  min-height: calc(100vh - 160px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 20px;
+  position: relative;
+}
+
+/* Agregar el fondo con el patrón SVG */
+.main-container::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 800'%3E%3Crect width='800' height='800' fill='white' /%3E%3Cpath d='M400 500c-50 0-90-40-90-90v-50c0-50 40-90 90-90s90 40 90 90v50c0 50-40 90-90 90z' fill='%23e0e0e0' /%3E%3Ccircle cx='400' cy='350' r='30' fill='%23e0e0e0' /%3E%3Crect x='500' y='300' width='80' height='120' rx='10' fill='%23d0d0d0' /%3E%3Crect x='510' y='310' width='60' height='100' rx='5' fill='white' /%3E%3C/svg%3E");
+  background-size: 200px 200px; /* Reduce el tamaño del patrón para que se repita más veces */
+  background-repeat: repeat; 
+  opacity: 0.2; /* Aumenta la visibilidad del patrón */
+  z-index: -1;
+}
+
+
+/* Asegurar que el contenido esté por encima del fondo */
+.router-view-container {
+  position: relative;
+  z-index: 1;
 }
 </style>
