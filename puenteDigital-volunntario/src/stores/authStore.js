@@ -28,6 +28,10 @@ export const useAuthStore = defineStore('auth', {
           supabase.auth.signOut();
           throw new Error('Tu cuenta aún no ha sido aceptada por un administrador.');
         }
+        else if(auxAsistente[0].solicitudSuspendido == true) {
+          supabase.auth.signOut();
+          throw new Error('Tu cuenta tiene una solicitud de suspensión.');
+        }
 
 
         // Get user role from asistentes table

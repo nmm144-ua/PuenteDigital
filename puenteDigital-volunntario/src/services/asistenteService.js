@@ -165,6 +165,42 @@ export const asistenteService = {
 
     if (error) throw error;
     return data;
-  }
+  },
+
+  //Solicitud de desativar cuenta de asistente
+  async desactivarAsistente(id){
+    const{error} = await supabase
+      .from('asistentes')
+      .update({solicitudSuspendido:true})
+      .eq('id',id);
+
+    if (error) throw error;
+  },
+
+  //Obtener todos los asistentes con solicitud de suspensión
+  async getAllAsistentesSuspendidos() {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .select('*')
+      .eq('solicitudSuspendido', true);
+    
+    if (error) throw error;
+    return data;
+  },
+
+
+  // Activar la cuenta de un asistente
+  async updateSolicitudSuspension(asistenteId, solicitudSuspendidoValue) {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .update({ solicitudSuspendido: solicitudSuspendidoValue })
+      .eq('id', asistenteId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
 
 };

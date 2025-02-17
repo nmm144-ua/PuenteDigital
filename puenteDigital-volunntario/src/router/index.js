@@ -82,6 +82,11 @@ const routes = [
         name: 'Usuarios',
         component: () => import('../views/NoDisponible.vue')
       },
+      {
+        path: 'suspendidos',
+        name: 'Suspendidos',
+        component: () => import('../views/Admin/ListadoSuspendidos.vue')
+      }
     ]
   },
   {

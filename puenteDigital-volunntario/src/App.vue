@@ -54,6 +54,7 @@ onMounted(() => {
                 <router-link class="nav-link" to="/admin">Panel Admin</router-link>
                 <router-link class="nav-link" to="/admin/activar-asistente">Activar Asistente</router-link>
                 <router-link class="nav-link" to="/admin/asistentes">Asistentes</router-link>
+                <router-link class="nav-link" to="/admin/suspendidos">Solicitudes Suspensión</router-link>
                 <router-link class="nav-link" to="/admin/usuarios">Usuarios</router-link>
 
               </template>
