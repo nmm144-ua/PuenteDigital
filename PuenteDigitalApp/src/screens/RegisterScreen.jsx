@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { useAuth } from '../context/AuthContext';
+
 
 const RegisterScreen = ({ navigation }) => {
+    const { register } = useAuth();
+
     const [formData, setFormData] = useState({
         fullName: '',
         email: '',
@@ -55,20 +59,26 @@ const RegisterScreen = ({ navigation }) => {
 
         setLoading(true);
         try {
-            // Here you would add your actual registration logic
-            // For example, API call to your backend
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-            
-            Alert.alert(
-                'Éxito',
-                'Cuenta creada exitosamente',
-                [
-                    {
-                        text: 'OK',
-                        onPress: () => navigation.navigate('Inicio')
-                    }
-                ]
+            const { success, error } = await register(
+                formData.fullName,
+                formData.email,
+                formData.password
             );
+            
+            if (success) {
+                Alert.alert(
+                    'Éxito',
+                    'Cuenta creada exitosamente',
+                    [
+                        {
+                            text: 'OK',
+                            onPress: () => navigation.navigate('Inicio')
+                        }
+                    ]
+                );
+            } else {
+                Alert.alert('Error', error.message);
+            }
         } catch (error) {
             Alert.alert(
                 'Error',

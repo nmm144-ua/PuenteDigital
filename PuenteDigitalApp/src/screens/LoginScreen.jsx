@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { useAuth } from '../context/AuthContext';
+
 
 const LoginScreen = ({ navigation }) => {
+
+    const { login } = useAuth();
+
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -33,12 +38,13 @@ const LoginScreen = ({ navigation }) => {
 
         setLoading(true);
         try {
-            // Here you would add your actual authentication logic
-            // For example, API call to your backend
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
+            const { success, error } = await login(email, password);
             
-            // If login successful
-            navigation.navigate('Inicio');
+            if (success) {
+                navigation.navigate('Inicio');
+            } else {
+                Alert.alert('Error', error.message);
+            }
         } catch (error) {
             Alert.alert(
                 'Error',

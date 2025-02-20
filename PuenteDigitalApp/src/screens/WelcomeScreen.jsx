@@ -1,7 +1,18 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ImageBackground } from 'react-native';
+import { useAuth } from '../context/AuthContext';
 
 const WelcomeScreen = ({ navigation }) => {
+    const { handleAnonymousAccess } = useAuth();
+
+    const handleContinueWithoutAccount = async () => {
+        const result = await handleAnonymousAccess();
+        if (result.success) {
+            navigation.navigate('Inicio');
+        }
+    };
+
+    
     return (
             <View style={styles.container}>
                 <Text style={styles.title}>PuenteDigital</Text>
@@ -15,7 +26,10 @@ const WelcomeScreen = ({ navigation }) => {
                     <Text style={styles.buttonText}>Crear una cuenta</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Inicio')}>
+                <TouchableOpacity 
+                    style={styles.button} 
+                    onPress={handleContinueWithoutAccount}
+                >
                     <Text style={styles.buttonText}>Seguir sin cuenta</Text>
                 </TouchableOpacity>
 
