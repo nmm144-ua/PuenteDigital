@@ -1,36 +1,44 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ImageBackground, ScrollView } from 'react-native';
 
-const InicioScreen = ({ navigation }) => {
+const OpcionesInicioScreen = ({ navigation }) => {
     return (
             <ScrollView contentContainerStyle={styles.container}>
-                <Text style={styles.title}>Bienvenido a PuenteDigital</Text>
-                <Text style={styles.subtitle}>Conectando a las personas mayores con el mundo digital</Text>
-
-                <View style={styles.card}>
-                    <Text style={styles.cardTitle}>¿Qué es PuenteDigital?</Text>
-                    <Text style={styles.cardText}>
-                        PuenteDigital es una aplicación diseñada para ayudar a las personas mayores a superar la brecha digital. {'\n'}{'\n'}
-                        Todo esto se consigue gracias a :{'\n'} 
-                    </Text>
-                    <Text style={styles.cardText}>
-                        - Teleasistencia en tiempo real.{'\n'}
-                        - Tutoriales interactivos para aprender a usar dispositivos.{'\n'}
-                        - Soporte técnico personalizado.
-                    </Text>
-                </View>
-
+                
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>¿Cómo empezar?</Text>
-                    <TouchableOpacity 
-                        style={styles.button}
-                        onPress={() => navigation.navigate('OpcionesInicio')}
-                    >
-                        <Text style={styles.buttonText}>PULSA AQUÍ</Text>
-                    </TouchableOpacity>
-
+                    <Text style={styles.cardText}>
+                        Selecciona una de estas opciones.
+                    </Text>
                 </View>
 
+                <TouchableOpacity 
+                    style={styles.button}
+                    onPress={() => navigation.navigate('Asistencia')}
+                >
+                    <Text style={styles.buttonText}>Solicita asistencia</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                    style={styles.button}
+                    onPress={() => navigation.navigate('Tutoriales')}
+                >
+                    <Text style={styles.buttonText}>Ver Tutoriales</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                    style={styles.button}
+                    onPress={() => navigation.navigate('Mensajes')}
+                >
+                    <Text style={styles.buttonText}>Ver mis Mensajes</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={styles.linkButton}
+                    onPress={() => navigation.navigate('Inicio')} // Navega a la pantalla de inicio
+                >
+                    <Text style={styles.linkText}>Ir a la página principal</Text>
+                </TouchableOpacity>
             </ScrollView>
     );
 };
@@ -99,4 +107,4 @@ const styles = StyleSheet.create({
     },
 });
 
-export default InicioScreen;
+export default OpcionesInicioScreen;
