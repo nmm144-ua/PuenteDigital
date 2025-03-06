@@ -6,6 +6,7 @@ import RegisterScreen from '../screens/RegisterScreen';
 import InicioScreen from '../screens/InicioScreen';
 import OpcionesInicioScreen from '../screens/OpcionesInicioScreen';
 import NoDisponibleScreen from '../screens/NoDisponibleScreen';
+import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 
 const Stack = createStackNavigator();
 
@@ -26,6 +27,12 @@ const AppNavigator = () => {
       <Stack.Screen name="Asistencia" component={NoDisponibleScreen} />
       <Stack.Screen name="Tutoriales" component={NoDisponibleScreen} />
       <Stack.Screen name="Mensajes" component={NoDisponibleScreen} />
+
+      <Stack.Screen 
+        name="ResetPassword" 
+        component={ResetPasswordScreen} 
+        options={{ title: 'Recuperar contraseña' }}
+      />
 
     </Stack.Navigator>
   );

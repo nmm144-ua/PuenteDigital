@@ -1,16 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-
+import { requestDeviceInfoPermissions } from '../utils/PermissionsHandlers';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const LoginScreen = ({ navigation }) => {
-
     const { login } = useAuth();
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState({});
+    const [permissionsGranted, setPermissionsGranted] = useState(false);
+
+    // Verificar los permisos al cargar la pantalla
+    useEffect(() => {
+        const checkPermissions = async () => {
+            try {
+                const storedPermission = await AsyncStorage.getItem('device_info_permission_granted');
+                setPermissionsGranted(storedPermission === 'true');
+            } catch (error) {
+                // En caso de error, asumimos que no hay permiso
+                setPermissionsGranted(false);
+            }
+        };
+        
+        checkPermissions();
+    }, []);
 
     const validateForm = () => {
         const newErrors = {};
@@ -35,6 +51,20 @@ const LoginScreen = ({ navigation }) => {
 
     const handleLogin = async () => {
         if (!validateForm()) return;
+        
+        // Si no tenemos permisos, los solicitamos
+        if (!permissionsGranted) {
+            const granted = await requestDeviceInfoPermissions();
+            setPermissionsGranted(granted);
+            
+            if (!granted) {
+                Alert.alert(
+                    'Permisos requeridos',
+                    'Necesitamos acceso a información básica del dispositivo para continuar.'
+                );
+                return;
+            }
+        }
 
         setLoading(true);
         try {
@@ -43,7 +73,7 @@ const LoginScreen = ({ navigation }) => {
             if (success) {
                 navigation.navigate('Inicio');
             } else {
-                Alert.alert('Error', error.message);
+                Alert.alert('Error', error?.message || 'Error al iniciar sesión');
             }
         } catch (error) {
             Alert.alert(
@@ -86,8 +116,18 @@ const LoginScreen = ({ navigation }) => {
                 )}
             </View>
 
+            <TouchableOpacity
+                onPress={() => navigation.navigate('ResetPassword')}
+                style={styles.forgotPasswordButton}
+                >
+                <Text style={styles.linkText}>¿Olvidaste tu contraseña? Pulsa aquí para recuperarla</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity 
-                style={[styles.button, loading && styles.buttonDisabled]}
+                style={[
+                    styles.button, 
+                    loading && styles.buttonDisabled
+                ]}
                 onPress={handleLogin}
                 disabled={loading}
             >
@@ -171,6 +211,10 @@ const styles = StyleSheet.create({
     linkText: {
         color: '#007BFF',
         fontSize: 16,
+    },
+    forgotPasswordButton: {
+        alignSelf: 'flex-end',
+        marginBottom: 10,
     },
 });
 

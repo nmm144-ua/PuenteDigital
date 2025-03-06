@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { supabase } from '../../supabase'; // Importar el cliente de Supabase
 import { asistenteService } from '@/services/asistenteService';
+import { usuarioAppService } from '@/services/usuarioAppService';
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null, // Usuario autenticado
@@ -12,10 +13,23 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     // Iniciar sesión
     async login(email, password) {
+
       this.isLoading = true;
       this.error = null;
       try {
-        
+        try {
+          const usuarioApp = await usuarioAppService.getUsuarioByEmail(email);
+          if (usuarioApp && usuarioApp.length > 0) {
+            throw new Error('Este email pertenece a un usuario del sistema usuariosApp y no puede iniciar sesión como asistente.');
+          }
+        } catch (userAppError) {
+          // Si es el error que acabamos de lanzar, propagarlo
+          if (userAppError.message.includes('usuariosApp')) {
+            throw userAppError;
+          }
+          // Si es otro error (como que la tabla no existe)
+          console.error('Error al verificar usuariosApp:', userAppError);
+        }
         // Iniciar sesión con correo y contraseña
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
@@ -135,5 +149,6 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: (state) => !!state.user,
     isAdmin: (state) => state.userRole === 'admin',
     currentRole: (state) => state.userRole,
+    isAsistente: (state) => state.userRole === 'asistente',
   },
 });

@@ -12,6 +12,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "scheme": "puentedigital",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.puentedigital.app"

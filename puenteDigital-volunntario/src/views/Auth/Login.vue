@@ -75,7 +75,7 @@ setup() {
       // Redirect based on role
       if (authStore.isAdmin) {
         router.push('/admin');
-      } else {
+      } else if (authStore.isAsistente){
         router.push('/asistente');
       }
     }
