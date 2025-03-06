@@ -62,3 +62,76 @@ export const useAuth = () => {
   }
   return context;
 };
+
+
+/*
+
+import React from 'react';
+import { createStackNavigator } from '@react-navigation/stack';
+import { NavigationContainer } from '@react-navigation/native';
+import { useAuth } from './path/to/AuthContext';
+
+// Importación de pantallas
+import WelcomeScreen from '../screens/WelcomeScreen';
+import LoginScreen from '../screens/LoginScreen';
+import RegisterScreen from '../screens/RegisterScreen';
+import InicioScreen from '../screens/InicioScreen';
+import OpcionesInicioScreen from '../screens/OpcionesInicioScreen';
+import NoDisponibleScreen from '../screens/NoDisponibleScreen';
+import LoadingScreen from '../screens/LoadingScreen'; // Crear esta pantalla para estados de carga
+
+const Stack = createStackNavigator();
+
+// Navegación para usuarios no autenticados
+const AuthNavigator = () => {
+  return (
+    <Stack.Navigator 
+      initialRouteName="Welcome"
+      screenOptions={{
+        headerShown: false
+      }}
+    >
+      <Stack.Screen name="Welcome" component={WelcomeScreen} />
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Register" component={RegisterScreen} />
+    </Stack.Navigator>
+  );
+};
+
+// Navegación para usuarios autenticados
+const AppNavigator = () => {
+  return (
+    <Stack.Navigator 
+      initialRouteName="Inicio"
+      screenOptions={{
+        headerShown: false
+      }}
+    >
+      <Stack.Screen name="Inicio" component={InicioScreen} />
+      <Stack.Screen name="OpcionesInicio" component={OpcionesInicioScreen} />
+      <Stack.Screen name="Asistencia" component={NoDisponibleScreen} />
+      <Stack.Screen name="Tutoriales" component={NoDisponibleScreen} />
+      <Stack.Screen name="Mensajes" component={NoDisponibleScreen} />
+    </Stack.Navigator>
+  );
+};
+
+// Navegador principal que controla el acceso según el estado de autenticación
+const RootNavigator = () => {
+  const { user, loading } = useAuth();
+  
+  if (loading) {
+    return <LoadingScreen />;
+  }
+  
+  return (
+    <NavigationContainer>
+      {user ? <AppNavigator /> : <AuthNavigator />}
+    </NavigationContainer>
+  );
+};
+
+export default RootNavigator;
+
+
+*/

@@ -28,7 +28,8 @@ const WelcomeScreen = ({ navigation }) => {
 
                 <TouchableOpacity 
                     style={styles.button} 
-                    onPress={handleContinueWithoutAccount}
+                    //onPress={handleContinueWithoutAccount}
+                    onPress={() => navigation.navigate('Inicio')}
                 >
                     <Text style={styles.buttonText}>Seguir sin cuenta</Text>
                 </TouchableOpacity>
