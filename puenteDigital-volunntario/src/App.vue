@@ -50,9 +50,14 @@ onMounted(() => {
         <div class="collapse navbar-collapse" id="navbarNav">
           <ul class="navbar-nav mx-auto">
             <template v-if="authStore.isAuthenticated">
-              <li class="nav-item" v-if="authStore.isAdmin">
+              <template v-if="authStore.isAdmin">
                 <router-link class="nav-link" to="/admin">Panel Admin</router-link>
-              </li>
+                <router-link class="nav-link" to="/admin/activar-asistente">Activar Asistente</router-link>
+                <router-link class="nav-link" to="/admin/asistentes">Asistentes</router-link>
+                <router-link class="nav-link" to="/admin/suspendidos">Solicitudes Suspensión</router-link>
+                <router-link class="nav-link" to="/admin/usuarios">Usuarios</router-link>
+
+              </template>
               <template v-else>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente">Mi Panel</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/historial">Historial</router-link></li>
@@ -73,7 +78,12 @@ onMounted(() => {
                   aria-expanded="false"
                 />
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdownMenuButton">
-                  <li><router-link class="dropdown-item" to="/asistente/perfil">Perfil</router-link></li>
+                  <template v-if="authStore.isAdmin">
+                    <li><router-link class="dropdown-item" to="/admin/perfil">Perfil</router-link></li>
+                  </template>
+                  <template v-else>
+                    <li><router-link class="dropdown-item" to="/asistente/perfil">Perfil</router-link></li>
+                  </template>
                   <li><a class="dropdown-item" href="#" @click.prevent="handleLogout">Cerrar Sesión</a></li>
                 </ul>
               </div>
@@ -94,7 +104,9 @@ onMounted(() => {
 
   <!-- Contenido principal -->
   <main class="main-container">
+    <div class="router-view-container">
     <router-view></router-view>
+  </div>
   </main>
 
   <template v-if="!hideNavAndFooter">
@@ -147,5 +159,45 @@ onMounted(() => {
   position: absolute;
   right: 0;
   left: auto;
+}
+
+/* Agregar dentro de la sección <style> existente */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: white;
+  overflow-x: hidden;
+}
+
+/* Modificar el main-container existente */
+.main-container {
+  min-height: calc(100vh - 160px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 20px;
+  position: relative;
+}
+
+/* Agregar el fondo con el patrón SVG */
+.main-container::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 800'%3E%3Crect width='800' height='800' fill='white' /%3E%3Cpath d='M400 500c-50 0-90-40-90-90v-50c0-50 40-90 90-90s90 40 90 90v50c0 50-40 90-90 90z' fill='%23e0e0e0' /%3E%3Ccircle cx='400' cy='350' r='30' fill='%23e0e0e0' /%3E%3Crect x='500' y='300' width='80' height='120' rx='10' fill='%23d0d0d0' /%3E%3Crect x='510' y='310' width='60' height='100' rx='5' fill='white' /%3E%3C/svg%3E");
+  background-size: 200px 200px; /* Reduce el tamaño del patrón para que se repita más veces */
+  background-repeat: repeat; 
+  opacity: 0.2; /* Aumenta la visibilidad del patrón */
+  z-index: -1;
+}
+
+
+/* Asegurar que el contenido esté por encima del fondo */
+.router-view-container {
+  position: relative;
+  z-index: 1;
 }
 </style>

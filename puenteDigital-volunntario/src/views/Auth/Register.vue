@@ -198,12 +198,12 @@
 <script>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { useAuthStore } from '../stores/authStore'; // Importar el store de autenticación
-import { supabaseService } from '../services/supabaseService'; // Importar el servicio
-import { declaracionService } from '../services/declaracionService'; // Importar el servicio
-import { asistenteService } from '../services/asistenteService'; // Importar el servicio
+import { useAuthStore } from '@/stores/authStore'; // Importar el store de autenticación
+import { supabaseService } from '@/services/supabaseService'; // Importar el servicio
+import { declaracionService } from '@/services/declaracionService'; // Importar el servicio
+import { asistenteService } from '@/services/asistenteService'; // Importar el servicio
 
-import { supabase } from '../../supabase'; // Importar el cliente de Supabase
+import { supabase } from '../../../supabase'; // Importar el cliente de Supabase
 
 export default {
   setup() {
@@ -287,18 +287,24 @@ export default {
         errorMessage.value = 'Por favor, corrige los errores en el formulario.';
         return;
       }
+      let declaracion = null;
+      let asistente = null;
 
       try {
         const { data, error } = await supabase.auth.signUp({
           email: form.value.email,
           password: form.value.password,
+          options: {
+            // Configura la redirección al login
+            emailRedirectTo: 'http://localhost:5173/login'
+          }
         });
 
         if (error) throw error;
 
         const userId = data.user.id;
 
-        const asistente = await asistenteService.createAsistente({
+        asistente = await asistenteService.createAsistente({
           user_id: userId, 
           nombre: form.value.nombre,
           telefono: form.value.telefono,
@@ -310,20 +316,25 @@ export default {
           disponible:false
         });
 
-        await declaracionService.createDeclaracionResponsabilidad({
+        declaracion = await declaracionService.createDeclaracionResponsabilidad({
           asistente_id: asistente.id,
           nombre: form.value.declaracionNombre,
           dni: form.value.declaracionDNI,
           fecha: new Date().toISOString()
         });
 
-        // Actualizar el estado de autenticación en el store
-        authStore.user = data.user;
-
-        // Redirigir al menú del asistente
-        router.push('/asistente');
+        // Redirigir al login
+        router.push('/login');
+        
       } catch (error) {
+        if(declaracion){
+          await declaracionService.deleteDeclaracionById(declaracion.id);
+        }
+        else if(asistente){
+          await asistenteService.deleteAsistente(asistente.id);
+        }
         console.error('Error en el registro:', error.message);
+
         errorMessage.value = 'Hubo un error en el registro. Por favor, inténtalo de nuevo.';
       }
     };

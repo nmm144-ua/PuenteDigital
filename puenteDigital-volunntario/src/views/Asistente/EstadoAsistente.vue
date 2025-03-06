@@ -114,10 +114,10 @@
   
   <script setup>
   import { ref, onMounted, computed } from 'vue';
-  import { useAuthStore } from '../stores/authStore';
-  import { asistenteService } from '../services/asistenteService';
-  import { jornadasService } from '../services/jornadasService';
-  import ToggleActivacionWidget from '../components/ToggleActivacion.vue';
+  import { useAuthStore } from '@/stores/authStore';
+  import { asistenteService } from '@/services/asistenteService';
+  import { jornadasService } from '@/services/jornadasService';
+  import ToggleActivacionWidget from '@/components/ToggleActivacion.vue';
   
   const authStore = useAuthStore();
   const estadoInicial = ref(false);

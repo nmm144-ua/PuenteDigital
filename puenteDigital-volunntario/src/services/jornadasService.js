@@ -35,4 +35,34 @@ export const jornadasService = {
         if (error) throw error;
         return data;
     },
-}
+
+    async getJornadasByAsistenteId(asistenteId) {
+        const { data, error } = await supabase
+            .from('jornadas')
+            .select('*')
+            .eq('asistente_id', asistenteId);
+
+        if (error) throw error;
+        return data;
+    },
+
+    async deleteJornadaById(jornadaId) {
+        const { data, error } = await supabase
+            .from('jornadas')
+            .delete()
+            .eq('id', jornadaId);
+
+        if (error) throw error;
+        return data;
+    },
+    async deleteJornadaByAsistenteId(asistenteId) {
+        const { data, error } = await supabase
+            .from('jornadas')
+            .delete()
+            .eq('asistente_id', asistenteId);
+    
+        return { data, error };
+    },
+};
+
+    

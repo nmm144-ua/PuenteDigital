@@ -174,9 +174,9 @@
 <script>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { useAuthStore } from '../stores/authStore';
-import { asistenteService } from '../services/asistenteService';
-import { supabase } from '../../supabase';
+import { useAuthStore } from '@/stores/authStore';
+import { asistenteService } from '@/services/asistenteService';
+import { supabase } from '../../../supabase';
 
 export default {
   setup() {

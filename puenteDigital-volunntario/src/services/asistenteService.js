@@ -1,5 +1,7 @@
 // src/services/asistenteService.js
 import { supabase } from '../../supabase';
+import { declaracionService } from './declaracionService';
+import { jornadasService } from './jornadasService';
 
 export const asistenteService = {
   // Crear un nuevo asistente
@@ -81,5 +83,124 @@ export const asistenteService = {
     
     if (error) throw error;
     return data;
-  }
+  },
+
+  // Eliminar un asistente
+  async deleteAsistente(asistenteId) {
+    const asistente = await this.getAsistenteById(asistenteId);
+    const user_id = asistente.user_id;
+
+    // Eliminar la declaración del asistente
+    const declaracion = await declaracionService.getDeclaracionByAsistenteId(asistenteId);
+    if (declaracion[0]) {
+      const error2 = await declaracionService.deleteDeclaracionById(declaracion[0].id);
+      if (error2) throw error2;
+    }
+
+    // Eliminar todos los registros de jornadas del asistente
+    const { error1 } = await jornadasService.deleteJornadaByAsistenteId(asistenteId);
+    if (error1) throw error1;
+
+    const { error } = await supabase
+      .from('asistentes')
+      .delete()
+      .eq('id', asistenteId);
+    
+    if (error) throw error;
+    
+    // Eliminar el usuario de autenticación
+    await supabase.auth.admin.deleteUser({ userId: user_id });
+  },
+
+  // Obtener todos los asistentes
+  async getAllAsistentes() {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .select('*');
+    
+    if (error) throw error;
+    return data;
+  },
+
+  // Obtener todos los asistentes activos
+  async getAllAsistentesActivos() {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .select('*')
+      .eq('activo', true);
+    
+    if (error) throw error;
+    return data;
+  },
+
+  // Obtener todos los asistentes con la cuenta desactviada
+  async getAllAsistentesDesactivados() {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .select('*')
+      .eq('cuentaAceptada', false);
+    
+    if (error) throw error;
+    return data;
+  },
+
+  // Activar la cuenta de un asistente
+  async activarCuentaAsistente(asistenteId) {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .update({ cuentaAceptada: true })
+      .eq('id', asistenteId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
+  async getAsistentesByRol(rol) {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .select('*')
+      .eq('rol', rol);
+
+    if (error) throw error;
+    return data;
+  },
+
+  //Solicitud de desativar cuenta de asistente
+  async desactivarAsistente(id){
+    const{error} = await supabase
+      .from('asistentes')
+      .update({solicitudSuspendido:true})
+      .eq('id',id);
+
+    if (error) throw error;
+  },
+
+  //Obtener todos los asistentes con solicitud de suspensión
+  async getAllAsistentesSuspendidos() {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .select('*')
+      .eq('solicitudSuspendido', true);
+    
+    if (error) throw error;
+    return data;
+  },
+
+
+  // Activar la cuenta de un asistente
+  async updateSolicitudSuspension(asistenteId, solicitudSuspendidoValue) {
+    const { data, error } = await supabase
+      .from('asistentes')
+      .update({ solicitudSuspendido: solicitudSuspendidoValue })
+      .eq('id', asistenteId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  },
+
+
 };

@@ -1,8 +1,8 @@
 // src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router';
 import HomePage from '../views/HomePage.vue';
-import Login from '../views/Login.vue';
-import Register from '../views/Register.vue';
+import Login from '../views/Auth/Login.vue';
+import Register from '../views/Auth/Register.vue';
 import { useAuthStore } from '../stores/authStore';
 
 const routes = [
@@ -31,12 +31,12 @@ const routes = [
       {
         path: '',
         name: 'DashboardAsistente',
-        component: () => import('../views/MenuAsistente.vue')
+        component: () => import('../views/Asistente/MenuAsistente.vue')
       },
       {
         path: 'perfil',
         name: 'PerfilAsistente',
-        component: () => import('../views/PerfilAsistente.vue')
+        component: () => import('../views/Asistente/PerfilAsistente.vue')
       },
       {
         path: 'historial',
@@ -46,14 +46,48 @@ const routes = [
       {
         path: 'estado',
         name: 'EstadoAsistente',
-        component: () => import('../views/EstadoAsistente.vue')
+        component: () => import('../views/Asistente/EstadoAsistente.vue')
       },
+      {
+        path: 'detalles/{id}',
+        name: 'DetallesAsistente',
+        component: () => import('../components/DetallesAsistente.vue')
+      }
     ]
   },
   {
-    path: '/menu-admin',
-    component: () => import('../views/NoDisponible.vue'),
-    meta: { requiresAuth: true, roles: ['admin'] }
+    path: '/admin',
+    meta: { requiresAuth: true, roles: ['admin'] },
+    children: [
+      { path: '',
+        name: 'DashboardAdmin',
+        component: () => import('../views/Admin/MenuAdmin.vue')
+      },
+      { path: 'activar-asistente',
+        name: 'Activar Asistente',
+        component: () => import('../views/Admin/NoActivosTable.vue')
+      },
+      {
+        path: 'asistentes',
+        name: 'Asistentes',
+        component: () => import('../views/Admin/ListadoAsistentes.vue')
+      },
+      {
+        path: 'perfil',
+        name: 'PerfilAdmin',
+        component: () => import('../views/Admin/PerfilAdmin.vue')
+      },
+      {
+        path: 'usuarios',
+        name: 'Usuarios',
+        component: () => import('../views/NoDisponible.vue')
+      },
+      {
+        path: 'suspendidos',
+        name: 'Suspendidos',
+        component: () => import('../views/Admin/ListadoSuspendidos.vue')
+      }
+    ]
   },
   {
     path: '/:pathMatch(.*)*',
@@ -66,12 +100,12 @@ const routes = [
   {
     path: '/forgot-password',
     name: 'ForgotPassword',
-    component: () => import('../views/ForgotPassword.vue')
+    component: () => import('../views/Auth/ForgotPassword.vue')
   },
   {
     path: '/reset-password',
     name: 'ResetPassword',
-    component: () => import('../views/ResetPassword.vue')
+    component: () => import('../views/Auth/ResetPassword.vue')
   }
 ];
 
