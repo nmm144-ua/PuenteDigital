@@ -82,7 +82,6 @@ const RegisterScreen = ({ navigation }) => {
                     [
                         {
                             text: 'OK',
-                            onPress: () => navigation.navigate('Inicio')
                         }
                     ]
                 );

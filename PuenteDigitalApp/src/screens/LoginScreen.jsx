@@ -71,7 +71,6 @@ const LoginScreen = ({ navigation }) => {
             const { success, error } = await login(email, password);
             
             if (success) {
-                navigation.navigate('Inicio');
             } else {
                 Alert.alert('Error', error?.message || 'Error al iniciar sesión');
             }
