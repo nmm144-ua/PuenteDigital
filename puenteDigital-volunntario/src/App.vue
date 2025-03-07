@@ -62,6 +62,7 @@ onMounted(() => {
                 <li class="nav-item"><router-link class="nav-link" to="/asistente">Mi Panel</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/historial">Historial</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/estado">Estado</router-link></li>
+                 <li class="nav-item"><router-link class="nav-link" to="/asistente/call">Asistencia</router-link></li>
               </template>
             </template>
           </ul>
@@ -139,15 +140,6 @@ onMounted(() => {
   padding: 1.4rem 0;  
 }
 
-/* Espacio dinámico entre navbar y footer */
-.main-container {
-  min-height: calc(100vh - 160px); /* Ajusta el espacio considerando navbar y footer más grandes */
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 20px;
-}
-
 /* Estilos para el avatar */
 .rounded-circle {
   cursor: pointer;
@@ -169,16 +161,6 @@ body {
   overflow-x: hidden;
 }
 
-/* Modificar el main-container existente */
-.main-container {
-  min-height: calc(100vh - 160px);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 20px;
-  position: relative;
-}
-
 /* Agregar el fondo con el patrón SVG */
 .main-container::before {
   content: "";
@@ -195,9 +177,22 @@ body {
 }
 
 
-/* Asegurar que el contenido esté por encima del fondo */
+.main-container {
+  min-height: calc(100vh - 160px); /* Ajusta según el tamaño de navbar y footer */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 20px;
+  position: relative;
+  overflow-y: auto; /* Permitir scroll si es necesario */
+}
+
+/* Asegurar que el contenido de la ruta ocupe todo el espacio disponible */
 .router-view-container {
   position: relative;
   z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 </style>

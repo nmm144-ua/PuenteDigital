@@ -52,7 +52,22 @@ const routes = [
         path: 'detalles/{id}',
         name: 'DetallesAsistente',
         component: () => import('../components/DetallesAsistente.vue')
-      }
+      },
+      {
+        path: 'room',
+        name: 'room',
+        component: ()=>import('../views/VideoCall/RoomView.vue'),
+      },
+      {
+        path: 'call',
+        name: 'HomeCall',
+        component: () => import('../views/VideoCall/HomeCallView.vue')
+      },
+      {
+        path: 'room/:id',
+        name: 'Room',
+        component: () => import('../views/VideoCall/RoomView.vue')
+      },
     ]
   },
   {
@@ -106,7 +121,7 @@ const routes = [
     path: '/reset-password',
     name: 'ResetPassword',
     component: () => import('../views/Auth/ResetPassword.vue')
-  }
+  },
 ];
 
 
