@@ -55,7 +55,7 @@ onMounted(() => {
                 <router-link class="nav-link" to="/admin/activar-asistente">Activar Asistente</router-link>
                 <router-link class="nav-link" to="/admin/asistentes">Asistentes</router-link>
                 <router-link class="nav-link" to="/admin/suspendidos">Solicitudes Suspensión</router-link>
-                <router-link class="nav-link" to="/admin/usuarios">Usuarios</router-link>
+                <router-link class="nav-link" to="/admin/usuariosAppMovil">Usuarios App</router-link>
 
               </template>
               <template v-else>
@@ -63,6 +63,7 @@ onMounted(() => {
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/historial">Historial</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/estado">Estado</router-link></li>
                  <li class="nav-item"><router-link class="nav-link" to="/asistente/call">Asistencia</router-link></li>
+                 <li class="nav-item"><router-link class="nav-link" to="/asistente/gestion-llamadas">Gestionar Llamadas</router-link></li>
               </template>
             </template>
           </ul>

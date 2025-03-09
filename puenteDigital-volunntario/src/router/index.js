@@ -68,6 +68,11 @@ const routes = [
         name: 'Room',
         component: () => import('../views/VideoCall/RoomView.vue')
       },
+      {
+        path: 'gestion-llamadas',
+        name: 'GestionLlamadas',
+        component: () => import('../views/Asistente/GestionLlamadas.vue')
+      },
     ]
   },
   {
@@ -101,6 +106,11 @@ const routes = [
         path: 'suspendidos',
         name: 'Suspendidos',
         component: () => import('../views/Admin/ListadoSuspendidos.vue')
+      },
+      {
+        path: 'UsuariosAppMovil',
+        name: 'UsuariosAppMovil',
+        component: () => import('../views/Admin/ListadoUsuariosAppMovil.vue')
       }
     ]
   },

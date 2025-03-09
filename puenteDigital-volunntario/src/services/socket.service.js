@@ -1,9 +1,21 @@
 // src/services/socket.service.js
 import { io } from 'socket.io-client';
 
-// Usa la dirección IP de tu servidor en la red (reemplaza con tu IP)
-const SOCKET_SERVER =  `http://${window.location.hostname}:3001`;
+// Función para obtener la URL del servidor
+const getServerUrl = () => {
+  // Para desarrollo local
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:3001';
+  }
+  
+  // Para red local o producción, usa la misma dirección que el navegador pero con puerto diferente
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+  return `${protocol}//${hostname}:3001`;
+};
 
+const SOCKET_SERVER = getServerUrl();
+console.log('Conectando a servidor de señalización:', SOCKET_SERVER);
 
 class SocketService {
   constructor() {
@@ -11,14 +23,21 @@ class SocketService {
     this.roomId = null;
     this.userId = null;
     this.userName = null;
+    this.connectionAttempts = 0;
+    this.maxConnectionAttempts = 5;
   }
 
   connect() {
-    if (this.socket) return;
+    if (this.socket) return this.socket;
+    
+    console.log(`Intentando conectar a: ${SOCKET_SERVER}`);
     
     this.socket = io(SOCKET_SERVER, {
-      transports: ['websocket'],
-      reconnection: true
+      transports: ['websocket', 'polling'], // Intentar websocket primero, luego polling como fallback
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 10000 // 10s timeout
     });
 
     this.setupListeners();
@@ -27,11 +46,26 @@ class SocketService {
 
   setupListeners() {
     this.socket.on('connect', () => {
-      console.log('Conectado al servidor de señalización');
+      console.log('✅ Conectado al servidor de señalización con ID:', this.socket.id);
+      this.connectionAttempts = 0;
     });
 
-    this.socket.on('disconnect', () => {
-      console.log('Desconectado del servidor de señalización');
+    this.socket.on('connect_error', (error) => {
+      this.connectionAttempts++;
+      console.error(`❌ Error de conexión (intento ${this.connectionAttempts}/${this.maxConnectionAttempts}):`, error.message);
+      
+      if (this.connectionAttempts >= this.maxConnectionAttempts) {
+        console.error('Alcanzado número máximo de intentos de conexión');
+        // Aquí podrías mostrar un mensaje al usuario
+      }
+    });
+
+    this.socket.on('disconnect', (reason) => {
+      console.warn('⚠️ Desconectado del servidor de señalización:', reason);
+    });
+
+    this.socket.on('reconnect', (attemptNumber) => {
+      console.log(`🔄 Reconectado al servidor después de ${attemptNumber} intentos`);
     });
   }
 
@@ -42,16 +76,19 @@ class SocketService {
     this.userId = userId;
     this.userName = userName;
     
+    console.log(`Uniéndose a sala ${roomId} como ${userName} (${userId})`);
     this.socket.emit('join-room', { roomId, userId, userName });
   }
 
   sendOffer(offer, to) {
     if (!this.socket) return;
+    console.log(`Enviando oferta a ${to}`);
     this.socket.emit('offer', { offer, to, from: this.userId });
   }
 
   sendAnswer(answer, to) {
     if (!this.socket) return;
+    console.log(`Enviando respuesta a ${to}`);
     this.socket.emit('answer', { answer, to, from: this.userId });
   }
 
@@ -62,6 +99,7 @@ class SocketService {
 
   callUser(to) {
     if (!this.socket || !this.roomId) return;
+    console.log(`Solicitando llamada a ${to}`);
     this.socket.emit('call-user', {
       roomId: this.roomId,
       to,
@@ -72,6 +110,7 @@ class SocketService {
 
   endCall(to = null) {
     if (!this.socket || !this.roomId) return;
+    console.log(`Finalizando llamada con ${to || 'todos'}`);
     this.socket.emit('end-call', {
       roomId: this.roomId,
       to,

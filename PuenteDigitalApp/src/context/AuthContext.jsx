@@ -63,6 +63,11 @@ export const AuthProvider = ({ children }) => {
         .from('usuario')
         .update({ ultimo_acceso: new Date().toISOString() })
         .eq('user_id', userId);
+
+        await supabase
+        .from('usuario')
+        .update({ ultimo_acceso: new Date().toISOString() })
+        .eq('id', userId);
     } catch (error) {
       console.error('Error al actualizar último acceso:', error);
     }

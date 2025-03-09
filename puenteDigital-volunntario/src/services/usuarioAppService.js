@@ -1,4 +1,4 @@
-// src/services/asistenteService.js
+// src/services/usuarioAppService.js
 import { supabase } from '../../supabase';
 
 export const usuarioAppService = {
@@ -36,5 +36,49 @@ export const usuarioAppService = {
     return data;
   },
 
+  // Obtener todos los usuarios
+  async getAllUsuarios() {
+    const { data, error } = await supabase
+      .from('usuario')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data;
+  },
 
+  // Obtener usuarios anónimos
+  async getUsuariosAnonimos() {
+    const { data, error } = await supabase
+      .from('usuario')
+      .select('*')
+      .eq('tipo_usuario', 'anonimo')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data;
+  },
+
+  // Obtener usuarios registrados (no anónimos)
+  async getUsuariosRegistrados() {
+    const { data, error } = await supabase
+      .from('usuario')
+      .select('*')
+      .neq('tipo_usuario', 'anonimo')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data;
+  },
+
+  // Eliminar un usuario por ID
+  async deleteUsuario(usuarioID) {
+    const { error } = await supabase
+      .from('usuario')
+      .delete()
+      .eq('id', usuarioID);
+    
+    if (error) throw error;
+    return true;
+  }
 };

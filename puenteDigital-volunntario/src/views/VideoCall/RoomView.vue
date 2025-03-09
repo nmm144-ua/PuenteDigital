@@ -1,8 +1,31 @@
-<!-- src/views/RoomView.vue -->
-<!-- Modificaciones para RoomView.vue -->
-
+<!-- src/views/VideoCall/RoomView.vue -->
 <template>
   <div class="room-container" :class="{ 'in-call': isInCall }">
+    <!-- Panel de estado y depuración -->
+    <div v-if="showDebug" class="debug-panel">
+      <div class="debug-header">
+        <h3>Panel de depuración</h3>
+        <button @click="showDebug = false" class="close-button">Cerrar</button>
+      </div>
+      <div class="debug-content">
+        <p><strong>Sala:</strong> {{ roomId }}</p>
+        <p><strong>Usuario:</strong> {{ userName }} ({{ isAsistente ? 'Asistente' : 'Usuario' }})</p>
+        <p><strong>Estado:</strong> {{ isInCall ? 'En llamada' : 'En sala de espera' }}</p>
+        <p><strong>Participantes:</strong> {{ participants.length }}</p>
+        <ul class="debug-participants">
+          <li v-for="p in participants" :key="p.userId">
+            {{ p.userName }} ({{ p.userId }})
+          </li>
+        </ul>
+        <div class="debug-actions">
+          <button @click="startCall" class="debug-button">Forzar inicio de llamada</button>
+        </div>
+      </div>
+    </div>
+    <button v-if="!showDebug" @click="showDebug = true" class="debug-toggle">
+      <i class="fas fa-bug"></i>
+    </button>
+
     <!-- Interfaz de videollamada -->
     <div v-if="isInCall" class="call-container">
       <div class="videos-area">
@@ -38,149 +61,171 @@
         :room-id="roomId"
         :participants="participants"
         :user-name="userName"
+        :is-asistente="isAsistente"
         @start-call="startCall"
         @leave-room="leaveRoom"
       />
     </div>
   </div>
 </template>
-  
-  <script>
-  import { useCallStore } from '../../stores/call.store';
-  import LocalVideo from '../../components/VideoCall/LocalVideo.vue';
-  import VideoGrid from '../../components/VideoCall/VideoGrid.vue';
-  import CallControls from '../../components/VideoCall/CallControls.vue';
-  import WaitingRoom from '../../components/VideoCall/WaitingRoom.vue';
-  import ChatBox from '../../components/VideoCall/ChatBox.vue';
-  
-  export default {
-    name: 'RoomView',
-    components: {
-      LocalVideo,
-      VideoGrid,
-      CallControls,
-      WaitingRoom,
-      ChatBox
+
+<script>
+import { computed, ref } from 'vue';
+import { useCallStore } from '../../stores/call.store';
+import LocalVideo from '../../components/VideoCall/LocalVideo.vue';
+import VideoGrid from '../../components/VideoCall/VideoGrid.vue';
+import CallControls from '../../components/VideoCall/CallControls.vue';
+import WaitingRoom from '../../components/VideoCall/WaitingRoom.vue';
+import ChatBox from '../../components/VideoCall/ChatBox.vue';
+
+export default {
+  name: 'RoomView',
+  components: {
+    LocalVideo,
+    VideoGrid,
+    CallControls,
+    WaitingRoom,
+    ChatBox
+  },
+  setup() {
+    const callStore = useCallStore();
+    const showDebug = ref(false);
+    const chatOpen = ref(false);
+    
+    // Rol de usuario
+    const isAsistente = computed(() => callStore.userRole === 'asistente');
+    
+    return {
+      callStore,
+      showDebug,
+      chatOpen,
+      isAsistente
+    };
+  },
+  computed: {
+    roomId() {
+      return this.callStore.roomId;
     },
-    data() {
-      return {
-        chatOpen: false
-      };
+    userName() {
+      return this.callStore.userName;
     },
-    computed: {
-      roomId() {
-        return this.callStore.roomId;
-      },
-      userName() {
-        return this.callStore.userName;
-      },
-      isInCall() {
-        return this.callStore.isInCall;
-      },
-      localStream() {
-        return this.callStore.localStream;
-      },
-      remoteStreams() {
-        return this.callStore.remoteStreams;
-      },
-      participants() {
-        return this.callStore.participants;
-      },
-      messages() {
-        return this.callStore.messages;
-      },
-      audioEnabled() {
-        return this.callStore.audioEnabled;
-      },
-      videoEnabled() {
-        return this.callStore.videoEnabled;
-      }
+    isInCall() {
+      return this.callStore.isInCall;
     },
-    setup() {
-      const callStore = useCallStore();
-      return { callStore };
+    localStream() {
+      return this.callStore.localStream;
     },
-    created() {
-      // Verificar si tenemos un ID de sala
-      const roomId = this.$route.params.id;
-      if (!roomId) {
-        console.error('No se proporcionó ID de sala en la URL');
+    remoteStreams() {
+      return this.callStore.remoteStreams;
+    },
+    participants() {
+      return this.callStore.participants;
+    },
+    messages() {
+      return this.callStore.messages;
+    },
+    audioEnabled() {
+      return this.callStore.audioEnabled;
+    },
+    videoEnabled() {
+      return this.callStore.videoEnabled;
+    }
+  },
+  created() {
+    // Verificar si tenemos un ID de sala
+    const roomId = this.$route.params.id;
+    if (!roomId) {
+      console.error('No se proporcionó ID de sala en la URL');
+      this.$router.push('/asistente/call');
+      return;
+    }
+    
+    // Si no hay nombre de usuario, pedirlo antes de continuar
+    if (!this.callStore.userName || this.callStore.userName.trim() === '') {
+      const userName = prompt('Por favor, ingresa tu nombre para unirte a la sala:', 'Usuario');
+      if (!userName || userName.trim() === '') {
+        alert('Se requiere un nombre para unirse a la sala');
         this.$router.push('/asistente/call');
         return;
       }
-      
-      // Si no hay nombre de usuario, pedirlo antes de continuar
-      if (!this.callStore.userName || this.callStore.userName.trim() === '') {
-        const userName = prompt('Por favor, ingresa tu nombre para unirte a la sala:', 'Usuario');
-        if (!userName || userName.trim() === '') {
-          alert('Se requiere un nombre para unirse a la sala');
-          this.$router.push('/asistente/call');
-          return;
-        }
-        this.callStore.userName = userName;
-      }
-      
-      console.log(`Intentando unirse a sala ${roomId} como ${this.callStore.userName}`);
-      
-      // Actualizar roomId en el store y unirse a la sala
-      this.callStore.joinRoom(roomId, this.callStore.userName);
-      
-      // Configurar limpieza al salir
-      window.addEventListener('beforeunload', this.cleanupBeforeUnload);
-    },
-    beforeUnmount() {
-      window.removeEventListener('beforeunload', this.cleanupBeforeUnload);
-      this.callStore.cleanup();
-    },
-    methods: {
-      async startCall() {
-        try {
-          // Iniciar stream local
-          await this.callStore.startLocalStream();
+      this.callStore.userName = userName;
+    }
+    
+    console.log(`Intentando unirse a sala ${roomId} como ${this.callStore.userName}`);
+    
+    // Actualizar roomId en el store y unirse a la sala
+    this.callStore.joinRoom(roomId, this.callStore.userName, this.isAsistente ? 'asistente' : 'usuario');
+    
+    // Configurar limpieza al salir
+    window.addEventListener('beforeunload', this.cleanupBeforeUnload);
+  },
+  beforeUnmount() {
+    window.removeEventListener('beforeunload', this.cleanupBeforeUnload);
+    this.callStore.cleanup();
+  },
+  methods: {
+    async startCall() {
+      try {
+        // Iniciar stream local
+        await this.callStore.startLocalStream();
+        
+        // Si eres asistente, llama a todos los usuarios normales
+        if (this.isAsistente) {
+          const regularUsers = this.participants.filter(p => p.userRole !== 'asistente');
+          console.log('Llamando a usuarios regulares:', regularUsers);
           
-          // Comenzar llamada con todos los participantes
-          for (const participant of this.participants) {
+          for (const participant of regularUsers) {
             this.callStore.callUser(participant.userId);
           }
-        } catch (error) {
-          console.error('Error al iniciar la llamada:', error);
+        } else {
+          // Si eres usuario normal, probablemente no inicies llamadas
+          // pero dejamos el código por si acaso
+          const assistants = this.participants.filter(p => p.userRole === 'asistente');
+          console.log('Llamando a asistentes:', assistants);
+          
+          for (const assistant of assistants) {
+            this.callStore.callUser(assistant.userId);
+          }
         }
-      },
-      
-      toggleAudio() {
-        this.callStore.toggleAudio();
-      },
-      
-      toggleVideo() {
-        this.callStore.toggleVideo();
-      },
-      
-      endCall() {
-        this.callStore.endCall();
-        this.chatOpen = false;
-      },
-      
-      toggleChat() {
-        this.chatOpen = !this.chatOpen;
-      },
-      
-      sendMessage(message) {
-        this.callStore.sendMessage(message);
-      },
-      
-      leaveRoom() {
-        this.callStore.cleanup();
-        this.$router.push('/asistente');
-      },
-      
-      cleanupBeforeUnload() {
-        this.callStore.cleanup();
+      } catch (error) {
+        console.error('Error al iniciar la llamada:', error);
       }
+    },
+    
+    toggleAudio() {
+      this.callStore.toggleAudio();
+    },
+    
+    toggleVideo() {
+      this.callStore.toggleVideo();
+    },
+    
+    endCall() {
+      this.callStore.endCall();
+      this.chatOpen = false;
+    },
+    
+    toggleChat() {
+      this.chatOpen = !this.chatOpen;
+    },
+    
+    sendMessage(message) {
+      this.callStore.sendMessage(message);
+    },
+    
+    leaveRoom() {
+      this.callStore.cleanup();
+      this.$router.push('/asistente');
+    },
+    
+    cleanupBeforeUnload() {
+      this.callStore.cleanup();
     }
   }
-  </script>
-  
-  <style scoped>
+};
+</script>
+
+<style scoped>
 /* Contenedor principal que respeta el espacio para navbar y footer */
 .room-container {
   width: 100%;
@@ -190,6 +235,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .call-container {
@@ -245,6 +291,90 @@
   border-left: 1px solid #E0E0E0;
 }
 
+/* Panel de depuración */
+.debug-panel {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  width: 350px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 1px solid #1976D2;
+  border-radius: 8px;
+  z-index: 1000;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #1976D2;
+  color: white;
+  padding: 8px 12px;
+}
+
+.debug-header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.debug-content {
+  padding: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.debug-content p {
+  margin: 5px 0;
+  font-size: 14px;
+}
+
+.debug-participants {
+  margin: 5px 0;
+  padding-left: 20px;
+  font-size: 12px;
+}
+
+.debug-actions {
+  margin-top: 10px;
+}
+
+.debug-button {
+  background-color: #1976D2;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.debug-toggle {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background-color: #1976D2;
+  color: white;
+  border: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  z-index: 999;
+}
+
 /* Responsividad */
 @media (max-width: 768px) {
   .room-container {
@@ -258,6 +388,10 @@
   
   .chat-sidebar {
     width: 100%;
+  }
+  
+  .debug-panel {
+    width: 300px;
   }
 }
 

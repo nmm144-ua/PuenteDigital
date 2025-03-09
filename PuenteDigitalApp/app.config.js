@@ -1,25 +1,26 @@
-{
-  "expo": {
+// app.config.js
+export default {
     "name": "PuenteDigitalApp",
-    "slug": "PuenteDigitalApp",
+    "slug": "puentedigitalapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "scheme": "puentedigital",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.puentedigital.app",
+      "bundleIdentifier": "com.yourcompany.puentedigitalapp",
       "infoPlist": {
         "NSCameraUsageDescription": "Esta aplicación necesita acceso a la cámara para videollamadas",
         "NSMicrophoneUsageDescription": "Esta aplicación necesita acceso al micrófono para llamadas de voz",
-        "NSBluetoothAlwaysUsageDescription": "Esta aplicación utiliza Bluetooth para conectarse a dispositivos de audio"
+        "NSPhotoLibraryUsageDescription": "Esta aplicación necesita acceso a tus fotos para compartir imágenes"
       }
     },
     "android": {
@@ -27,18 +28,14 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.puentedigital.app",
+      "package": "com.yourcompany.puentedigitalapp",
       "permissions": [
-        "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.CHANGE_NETWORK_STATE",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.INTERNET",
-        "android.permission.BLUETOOTH",
-        "android.permission.WAKE_LOCK"
+        "android.permission.INTERNET"
       ]
     },
     "web": {
@@ -46,23 +43,17 @@
     },
     "plugins": [
       [
-        "expo-camera",
+        "@config-plugins/react-native-webrtc",
         {
           "cameraPermissionText": "Esta aplicación necesita acceso a la cámara para videollamadas",
           "microphonePermissionText": "Esta aplicación necesita acceso al micrófono para llamadas de voz"
         }
       ],
-      [
-        "expo-av",
-        {
-          "microphonePermission": "Esta aplicación necesita acceso al micrófono para las videollamadas"
-        }
-      ]
+      "expo-dev-client"
     ],
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "your-project-id"
       }
     }
-  }
-}
+  };

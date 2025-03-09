@@ -73,6 +73,7 @@ const createAuthService = () => {
             const { data, error } = await supabase
               .from('usuario')
               .update({
+                ultimo_acceso : new Date().toISOString(),
                 ip: deviceInfo.ipAddress,
                 fecha_registro: new Date().toISOString()
               })
