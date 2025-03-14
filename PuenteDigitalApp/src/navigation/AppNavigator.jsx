@@ -14,9 +14,8 @@ import NoDisponibleScreen from '../screens/NoDisponibleScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 
 // Nuevas pantallas de videollamada con Agora
-import VideoCallScreen from '../screens/Asistencia/VideoCallScreen';
-import IncomingCallHandler from '../components/VideoCall/IncomingCallHandler';
-import socketService from '../services/socket.service';
+
+//import socketService from '../services/socket.service';
 
 const Stack = createStackNavigator();
 
@@ -52,37 +51,10 @@ const MainNavigator = () => {
     >
       <Stack.Screen name="Inicio" component={InicioScreen} />
       <Stack.Screen name="OpcionesInicio" component={OpcionesInicioScreen} />
-      <Stack.Screen name="Asistencia" component={AsistenciaScreen} />
       <Stack.Screen name="Tutoriales" component={NoDisponibleScreen} />
       <Stack.Screen name="Mensajes" component={NoDisponibleScreen} />
-      
-      {/* Pantallas existentes de videollamada */}
-      <Stack.Screen
-        name="WaitingRoom"
-        component={WaitingRoomScreen}
-        options={{
-          gestureEnabled: false
-        }}
-      />
-      <Stack.Screen
-        name="Call"
-        component={CallScreen}
-        options={{
-          headerShown: false,
-          gestureEnabled: false
-        }}
-      />
-      
-      {/* Nueva pantalla de videollamada con Agora */}
-      <Stack.Screen
-        name="VideoCallScreen"
-        component={VideoCallScreen}
-        options={{
-          headerShown: false,
-          gestureEnabled: false,
-          presentation: 'fullScreenModal'
-        }}
-      />
+      <Stack.Screen name="Asistencia" component={NoDisponibleScreen} />      
+    
     </Stack.Navigator>
   );
 };
@@ -98,46 +70,13 @@ const LoadingScreen = () => (
 const AppNavigator = () => {
   const { user, loading } = useAuth();
 
-  useEffect(() => {
-    // Inicializar el servicio de socket si el usuario está autenticado
-    const initializeSocketService = async () => {
-      if (user) {
-        try {
-          await socketService.initialize(
-            user.uid || user.id, // ID del usuario (ajusta según tu modelo de datos)
-            user.displayName || user.nombre || 'Usuario' // Nombre del usuario
-          );
-          console.log('Servicio de socket inicializado');
-        } catch (error) {
-          console.error('Error inicializando socket:', error);
-        }
-      }
-    };
-
-    initializeSocketService();
-
-    // Limpieza al cerrar la app
-    return () => {
-      if (user) {
-        socketService.disconnect();
-      }
-    };
-  }, [user]);
-
   if (loading) {
     return <LoadingScreen />;
   }
 
   return (
     <NavigationContainer>
-      {user ? (
-        <>
-          <IncomingCallHandler />
-          <MainNavigator />
-        </>
-      ) : (
-        <AuthNavigator />
-      )}
+           {user ? <MainNavigator /> : <AuthNavigator />}
     </NavigationContainer>
   );
 };

@@ -1,14 +1,14 @@
 {
   "expo": {
     "name": "PuenteDigitalApp",
-    "slug": "PuenteDigitalApp",
+    "slug": "puentedigitalapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/PuenteDigital.jpg",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/PuenteDigital.jpg",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -24,7 +24,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/PuenteDigital.jpg",
         "backgroundColor": "#ffffff"
       },
       "package": "com.puentedigital.app",
@@ -38,11 +38,14 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.INTERNET",
         "android.permission.BLUETOOTH",
-        "android.permission.WAKE_LOCK"
+        "android.permission.WAKE_LOCK",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "INTERNET"
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/PuenteDigital.jpg"
     },
     "plugins": [
       [
@@ -57,12 +60,17 @@
         {
           "microphonePermission": "Esta aplicación necesita acceso al micrófono para las videollamadas"
         }
+      ],
+      [
+        "expo-dev-client"
       ]
     ],
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "cff133b4-df7a-4f15-8653-cb185c1e721d",
+        "owner": "nmm144"
       }
-    }
+    },
+    "owner": "nmm144"
   }
 }
