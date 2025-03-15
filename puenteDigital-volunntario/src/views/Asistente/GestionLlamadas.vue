@@ -235,6 +235,7 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  gap: 20px;
 }
 
 h1 {
@@ -252,6 +253,7 @@ h1 {
   cursor: pointer;
   font-weight: bold;
   transition: background-color 0.3s;
+  margin-left: 20px;
 }
 
 .refresh-button:hover {
