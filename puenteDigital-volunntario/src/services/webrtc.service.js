@@ -21,18 +21,17 @@ class WebRTCService {
     this.iceServers = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      // Servidores TURN gratuitos (limitados)
       { 
         urls: 'turn:numb.viagenie.ca',
         credential: 'muazkh',
-        username: 'webrtc@live.com'
+        username: 'webrtc@live.com',
+        credentialType: 'password'
       },
       {
-        urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+        urls: 'turn:turn.anyfirewall.com:443?transport=tcp', // Forzar TCP
         credential: 'webrtc',
-        username: 'webrtc'
+        username: 'webrtc',
+        credentialType: 'password'
       }
     ];
     
@@ -45,17 +44,33 @@ class WebRTCService {
     
     this.userId = null;
     this.remoteUserId = null;
+    this.connectionAttempts = {}; // Registro de intentos de conexión
+    this.debug = true; // Habilitar logging detallado
+    this.isNegotiating = false; // Flag para evitar negociaciones simultáneas
+    this.isInitiator = false; // Flag para indicar si somos iniciadores
+  }
+
+  // Función de log mejorada
+  log(message, ...args) {
+    if (this.debug) {
+      console.log(`[WebRTC] ${message}`, ...args);
+    }
+  }
+
+  // Función de log de error mejorada
+  logError(message, error) {
+    console.error(`[WebRTC ERROR] ${message}`, error);
   }
 
   // Verificar soporte de WebRTC
   checkBrowserSupport() {
     const support = rtcAdapter.checkWebRTCSupport();
     
-    console.log('Diagnóstico WebRTC:');
-    console.log('- Soportado:', support.supported);
-    console.log('- RTCPeerConnection disponible:', support.rtcPeerConnection);
-    console.log('- mediaDevices disponible:', support.mediaDevices);
-    console.log('- Contexto seguro:', support.secureContext);
+    this.log('Diagnóstico WebRTC:');
+    this.log('- Soportado:', support.supported);
+    this.log('- RTCPeerConnection disponible:', support.rtcPeerConnection);
+    this.log('- mediaDevices disponible:', support.mediaDevices);
+    this.log('- Contexto seguro:', support.secureContext);
     
     if (!support.supported) {
       const reason = !support.secureContext 
@@ -80,58 +95,84 @@ class WebRTCService {
   // Registrar callbacks
   registerCallbacks(callbacks) {
     this.callbacks = { ...this.callbacks, ...callbacks };
+    this.log('Callbacks registrados:', Object.keys(callbacks));
   }
 
-  // Obtener stream local (cámara y micrófono)
-  async getLocalStream(videoEnabled = true, audioEnabled = true) {
+  // Obtener stream local (cámara y micrófono) - MEJORADO
+  async getLocalStream(videoEnabled = true, audioEnabled = true, constraints = null) {
     try {
       // Verificar soporte de WebRTC
       const support = this.checkBrowserSupport();
       if (!support.supported) {
-        console.error('Problema con WebRTC:', support.reason);
+        this.logError('Problema con WebRTC:', support.reason);
         throw new Error(`${support.reason} ${support.recommendation || ''}`);
       }
       
-      console.log('Solicitando acceso a cámara y micrófono...');
+      this.log('Solicitando acceso a cámara y micrófono...');
       
-      // Configurar restricciones
-      const constraints = {
-        audio: audioEnabled,
-        video: videoEnabled 
-          ? {
-              facingMode: 'user',
-              width: { ideal: 640, min: 320 },
-              height: { ideal: 480, min: 240 },
-              frameRate: { ideal: 24, min: 15 }
-            } 
-          : false
-      };
+      // Detener stream anterior si existe
+      if (this.localStream) {
+        this.log('Deteniendo stream local anterior');
+        this.stopLocalStream();
+      }
       
-      console.log('Solicitando medios con restricciones:', constraints);
+      // Usar constraints proporcionados o crear unos predeterminados
+      let mediaConstraints = constraints;
+      if (!mediaConstraints) {
+        mediaConstraints = {
+          audio: audioEnabled ? { 
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          } : false,
+          video: videoEnabled ? {
+            facingMode: 'user',
+            width: { ideal: 640, min: 320 },
+            height: { ideal: 480, min: 240 },
+            frameRate: { ideal: 24, min: 15 }
+          } : false
+        };
+      }
+      
+      this.log('Solicitando medios con restricciones:', mediaConstraints);
       
       try {
-        this.localStream = await rtcAdapter.getUserMedia(constraints);
+        // Solicitar acceso a dispositivos multimedia
+        this.localStream = await rtcAdapter.getUserMedia(mediaConstraints);
         
         const videoTracks = this.localStream.getVideoTracks();
         const audioTracks = this.localStream.getAudioTracks();
         
-        console.log(`Stream local obtenido - Video tracks: ${videoTracks.length}, Audio tracks: ${audioTracks.length}`);
+        this.log(`Stream local obtenido - Video tracks: ${videoTracks.length}, Audio tracks: ${audioTracks.length}`);
         
         if (videoTracks.length > 0) {
-          console.log('Ajustes de video:', videoTracks[0].getSettings());
+          this.log('Ajustes de video:', videoTracks[0].getSettings());
+        }
+        
+        if (audioTracks.length > 0) {
+          this.log('Ajustes de audio:', audioTracks[0].getSettings());
+        }
+        
+        // Verificar que los tracks estén en estado válido
+        if (videoEnabled && videoTracks.length === 0) {
+          this.log('ADVERTENCIA: No se obtuvo track de video a pesar de solicitarlo');
+        }
+        
+        if (audioEnabled && audioTracks.length === 0) {
+          this.log('ADVERTENCIA: No se obtuvo track de audio a pesar de solicitarlo');
         }
         
         return this.localStream;
       } catch (err) {
         // Si falla con video, intentar solo con audio
         if (videoEnabled) {
-          console.warn('Error al acceder a la cámara, intentando solo con audio');
+          this.log('Error al acceder a la cámara, intentando solo con audio:', err);
           return this.getLocalStream(false, audioEnabled);
         }
         throw err;
       }
     } catch (error) {
-      console.error('Error accediendo a dispositivos multimedia:', error);
+      this.logError('Error accediendo a dispositivos multimedia:', error);
       if (this.callbacks.onError) {
         this.callbacks.onError('media', error);
       }
@@ -142,21 +183,24 @@ class WebRTCService {
   // Detener stream local
   stopLocalStream() {
     if (this.localStream) {
-      this.localStream.getTracks().forEach(track => track.stop());
+      this.localStream.getTracks().forEach(track => {
+        this.log(`Deteniendo track: ${track.kind}`);
+        track.stop();
+      });
       this.localStream = null;
-      console.log('Stream local detenido');
+      this.log('Stream local detenido');
     }
   }
 
-  // Configurar eventos de señalización
+  // Configurar eventos de señalización - MEJORADO
   setupSignaling() {
     // Manejo de ofertas
     socketService.on('offer', async (data) => {
       try {
-        console.log('Oferta recibida de:', data.from);
+        this.log('Oferta recibida de:', data.from);
         await this.handleIncomingOffer(data.offer, data.from);
       } catch (error) {
-        console.error('Error al manejar oferta:', error);
+        this.logError('Error al manejar oferta:', error);
         if (this.callbacks.onError) {
           this.callbacks.onError('signaling', error);
         }
@@ -165,52 +209,99 @@ class WebRTCService {
 
     // Manejo de respuestas
     socketService.on('answer', (data) => {
-      console.log('Respuesta recibida de:', data.from);
-      if (this.peers[data.from]) {
-        this.peers[data.from].signal(data.answer);
-      } else if (this.peerConnection) {
-        // Implementación para versión móvil
-        try {
-          const remoteDesc = new rtcAdapter.RTCSessionDescription(data.answer);
-          this.peerConnection.setRemoteDescription(remoteDesc)
-            .catch(error => console.error('Error al establecer descripción remota:', error));
-        } catch (error) {
-          console.error('Error al manejar respuesta:', error);
+      const fromUserId = data.from || data.userId || 'unknown';
+      
+      if (fromUserId === 'unknown') {
+        this.log('Respuesta recibida de usuario desconocido, intentando usar remoteUserId');
+        // Intento de recuperación usando el ID de usuario remoto actual
+        if (this.remoteUserId) {
+          this.handleIncomingAnswer(data.answer, this.remoteUserId);
+        } else {
+          this.logError('No se puede procesar respuesta: remitente desconocido');
         }
-      } else {
-        console.warn('No hay peer para esta respuesta:', data.from);
+        return;
       }
+      
+      this.log(`Respuesta recibida de: ${fromUserId}`);
+      this.handleIncomingAnswer(data.answer, fromUserId);
     });
-
+    
     // Manejo de candidatos ICE
     socketService.on('ice-candidate', (data) => {
-      if (this.peers[data.from]) {
-        this.peers[data.from].signal(data.candidate);
-      } else if (this.peerConnection) {
-        // Implementación para versión móvil
-        try {
-          const candidate = new rtcAdapter.RTCIceCandidate(data.candidate);
-          this.peerConnection.addIceCandidate(candidate)
-            .catch(error => console.error('Error al añadir candidato ICE:', error));
-        } catch (error) {
-          console.error('Error al manejar candidato ICE:', error);
+      const fromUserId = data.from || data.userId || 'unknown';
+      
+      if (fromUserId === 'unknown') {
+        this.log('Candidato ICE recibido de usuario desconocido, intentando usar remoteUserId');
+        // Intento de recuperación usando el ID de usuario remoto actual
+        if (this.remoteUserId) {
+          this.handleIceCandidate(data.candidate, this.remoteUserId);
+        } else {
+          this.logError('No se puede procesar candidato ICE: remitente desconocido');
         }
-      } else {
-        console.warn('No hay peer para este candidato ICE:', data.from);
+        return;
       }
+      
+      this.log(`Candidato ICE recibido de: ${fromUserId}`);
+      this.handleIceCandidate(data.candidate, fromUserId);
     });
 
     // Manejo de usuario que deja la sala
     socketService.on('user-left', (data) => {
-      console.log('Usuario ha dejado la sala:', data.userId);
+      this.log('Usuario ha dejado la sala:', data.userId);
       this.closeConnection(data.userId);
     });
 
     // Manejo de fin de llamada
     socketService.on('call-ended', (data) => {
-      console.log('Llamada finalizada por:', data.from);
+      this.log('Llamada finalizada por:', data.from);
       this.closeConnection(data.from);
     });
+  }
+
+  // Método unificado para manejar respuestas
+  handleIncomingAnswer(answer, fromUserId) {
+    if (this.peers[fromUserId]) {
+      this.log('Procesando respuesta mediante simple-peer para:', fromUserId);
+      this.peers[fromUserId].signal(answer);
+    } else if (this.peerConnection && this.remoteUserId === fromUserId) {
+      // Implementación para versión móvil
+      this.log('Procesando respuesta mediante RTCPeerConnection para:', fromUserId);
+      try {
+        const remoteDesc = new rtcAdapter.RTCSessionDescription(answer);
+        this.peerConnection.setRemoteDescription(remoteDesc)
+          .then(() => this.log('Descripción remota establecida correctamente'))
+          .catch(error => this.logError('Error al establecer descripción remota:', error));
+      } catch (error) {
+        this.logError('Error al procesar respuesta:', error);
+      }
+    } else {
+      this.log('ADVERTENCIA: No hay peer para esta respuesta:', fromUserId);
+    }
+  }
+
+  // Método unificado para manejar candidatos ICE
+  handleIceCandidate(candidate, fromUserId) {
+    if (this.peers[fromUserId]) {
+      this.log('Procesando candidato ICE mediante simple-peer para:', fromUserId);
+      this.peers[fromUserId].signal(candidate);
+    } else if (this.peerConnection && this.remoteUserId === fromUserId) {
+      // Implementación para versión móvil
+      this.log('Procesando candidato ICE mediante RTCPeerConnection para:', fromUserId);
+      try {
+        if (candidate && typeof candidate === 'object') {
+          const iceCandidate = new rtcAdapter.RTCIceCandidate(candidate);
+          this.peerConnection.addIceCandidate(iceCandidate)
+            .then(() => this.log('Candidato ICE añadido correctamente'))
+            .catch(error => this.logError('Error al añadir candidato ICE:', error));
+        } else {
+          this.log('Candidato ICE no válido:', candidate);
+        }
+      } catch (error) {
+        this.logError('Error al procesar candidato ICE:', error);
+      }
+    } else {
+      this.log('ADVERTENCIA: No hay peer para este candidato ICE:', fromUserId);
+    }
   }
 
   // Inicializar WebRTC con diferentes implementaciones según el entorno
@@ -222,22 +313,23 @@ class WebRTCService {
         throw new Error(support.reason);
       }
       
+      // Forzar limpieza de conexiones anteriores
+      this.closeAllConnections();
+      
       // Si estamos en entorno web y tenemos simple-peer disponible
       if (!rtcAdapter.isReactNative && Peer) {
-        console.log('Usando simple-peer para WebRTC');
+        this.log('Usando simple-peer para WebRTC');
         // No crear peerConnection, se crearán al iniciar conexiones
       } else {
         // Enfoque nativo para React Native o web sin simple-peer
-        console.log('Usando implementación nativa para WebRTC');
+        this.log('Usando implementación nativa para WebRTC');
         
         // Crear una nueva conexión RTCPeerConnection
-        this.peerConnection = new rtcAdapter.RTCPeerConnection({
-          iceServers: this.iceServers,
-          iceCandidatePoolSize: 10
-        });
-        
-        // Configurar eventos de la conexión
-        this.setupPeerConnectionListeners();
+        if (this.peerConnection) {
+          this.log('Cerrando conexión anterior');
+          this.peerConnection.close();
+          this.peerConnection = null;
+        }
       }
       
       // Configurar señalización
@@ -245,73 +337,245 @@ class WebRTCService {
       
       return true;
     } catch (error) {
-      console.error('Error al inicializar WebRTC:', error);
+      this.logError('Error al inicializar WebRTC:', error);
       throw error;
     }
   }
 
-  // Configurar listeners para eventos de la conexión nativa
+  // Configurar listeners para eventos de la conexión nativa - MEJORADO
   setupPeerConnectionListeners() {
     if (!this.peerConnection) return;
     
     // Evento cuando se genera un candidato ICE
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
+        this.log('Candidato ICE generado:', event.candidate.type);
         // Enviar el candidato ICE al otro usuario a través del socket
         socketService.sendIceCandidate(
           event.candidate.toJSON(),
           this.remoteUserId
         );
+      } else {
+        this.log('Recolección de candidatos ICE completada');
       }
     };
     
     // Evento cuando cambia el estado de la conexión ICE
     this.peerConnection.oniceconnectionstatechange = () => {
-      console.log('ICE Connection State:', this.peerConnection.iceConnectionState);
+      const state = this.peerConnection.iceConnectionState;
+      this.log('ICE Connection State cambió a:', state);
+      
       if (this.callbacks.onConnectionStateChange) {
         this.callbacks.onConnectionStateChange(
           this.remoteUserId, 
-          this.peerConnection.iceConnectionState
+          state
         );
+      }
+      
+      // Lógica mejorada para manejar reconexiones
+      if (state === 'disconnected') {
+        this.log('Conexión en estado disconnected, esperando posible reconexión');
+        // Programar un timeout para verificar si se recupera
+        setTimeout(() => {
+          if (this.peerConnection && this.peerConnection.iceConnectionState === 'disconnected') {
+            this.log('La conexión sigue en disconnected, intentando recuperar');
+            // Intentar reiniciar los candidatos ICE
+            if (this.peerConnection.restartIce) {
+              this.peerConnection.restartIce();
+            }
+          }
+        }, 5000);
+      } else if (state === 'failed') {
+        this.log('Conexión ICE fallida, cerrando conexión');
+        // Notificar que la conexión ha fallado
+        if (this.callbacks.onConnectionStateChange) {
+          this.callbacks.onConnectionStateChange(this.remoteUserId, 'failed');
+        }
       }
     };
     
     // Evento cuando cambia el estado de la conexión de señalización
     this.peerConnection.onsignalingstatechange = () => {
-      console.log('Signaling State:', this.peerConnection.signalingState);
+      this.log('Signaling State cambió a:', this.peerConnection.signalingState);
+      
+      // Si la señalización se cierra, liberar recursos
+      if (this.peerConnection.signalingState === 'closed') {
+        this.log('Signaling State closed, liberando recursos');
+      }
+      
+      // Actualizar estado de negociación
+      if (this.peerConnection.signalingState === 'stable') {
+        this.log('Signaling State stable, permitiendo nuevas negociaciones');
+        setTimeout(() => {
+          this.isNegotiating = false;
+        }, 1000);
+      }
     };
     
-    // Evento cuando se recibe un track del otro usuario
+    // Evento cuando cambia el estado de la conexión
+    this.peerConnection.onconnectionstatechange = () => {
+      const state = this.peerConnection.connectionState;
+      this.log('Connection State cambió a:', state);
+      
+      if (state === 'connected') {
+        this.log('Conexión establecida correctamente');
+      } else if (state === 'failed') {
+        this.logError('La conexión ha fallado permanentemente');
+        // Cerrar y recrear la conexión
+        if (this.remoteUserId) {
+          this.closeConnection(this.remoteUserId);
+        }
+      }
+    };
+    
+    // Evento cuando se recibe un track del otro usuario - MEJORADO
     this.peerConnection.ontrack = (event) => {
-      console.log('Recibido track remoto:', event.streams[0]);
+      if (!event.streams || event.streams.length === 0) {
+        this.logError('Evento ontrack sin streams');
+        
+        // Crear un stream manualmente si no viene ninguno
+        const syntheticStream = new MediaStream();
+        syntheticStream.addTrack(event.track);
+        
+        this.log('Creado stream sintético con track:', event.track.kind);
+        
+        // Usar este stream sintético
+        this.remoteStreams[this.remoteUserId] = syntheticStream;
+        
+        if (this.callbacks.onRemoteStream) {
+          this.callbacks.onRemoteStream(this.remoteUserId, syntheticStream);
+        }
+        
+        return;
+      }
       
       const remoteStream = event.streams[0];
+      this.log('Recibido track remoto:', event.track.kind, 'ID:', event.track.id);
+      this.log('Stream remoto:', remoteStream.id, 'Tracks:', remoteStream.getTracks().length);
+      
+      // Verificar si el stream ya tiene datos
+      const hasAudio = remoteStream.getAudioTracks().length > 0;
+      const hasVideo = remoteStream.getVideoTracks().length > 0;
+      this.log(`Stream tiene audio: ${hasAudio}, video: ${hasVideo}`);
+      
+      // Guardar el stream remoto
       this.remoteStreams[this.remoteUserId] = remoteStream;
       
       // Notificar que se ha recibido el stream remoto
       if (this.callbacks.onRemoteStream) {
         this.callbacks.onRemoteStream(this.remoteUserId, remoteStream);
       }
+      
+      // Configurar listeners para el track
+      event.track.onended = () => {
+        this.log(`Track ${event.track.kind} ha terminado`);
+      };
+      
+      event.track.onmute = () => {
+        this.log(`Track ${event.track.kind} ha sido silenciado`);
+      };
+      
+      event.track.onunmute = () => {
+        this.log(`Track ${event.track.kind} ha sido reactivado`);
+      };
+    };
+    
+    // Manejar errores de negociación - MEJORADO PARA EVITAR PROBLEMAS DE M-LINES
+    this.peerConnection.onnegotiationneeded = async () => {
+      this.log('Negociación necesaria');
+      
+      // Evitar negociaciones múltiples simultáneas
+      if (this.isNegotiating) {
+        this.log('Ya hay una negociación en curso, ignorando');
+        return;
+      }
+      
+      this.isNegotiating = true;
+      
+      // Solo crear oferta si somos el iniciador
+      if (this.isInitiator) {
+        try {
+          this.log('Creando oferta como iniciador');
+          
+          // En vez de negociar, recrear la conexión para evitar problemas de m-lines
+          // Implementación alternativa al error de orden de m-lines
+          if (this.connectionAttempts[this.remoteUserId] > 1) {
+            this.log('Detectado reintento de conexión, recreando PeerConnection');
+            
+            // Guardar ID remoto
+            const currentRemoteId = this.remoteUserId;
+            
+            // Cerrar sin limpiar ID
+            if (this.peerConnection) {
+              this.peerConnection.close();
+            }
+            
+            // Crear nueva instancia
+            this.peerConnection = new rtcAdapter.RTCPeerConnection({
+              iceServers: this.iceServers,
+              iceCandidatePoolSize: 10,
+              bundlePolicy: 'max-bundle',
+              rtcpMuxPolicy: 'require',
+              sdpSemantics: 'unified-plan'
+            });
+            
+            // Configurar de nuevo
+            this.setupPeerConnectionListeners();
+            this.remoteUserId = currentRemoteId;
+            
+            // Agregar tracks del stream local
+            if (this.localStream) {
+              this.localStream.getTracks().forEach(track => {
+                this.peerConnection.addTrack(track, this.localStream);
+              });
+            }
+          }
+          
+          // Crear oferta simplificada para evitar problemas
+          const offer = await this.createOffer();
+          
+          this.log('Enviando oferta a:', this.remoteUserId);
+          socketService.sendOffer(offer, this.remoteUserId);
+        } catch (error) {
+          this.logError('Error durante la negociación:', error);
+          this.isNegotiating = false;
+        }
+      } else {
+        this.isNegotiating = false;
+      }
     };
   }
 
   // Crear una conexión con otro usuario
   async initConnection(targetUserId, isInitiator = true) {
-    console.log(`Iniciando conexión ${isInitiator ? 'como iniciador' : 'como receptor'} con ${targetUserId}`);
+    this.log(`Iniciando conexión ${isInitiator ? 'como iniciador' : 'como receptor'} con ${targetUserId}`);
+    
+    // Registrar intento de conexión
+    this.connectionAttempts[targetUserId] = (this.connectionAttempts[targetUserId] || 0) + 1;
+    const attemptCount = this.connectionAttempts[targetUserId];
+    this.log(`Intento #${attemptCount} de conexión con ${targetUserId}`);
+    
+    // Cerrar conexión anterior si existe
+    if (this.peers[targetUserId] || (this.peerConnection && this.remoteUserId === targetUserId)) {
+      this.log('Cerrando conexión anterior con mismo usuario');
+      this.closeConnection(targetUserId);
+    }
     
     // Asegurarse de tener un stream local
     if (!this.localStream) {
-      console.log('No hay stream local, solicitando...');
+      this.log('No hay stream local, solicitando...');
       try {
         await this.getLocalStream();
       } catch (error) {
-        console.error('No se pudo obtener stream local:', error);
+        this.logError('No se pudo obtener stream local:', error);
         throw error;
       }
     }
     
-    // Establecer IDs
+    // Establecer IDs y estado
     this.remoteUserId = targetUserId;
+    this.isInitiator = isInitiator;
+    this.isNegotiating = false;
     
     // Si usamos simple-peer (entorno web)
     if (!rtcAdapter.isReactNative && Peer) {
@@ -326,13 +590,19 @@ class WebRTCService {
   async initConnectionWithSimplePeer(targetUserId, isInitiator) {
     // Cerrar conexión anterior si existe
     if (this.peers[targetUserId]) {
-      console.log('Cerrando conexión existente con:', targetUserId);
+      this.log('Cerrando conexión existente con:', targetUserId);
       this.peers[targetUserId].destroy();
+      delete this.peers[targetUserId];
     }
 
-    console.log('Creando nueva conexión peer con simple-peer...');
+    this.log('Creando nueva conexión peer con simple-peer...');
     
-    // Crear nueva conexión peer
+    // Verificar que el stream local tenga tracks
+    const videoTracks = this.localStream.getVideoTracks();
+    const audioTracks = this.localStream.getAudioTracks();
+    this.log(`Stream local para conexión - Video tracks: ${videoTracks.length}, Audio tracks: ${audioTracks.length}`);
+    
+    // Crear nueva conexión peer con configuración estándar
     const peerOptions = {
       initiator: isInitiator,
       trickle: true,
@@ -342,32 +612,49 @@ class WebRTCService {
         iceCandidatePoolSize: 10,
         sdpSemantics: 'unified-plan'
       },
-      objectMode: true,
-      offerOptions: {
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true
+      sdpTransform: (sdp) => {
+        // Se puede implementar transformación de SDP si es necesario
+        return sdp;
       }
     };
     
-    console.log('Opciones de peer:', peerOptions);
+    this.log('Opciones de peer:', peerOptions);
     const peer = new Peer(peerOptions);
 
     // Manejar eventos de señalización
     peer.on('signal', data => {
-      console.log('Señal generada:', data.type);
+      this.log('Señal generada:', data.type || 'ICE candidate');
       if (data.type === 'offer') {
+        this.log('Enviando oferta a', targetUserId);
         socketService.sendOffer(data, targetUserId);
       } else if (data.type === 'answer') {
+        this.log('Enviando respuesta a', targetUserId);
         socketService.sendAnswer(data, targetUserId);
       } else {
+        this.log('Enviando candidato ICE a', targetUserId);
         socketService.sendIceCandidate(data, targetUserId);
       }
     });
 
     // Manejar stream remoto
     peer.on('stream', stream => {
-      console.log('Stream remoto recibido de:', targetUserId);
+      this.log('Stream remoto recibido de:', targetUserId);
+      
+      // Verificar tracks
+      const videoTracks = stream.getVideoTracks();
+      const audioTracks = stream.getAudioTracks();
+      this.log(`Stream remoto - Video tracks: ${videoTracks.length}, Audio tracks: ${audioTracks.length}`);
+      
+      // Verificar si hay cambios en el stream
+      const existingStream = this.remoteStreams[targetUserId];
+      if (existingStream) {
+        this.log('Reemplazando stream existente');
+      }
+      
+      // Guardar stream
       this.remoteStreams[targetUserId] = stream;
+      
+      // Notificar
       if (this.callbacks.onRemoteStream) {
         this.callbacks.onRemoteStream(targetUserId, stream);
       }
@@ -375,7 +662,7 @@ class WebRTCService {
 
     // Manejar estado de conexión
     peer.on('connect', () => {
-      console.log('Conexión P2P establecida con:', targetUserId);
+      this.log('Conexión P2P establecida con:', targetUserId);
       if (this.callbacks.onConnectionStateChange) {
         this.callbacks.onConnectionStateChange(targetUserId, 'connected');
       }
@@ -383,7 +670,7 @@ class WebRTCService {
 
     // Manejar cierre de conexión
     peer.on('close', () => {
-      console.log('Conexión P2P cerrada con:', targetUserId);
+      this.log('Conexión P2P cerrada con:', targetUserId);
       this.closeConnection(targetUserId);
       if (this.callbacks.onConnectionStateChange) {
         this.callbacks.onConnectionStateChange(targetUserId, 'closed');
@@ -392,30 +679,43 @@ class WebRTCService {
 
     // Manejar errores
     peer.on('error', err => {
-      console.error('Error de conexión peer con', targetUserId, ':', err);
+      this.logError('Error de conexión peer con', targetUserId, ':', err);
       if (this.callbacks.onError) {
         this.callbacks.onError('peer', err, targetUserId);
       }
-      this.closeConnection(targetUserId);
+      
+      // Intentar reconexión automática solo para ciertos errores
+      if (err.message && (
+        err.message.includes('ICE failed') || 
+        err.message.includes('timeout')
+      )) {
+        this.log('Error potencialmente recuperable, intentando reconexión...');
+        this.reconnect(targetUserId);
+      } else {
+        this.closeConnection(targetUserId);
+      }
     });
 
     this.peers[targetUserId] = peer;
     return peer;
   }
 
-  // Implementación nativa para React Native o web sin simple-peer
+  // Implementación nativa para React Native o web sin simple-peer - OPTIMIZADA PARA COMPATIBILIDAD
   async initConnectionNative(targetUserId, isInitiator) {
     // Cerrar conexión anterior si existe
     if (this.peerConnection) {
-      console.log('Cerrando conexión anterior');
+      this.log('Cerrando conexión anterior');
       this.peerConnection.close();
       this.peerConnection = null;
     }
     
-    // Crear nueva conexión
+    // Crear nueva conexión con configuración optimizada
     this.peerConnection = new rtcAdapter.RTCPeerConnection({
       iceServers: this.iceServers,
-      iceCandidatePoolSize: 10
+      iceCandidatePoolSize: 10,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+      sdpSemantics: 'unified-plan'
     });
     
     // Configurar listeners
@@ -423,18 +723,24 @@ class WebRTCService {
     
     // Agregar tracks al peer connection
     if (this.localStream) {
+      this.log('Agregando tracks del stream local a la conexión');
       this.localStream.getTracks().forEach(track => {
+        this.log(`Agregando track ${track.kind} con ID ${track.id}`);
         this.peerConnection.addTrack(track, this.localStream);
       });
+    } else {
+      this.logError('No hay stream local para agregar a la conexión');
     }
     
     // Si somos el iniciador, crear oferta
     if (isInitiator) {
       try {
-        const offer = await this.createOffer();
+        this.log('Creando oferta SDP');
+        const offer = await this.createOfferSafe();
+        this.log('Oferta creada, enviando a', targetUserId);
         socketService.sendOffer(offer, targetUserId);
       } catch (error) {
-        console.error('Error al crear oferta:', error);
+        this.logError('Error al crear oferta:', error);
         throw error;
       }
     }
@@ -442,30 +748,84 @@ class WebRTCService {
     return this.peerConnection;
   }
 
-  // Crear una oferta SDP (para implementación nativa)
-  async createOffer() {
+  // Función de creación de oferta segura - NUEVA Y OPTIMIZADA PARA PROBLEMAS DE M-LINES
+  async createOfferSafe() {
     try {
       if (!this.peerConnection) {
         throw new Error('La conexión WebRTC no está inicializada');
       }
       
-      // Crear oferta
-      const offer = await this.peerConnection.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true
-      });
+      // Marcar estado de negociación
+      this.isNegotiating = true;
       
-      // Establecer como descripción local
-      await this.peerConnection.setLocalDescription(offer);
-      
-      return offer;
+      // Intentar con opciones simples primero
+      try {
+        // Crear oferta simple sin opciones especiales
+        const offer = await this.peerConnection.createOffer();
+        
+        // Establecer descripción local
+        await this.peerConnection.setLocalDescription(offer);
+        this.log('Descripción local establecida correctamente');
+        
+        return offer;
+      } catch (error) {
+        this.logError('Error al crear o establecer oferta:', error);
+        
+        // Segundo intento: crear oferta con opciones específicas
+        if (error.name === 'InvalidAccessError' && error.message.includes('m-lines')) {
+          this.log('Detectado error de m-lines, intentando método alternativo');
+          
+          // Recrear la conexión para evitar problemas de orden
+          const currentRemoteId = this.remoteUserId;
+          const isInit = this.isInitiator;
+          
+          this.peerConnection.close();
+          
+          // Crear nueva conexión con configuración básica
+          this.peerConnection = new rtcAdapter.RTCPeerConnection({
+            iceServers: this.iceServers
+          });
+          
+          // Configurar nuevamente
+          this.setupPeerConnectionListeners();
+          this.remoteUserId = currentRemoteId;
+          this.isInitiator = isInit;
+          
+          // Agregar tracks nuevamente
+          if (this.localStream) {
+            this.localStream.getTracks().forEach(track => {
+              this.peerConnection.addTrack(track, this.localStream);
+            });
+          }
+          
+          // Crear oferta sin opciones específicas
+          const simpleOffer = await this.peerConnection.createOffer();
+          await this.peerConnection.setLocalDescription(simpleOffer);
+          
+          return simpleOffer;
+        }
+        
+        // Si no es un error de m-lines, propagar el error
+        throw error;
+      } finally {
+        // Permitir negociación nuevamente después de un tiempo
+        setTimeout(() => {
+          this.isNegotiating = false;
+        }, 1000);
+      }
     } catch (error) {
-      console.error('Error al crear oferta:', error);
+      this.logError('Error fatal al crear oferta:', error);
+      this.isNegotiating = false;
       throw error;
     }
   }
+
+  // Crear una oferta SDP
+  async createOffer() {
+    return this.createOfferSafe();
+  }
   
-  // Crear una respuesta SDP (para implementación nativa)
+  // Crear una respuesta SDP
   async createAnswer() {
     try {
       if (!this.peerConnection) {
@@ -475,97 +835,111 @@ class WebRTCService {
       // Crear respuesta
       const answer = await this.peerConnection.createAnswer();
       
+      this.log('Respuesta SDP creada');
+      
       // Establecer como descripción local
       await this.peerConnection.setLocalDescription(answer);
+      this.log('Descripción local (respuesta) establecida correctamente');
       
       return answer;
     } catch (error) {
-      console.error('Error al crear respuesta:', error);
+      this.logError('Error al crear respuesta:', error);
       throw error;
     }
   }
 
   // Manejar una oferta recibida
   async handleIncomingOffer(offer, fromUserId) {
-    console.log('Manejando oferta entrante de:', fromUserId);
+    this.log('Manejando oferta entrante de:', fromUserId);
     
     // Actualizar remoteUserId
     this.remoteUserId = fromUserId;
     
     try {
+      // Asegurarse de tener un stream local
+      if (!this.localStream) {
+        this.log('No hay stream local, solicitando para poder responder');
+        await this.getLocalStream();
+      }
+      
       // Si usamos simple-peer (entorno web)
       if (!rtcAdapter.isReactNative && Peer) {
+        this.log('Manejando oferta con simple-peer');
         const peer = await this.initConnection(fromUserId, false);
-        console.log('Señalizando oferta recibida al peer');
+        this.log('Señalizando oferta recibida al peer');
         peer.signal(offer);
       } else {
         // Implementación nativa
+        this.log('Manejando oferta con RTCPeerConnection nativo');
         if (!this.peerConnection) {
           await this.initConnection(fromUserId, false);
         }
         
+        // Verificar que la oferta es válida
+        if (!offer || !offer.type || offer.type !== 'offer') {
+          throw new Error('Oferta recibida no válida');
+        }
+        
         // Crear y establecer la descripción remota
         const remoteDesc = new rtcAdapter.RTCSessionDescription(offer);
+        this.log('Estableciendo descripción remota (oferta)');
         await this.peerConnection.setRemoteDescription(remoteDesc);
+        this.log('Descripción remota establecida correctamente');
         
         // Crear y enviar respuesta
+        this.log('Creando respuesta');
         const answer = await this.createAnswer();
+        this.log('Enviando respuesta a', fromUserId);
         socketService.sendAnswer(answer, fromUserId);
       }
     } catch (error) {
-      console.error('Error al manejar oferta entrante:', error);
+      this.logError('Error al manejar oferta entrante:', error);
       throw error;
     }
   }
 
-  // Manejar una respuesta recibida (para implementación nativa)
-  async handleAnswer(answer) {
-    try {
-      if (!this.peerConnection) {
-        throw new Error('La conexión WebRTC no está inicializada');
-      }
-      
-      // Crear y establecer la descripción remota
-      const remoteDesc = new rtcAdapter.RTCSessionDescription(answer);
-      await this.peerConnection.setRemoteDescription(remoteDesc);
-      
-      return true;
-    } catch (error) {
-      console.error('Error al manejar respuesta:', error);
-      throw error;
+  // Método para intentar reconexión
+  async reconnect(userId) {
+    this.log(`Intentando reconexión con ${userId}`);
+    
+    const maxAttempts = 3;
+    const currentAttempts = this.connectionAttempts[userId] || 0;
+    
+    if (currentAttempts >= maxAttempts) {
+      this.log(`Máximo de intentos (${maxAttempts}) alcanzado para ${userId}, no se intentará reconectar`);
+      return false;
     }
-  }
-
-  // Agregar un candidato ICE recibido (para implementación nativa)
-  async addIceCandidate(candidate) {
+    
+    // Esperar un tiempo antes de reconectar (tiempo exponencial)
+    const delay = Math.min(1000 * Math.pow(2, currentAttempts - 1), 10000);
+    this.log(`Esperando ${delay}ms antes de reconectar...`);
+    
+    await new Promise(resolve => setTimeout(resolve, delay));
+    
+    // Iniciar nueva conexión
     try {
-      if (!this.peerConnection) {
-        throw new Error('La conexión WebRTC no está inicializada');
-      }
-      
-      // Crear y agregar el candidato ICE
-      const iceCandidate = new rtcAdapter.RTCIceCandidate(candidate);
-      await this.peerConnection.addIceCandidate(iceCandidate);
-      
+      await this.initConnection(userId, true);
       return true;
     } catch (error) {
-      console.error('Error al agregar candidato ICE:', error);
-      throw error;
+      this.logError('Error durante la reconexión:', error);
+      return false;
     }
   }
 
   // Cerrar conexión con un usuario específico
   closeConnection(userId) {
-    console.log('Cerrando conexión con:', userId);
+    this.log('Cerrando conexión con:', userId);
     
     // Cerrar conexión simple-peer si existe
     if (this.peers[userId]) {
+      this.log('Destruyendo peer simple-peer');
       this.peers[userId].destroy();
       delete this.peers[userId];
     }
     
     // Cerrar conexión nativa si corresponde
     if (this.peerConnection && this.remoteUserId === userId) {
+      this.log('Cerrando RTCPeerConnection');
       this.peerConnection.close();
       this.peerConnection = null;
       this.remoteUserId = null;
@@ -574,6 +948,7 @@ class WebRTCService {
     // Limpiar stream remoto
     if (this.remoteStreams[userId]) {
       const stream = this.remoteStreams[userId];
+      this.log(`Deteniendo ${stream.getTracks().length} tracks del stream remoto`);
       stream.getTracks().forEach(track => track.stop());
       delete this.remoteStreams[userId];
       
@@ -585,7 +960,7 @@ class WebRTCService {
 
   // Cerrar todas las conexiones
   closeAllConnections() {
-    console.log('Cerrando todas las conexiones');
+    this.log('Cerrando todas las conexiones');
     
     // Cerrar todas las conexiones simple-peer
     Object.keys(this.peers).forEach(userId => {
@@ -594,6 +969,7 @@ class WebRTCService {
     
     // Cerrar conexión nativa si existe
     if (this.peerConnection) {
+      this.log('Cerrando RTCPeerConnection principal');
       this.peerConnection.close();
       this.peerConnection = null;
       this.remoteUserId = null;
@@ -604,30 +980,59 @@ class WebRTCService {
     
     // Limpiar todos los streams remotos
     Object.keys(this.remoteStreams).forEach(userId => {
+      this.log(`Liberando stream remoto de ${userId}`);
       const stream = this.remoteStreams[userId];
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach(track => {
+        this.log(`Deteniendo track ${track.kind} de usuario ${userId}`);
+        track.stop();
+      });
     });
     this.remoteStreams = {};
+    this.connectionAttempts = {}; // Reiniciar intentos de conexión
   }
 
   // Alternar audio
   toggleAudio(enabled) {
     if (this.localStream) {
-      this.localStream.getAudioTracks().forEach(track => {
+      const audioTracks = this.localStream.getAudioTracks();
+      
+      if (audioTracks.length === 0) {
+        this.log('No hay tracks de audio para modificar');
+        return false;
+      }
+      
+      audioTracks.forEach(track => {
         track.enabled = enabled;
-        console.log(`Micrófono ${enabled ? 'activado' : 'desactivado'}`);
+        this.log(`Micrófono ${enabled ? 'activado' : 'desactivado'} (track ID: ${track.id})`);
       });
+      
+      return true;
     }
+    
+    this.log('No hay stream local para modificar audio');
+    return false;
   }
 
   // Alternar video
   toggleVideo(enabled) {
     if (this.localStream) {
-      this.localStream.getVideoTracks().forEach(track => {
+      const videoTracks = this.localStream.getVideoTracks();
+      
+      if (videoTracks.length === 0) {
+        this.log('No hay tracks de video para modificar');
+        return false;
+      }
+      
+      videoTracks.forEach(track => {
         track.enabled = enabled;
-        console.log(`Cámara ${enabled ? 'activada' : 'desactivada'}`);
+        this.log(`Cámara ${enabled ? 'activada' : 'desactivada'} (track ID: ${track.id})`);
       });
+      
+      return true;
     }
+    
+    this.log('No hay stream local para modificar video');
+    return false;
   }
 
   // Cambiar entre cámara frontal y trasera
@@ -637,11 +1042,65 @@ class WebRTCService {
         throw new Error('No hay stream de video activo');
       }
       
-      await rtcAdapter.switchCamera(this.localStream);
+      const videoTracks = this.localStream.getVideoTracks();
+      if (videoTracks.length === 0) {
+        throw new Error('No hay tracks de video activos');
+      }
+      
+      this.log('Intentando cambiar de cámara...');
+      
+      // Llamar al método específico de cada plataforma
+      if (rtcAdapter.switchCamera) {
+        await rtcAdapter.switchCamera(this.localStream);
+        this.log('Cámara cambiada exitosamente');
+      } else {
+        // Alternativa en navegadores: detener y recrear stream con facingMode opuesto
+        const currentTrack = videoTracks[0];
+        const currentSettings = currentTrack.getSettings();
+        const isFrontCamera = !currentSettings.facingMode || currentSettings.facingMode === 'user';
+        
+        // Detener track actual
+        currentTrack.stop();
+        
+        // Solicitar nuevo stream con la cámara opuesta
+        const constraints = {
+          video: {
+            facingMode: isFrontCamera ? 'environment' : 'user'
+          }
+        };
+        
+        const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        
+        // Reemplazar track en el stream local
+        this.localStream.removeTrack(currentTrack);
+        this.localStream.addTrack(newVideoTrack);
+        
+        // Reemplazar track en todas las conexiones peer
+        if (this.peerConnection) {
+          const senders = this.peerConnection.getSenders();
+          const videoSender = senders.find(sender => 
+            sender.track && sender.track.kind === 'video'
+          );
+          
+          if (videoSender) {
+            await videoSender.replaceTrack(newVideoTrack);
+          }
+        }
+        
+        // Reemplazar en simple-peer connections
+        Object.values(this.peers).forEach(peer => {
+          if (peer.replaceTrack) {
+            peer.replaceTrack(currentTrack, newVideoTrack, this.localStream);
+          }
+        });
+        
+        this.log('Cámara cambiada manualmente');
+      }
       
       return true;
     } catch (error) {
-      console.error('Error al cambiar cámara:', error);
+      this.logError('Error al cambiar cámara:', error);
       throw error;
     }
   }
@@ -649,22 +1108,62 @@ class WebRTCService {
   // Alternar altavoz (implementación específica para cada plataforma)
   toggleSpeaker(speakerOn) {
     try {
-      if (!this.localStream) return;
+      this.log(`Intentando cambiar altavoz a: ${speakerOn ? 'altavoz' : 'auricular'}`);
       
       // En React Native, esta función es específica de la plataforma
       if (rtcAdapter.isReactNative) {
-        const audioTrack = this.localStream.getAudioTracks()[0];
+        this.log('Usando método específico de React Native');
+        const audioTrack = this.localStream && this.localStream.getAudioTracks()[0];
+        
         if (audioTrack && audioTrack._setSpeakerphoneOn) {
           audioTrack._setSpeakerphoneOn(speakerOn);
+          this.log('Altavoz cambiado correctamente');
+          return true;
+        } else {
+          this.log('No se puede cambiar el altavoz: método no disponible');
         }
       } else {
-        // En web no hay un equivalente directo, pero podría implementarse
-        // usando audioContext o APIs específicas del navegador
-        console.log(`Cambio de altavoz no soportado en web: ${speakerOn ? 'on' : 'off'}`);
+        // En web, usar la API de AudioContext si está disponible
+        this.log('Intentando cambiar altavoz en web');
+        
+        if ('setSinkId' in HTMLMediaElement.prototype) {
+          this.log('setSinkId disponible, se requiere acción del usuario para seleccionar dispositivo');
+          // Esto requiere una UI para que el usuario seleccione
+          return true;
+        } else {
+          this.log('Cambio de altavoz no soportado en este navegador');
+        }
       }
+      
+      return false;
     } catch (error) {
-      console.error('Error al cambiar altavoz:', error);
+      this.logError('Error al cambiar altavoz:', error);
+      return false;
     }
+  }
+
+  // Obtener el estado de conexión para un usuario
+  getConnectionState(userId) {
+    // Verificar conexión simple-peer
+    if (this.peers && this.peers[userId]) {
+      const peer = this.peers[userId];
+      if (peer._connected) return 'connected';
+      if (peer.destroyed) return 'closed';
+      return 'connecting';
+    }
+    
+    // Verificar conexión nativa
+    if (this.peerConnection && this.remoteUserId === userId) {
+      if (this.peerConnection.iceConnectionState) {
+        return this.peerConnection.iceConnectionState;
+      }
+      if (this.peerConnection.connectionState) {
+        return this.peerConnection.connectionState;
+      }
+    }
+    
+    // Si hay stream
+    return this.remoteStreams[userId] ? 'connected' : 'disconnected';
   }
 
   // Establecer callbacks para eventos remotos
@@ -673,6 +1172,7 @@ class WebRTCService {
     
     // Si ya tenemos streams remotos, llamar al callback inmediatamente
     Object.entries(this.remoteStreams).forEach(([userId, stream]) => {
+      this.log(`Notificando stream existente para ${userId}`);
       callback(userId, stream);
     });
   }
@@ -680,6 +1180,7 @@ class WebRTCService {
   // Establecer ID de usuario
   setUserId(userId) {
     this.userId = userId;
+    this.log(`ID de usuario establecido: ${userId}`);
   }
 
   // Obtener todos los streams remotos
@@ -689,6 +1190,7 @@ class WebRTCService {
 
   // Limpiar recursos
   cleanup() {
+    this.log('Limpiando todos los recursos WebRTC');
     this.closeAllConnections();
     this.userId = null;
     this.remoteUserId = null;
@@ -698,6 +1200,7 @@ class WebRTCService {
       onConnectionStateChange: null,
       onError: null
     };
+    this.log('Limpieza completada');
   }
 }
 
