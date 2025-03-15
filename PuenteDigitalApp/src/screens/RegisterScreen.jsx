@@ -82,6 +82,8 @@ const RegisterScreen = ({ navigation }) => {
                     [
                         {
                             text: 'OK',
+                            // No necesitamos navegar manualmente, AuthContext lo maneja
+                            onPress: () => {}
                         }
                     ]
                 );

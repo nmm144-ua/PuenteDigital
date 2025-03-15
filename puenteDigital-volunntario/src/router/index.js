@@ -53,15 +53,27 @@ const routes = [
         name: 'DetallesAsistente',
         component: () => import('../components/DetallesAsistente.vue')
       },
-      {
-        path: 'room',
-        name: 'room',
-        component: ()=>import('../views/VideoCall/RoomView.vue'),
-      },
+      // Actualiza las rutas de videollamada para usar VideollamadaView
       {
         path: 'call',
         name: 'HomeCall',
         component: () => import('../views/VideoCall/HomeCallView.vue')
+      },
+      {
+        path: 'videollamada/:id',  // Nueva ruta para el nuevo componente
+        name: 'VideollamadaView',
+        component: () => import('../views/VideoCall/VideoLlamadaView.vue'),
+        props: route => ({
+          roomId: route.params.id,
+          role: 'asistente',  // Por defecto es asistente en esta ruta
+          userName: useAuthStore().user?.nombre || 'Asistente'
+        })
+      },
+      // Mantener rutas antiguas para retrocompatibilidad
+      {
+        path: 'room',
+        name: 'room',
+        component: () => import('../views/VideoCall/RoomView.vue'),
       },
       {
         path: 'room/:id',
@@ -114,6 +126,17 @@ const routes = [
       }
     ]
   },
+  // Ruta pública para usuarios que acceden desde móvil o link
+  {
+    path: '/videollamada/:id',
+    name: 'VideollamadaPublica',
+    component: () => import('../views/VideoCall/VideoLlamadaView.vue'),
+    props: route => ({
+      roomId: route.params.id,
+      role: route.query.role || 'usuario',  // Por defecto es usuario
+      userName: route.query.nombre || 'Usuario'
+    })
+  },
   {
     path: '/:pathMatch(.*)*',
     component: () => import('../views/NotFound.vue'),
@@ -134,7 +157,6 @@ const routes = [
   },
 ];
 
-
 const router = createRouter({
   history: createWebHistory(),
   routes
@@ -147,17 +169,14 @@ router.beforeEach(async (to, from, next) => {
   if (!authStore.sessionChecked) {
     await authStore.checkSession();
   }
-
   // Si la ruta requiere no estar autenticado (login/register) y el usuario está autenticado
   if (to.meta.requiresGuest && authStore.isAuthenticated) {
     return next(authStore.isAdmin ? '/admin' : '/asistente');
   }
-
   // Si la ruta requiere autenticación y el usuario no está autenticado
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return next('/login');
   }
-
   // Si la ruta tiene roles específicos, verificar si el usuario tiene el rol necesario
   if (to.meta.roles && !to.meta.roles.includes(authStore.currentRole)) {
     // Redirigir según el rol del usuario
@@ -167,7 +186,6 @@ router.beforeEach(async (to, from, next) => {
       return next('/asistente');
     }
   }
-
   next();
 });
 

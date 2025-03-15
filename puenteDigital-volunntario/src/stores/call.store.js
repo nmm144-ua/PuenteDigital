@@ -3,7 +3,7 @@ import { defineStore } from 'pinia';
 import { v4 as uuidv4 } from 'uuid';
 import socketService from '../services/socket.service';
 import webrtcService from '../services/webrtc.service';
-import roomService from '../services/room.service';
+import { solicitudesAsistenciaService } from '../services/solicitudAsistenciaService';
 
 export const useCallStore = defineStore('call', {
   state: () => ({
@@ -12,7 +12,7 @@ export const useCallStore = defineStore('call', {
     userName: '',
     
     // Rol del usuario (asistente o usuario)
-    userRole: 'asistente',
+    userRole: 'usuario',
     
     // Sala
     roomId: null,
@@ -45,14 +45,25 @@ export const useCallStore = defineStore('call', {
         this.userId = uuidv4();
       }
       
+      // Configurar WebRTC
+      webrtcService.registerCallbacks({
+        onRemoteStream: this.handleRemoteStream.bind(this),
+        onRemoteStreamClosed: this.handleRemoteStreamClosed.bind(this),
+        onConnectionStateChange: this.handleConnectionStateChange.bind(this),
+        onError: this.handleError.bind(this)
+      });
+      
       // Configurar escuchas de socket
       this.setupSocketListeners();
       
-      // Configurar callbacks de WebRTC
-      webrtcService.registerCallbacks({
-        onRemoteStream: this.handleRemoteStream.bind(this),
-        onRemoteStreamClosed: this.handleRemoteStreamClosed.bind(this)
+      // Inicializar WebRTC
+      webrtcService.init().catch(error => {
+        console.error('Error al inicializar WebRTC:', error);
+        this.error = `Error al inicializar WebRTC: ${error.message}`;
       });
+      
+      // Establecer ID de usuario en WebRTC
+      webrtcService.setUserId(this.userId);
     },
     
     // Establecer rol de usuario
@@ -94,20 +105,18 @@ export const useCallStore = defineStore('call', {
       // Cuando se solicita iniciar una llamada
       socketService.on('call-requested', ({ from, fromName }) => {
         console.log('Solicitud de llamada recibida de:', fromName);
-        // Si somos usuario normal, mostrar confirmación
+        // Si somos usuario normal, aceptar automáticamente si ya nos unimos a la sala
         if (this.userRole === 'usuario') {
-          if (confirm(`${fromName} quiere iniciar una videollamada contigo. ¿Aceptas?`)) {
-            this.acceptCall(from);
-          }
+          this.acceptCall(from);
         } else {
-          // Si somos asistente, aceptar automáticamente
+          // Si somos asistente, aceptar también
           this.acceptCall(from);
         }
       });
     },
     
     // Unirse a una sala
-    async joinRoom(roomId, userName, role = 'asistente') {
+    async joinRoom(roomId, userName, role = 'usuario') {
       try {
         this.loading = true;
         this.error = null;
@@ -116,17 +125,23 @@ export const useCallStore = defineStore('call', {
         
         console.log(`Uniéndose a sala ${roomId} como ${userName} (${role})`);
         
-        // Obtener información de la sala
-        try {
-          this.roomInfo = await roomService.getRoomInfo(roomId);
-        } catch (error) {
-          console.warn('No se pudo obtener información de la sala:', error);
-          // Continuar de todos modos, la sala podría existir pero el endpoint falla
+        // Obtener información de la solicitud
+        if (role === 'usuario') {
+          try {
+            const solicitudes = await solicitudesAsistenciaService.getSolicitudesByUsuario();
+            const solicitud = solicitudes.find(s => s.room_id === roomId);
+            if (solicitud) {
+              this.currentRequest = solicitud;
+            }
+          } catch (error) {
+            console.warn('No se pudo obtener información de la solicitud:', error);
+          }
         }
         
         this.roomId = roomId;
         
         // Unirse a la sala vía Socket.io
+        await socketService.connect();
         socketService.joinRoom(roomId, this.userId, userName);
         
         return true;
@@ -139,35 +154,15 @@ export const useCallStore = defineStore('call', {
       }
     },
     
-    // Crear una nueva sala
-    async createRoom(hostName) {
-      try {
-        this.loading = true;
-        this.error = null;
-        this.userName = hostName;
-        
-        // Crear sala en el servidor
-        const room = await roomService.createRoom(hostName);
-        this.roomId = room.id;
-        this.roomInfo = room;
-        
-        // Unirse a la sala creada
-        socketService.joinRoom(room.id, this.userId, hostName);
-        
-        return room;
-      } catch (error) {
-        console.error('Error al crear sala:', error);
-        this.error = 'Error al crear sala: ' + error.message;
-        return null;
-      } finally {
-        this.loading = false;
-      }
-    },
-    
     // Iniciar llamada con otro participante
     async callUser(targetUserId) {
       try {
         console.log(`Llamando a usuario ${targetUserId}...`);
+        
+        // Iniciar stream local si no existe
+        if (!this.localStream) {
+          await this.startLocalStream();
+        }
         
         // Iniciar conexión WebRTC
         await webrtcService.initConnection(targetUserId, true);
@@ -189,7 +184,11 @@ export const useCallStore = defineStore('call', {
       try {
         console.log(`Aceptando llamada de ${fromUserId}`);
         
-        // La conexión ya debería estar iniciada por handleIncomingOffer
+        // Iniciar stream local si no existe
+        if (!this.localStream) {
+          await this.startLocalStream();
+        }
+        
         this.isInCall = true;
         return true;
       } catch (error) {
@@ -213,22 +212,6 @@ export const useCallStore = defineStore('call', {
       try {
         console.log('Solicitando acceso a cámara y micrófono...');
         this.localStream = await webrtcService.getLocalStream();
-        
-        // Si somos asistente, podemos iniciar llamadas automáticamente
-        if (this.userRole === 'asistente' && this.participants.length > 0) {
-          // Buscar usuarios regulares (no asistentes)
-          const regularUsers = this.participants.filter(p => p.userRole !== 'asistente');
-          console.log('Usuarios regulares para llamar:', regularUsers);
-          
-          // Llamar automáticamente a usuarios regulares si hay
-          if (regularUsers.length > 0) {
-            console.log('Iniciando llamadas automáticamente con usuarios regulares...');
-            for (const user of regularUsers) {
-              await this.callUser(user.userId);
-            }
-          }
-        }
-        
         return this.localStream;
       } catch (error) {
         console.error('Error al acceder a la cámara:', error);
@@ -279,12 +262,41 @@ export const useCallStore = defineStore('call', {
       this.remoteStreams = newStreams;
     },
     
+    // Manejar cambio de estado de conexión
+    handleConnectionStateChange(userId, state) {
+      console.log(`Estado de conexión para ${userId}: ${state}`);
+      
+      // Si la conexión se cierra inesperadamente, actualizar UI
+      if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+        this.handleRemoteStreamClosed(userId);
+      }
+    },
+    
+    // Manejar errores de WebRTC
+    handleError(type, error, userId) {
+      console.error(`Error de ${type}:`, error);
+      this.error = `Error de ${type}: ${error.message}`;
+      
+      // Si el error es fatal, cerrar la conexión
+      if (type === 'peer' || type === 'media') {
+        if (userId) {
+          this.handleRemoteStreamClosed(userId);
+        }
+      }
+    },
+    
     // Agregar participante a la lista
     addParticipant(participant) {
       const exists = this.participants.some(p => p.userId === participant.userId);
       if (!exists) {
         this.participants.push(participant);
         console.log('Participante añadido:', participant.userName);
+        
+        // Si somos asistente y ya estamos en llamada, llamar al nuevo usuario
+        if (this.userRole === 'asistente' && this.isInCall && participant.userRole !== 'asistente') {
+          console.log('Llamando automáticamente a nuevo usuario:', participant.userName);
+          this.callUser(participant.userId);
+        }
       }
     },
     
@@ -292,19 +304,34 @@ export const useCallStore = defineStore('call', {
     removeParticipant(userId) {
       this.participants = this.participants.filter(p => p.userId !== userId);
       console.log('Participante eliminado:', userId);
+      
+      // Cerrar conexión con este usuario si existe
+      if (this.remoteStreams[userId]) {
+        webrtcService.closeConnection(userId);
+      }
     },
     
     // Limpiar estado al salir
     cleanup() {
       console.log('Limpiando estado de la videollamada...');
-      this.endCall();
+      
+      // Cerrar conexiones WebRTC
+      webrtcService.cleanup();
+      
+      // Desconectar socket
+      socketService.leaveRoom();
       socketService.disconnect();
+      
+      // Restablecer estado
       this.roomId = null;
       this.roomInfo = null;
       this.participants = [];
       this.messages = [];
       this.isInCall = false;
+      this.localStream = null;
+      this.remoteStreams = {};
       this.currentRequest = null;
+      this.error = null;
     }
   }
 });

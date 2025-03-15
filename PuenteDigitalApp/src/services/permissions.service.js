@@ -1,6 +1,6 @@
 // src/services/permissions.service.js
 import { Platform, Alert, Linking } from 'react-native';
-import { request, PERMISSIONS, RESULTS } from 'react-native-permissions';
+import { check, request, PERMISSIONS, RESULTS } from 'react-native-permissions';
 
 class PermissionsService {
   // Solicitar permisos de cámara

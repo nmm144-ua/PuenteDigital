@@ -43,6 +43,7 @@ const WelcomeScreen = ({ navigation }) => {
       const result = await registerAnonymous();
       
       if (result.success) {
+        // El cambio de navegación será automático gracias al contexto de autenticación
       } else {
         let errorMessage = 'No se pudo continuar sin cuenta. Por favor, intente nuevamente.';
         

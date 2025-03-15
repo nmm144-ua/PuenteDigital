@@ -35,7 +35,7 @@ const OpcionesInicioScreen = ({ navigation }) => {
 
                 <TouchableOpacity
                     style={styles.linkButton}
-                    onPress={() => navigation.navigate('Inicio')} // Navega a la pantalla de inicio
+                    onPress={() => navigation.navigate('Inicio')}
                 >
                     <Text style={styles.linkText}>Ir a la página principal</Text>
                 </TouchableOpacity>

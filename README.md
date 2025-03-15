@@ -2,6 +2,9 @@
 TFG de Ingeniería Informática en el que se desarrollará una aplicación móvil para intentar ayudar con la brecha digital para las personas que la sufren.
 
 
+1. npx eas build --profile development --platform android
+2. npx expo start --dev-client
+
 
 # Guía para Probar Apps de Expo en Dispositivos Móviles sin Expo Go
 

@@ -25,6 +25,8 @@
     "expo-dev-client": "~5.0.14",
     "expo-device": "^7.0.2",
     "expo-linking": "~7.0.5",
+    "expo-location": "~18.0.7",
+    "expo-media-library": "~17.0.6",
     "expo-network": "^7.0.5",
     "expo-status-bar": "~2.0.1",
     "nativewind": "^4.1.23",
@@ -32,14 +34,17 @@
     "react-dom": "18.3.1",
     "react-native": "0.76.7",
     "react-native-gesture-handler": "^2.23.1",
+    "react-native-get-random-values": "^1.11.0",
+    "react-native-permissions": "^5.2.6",
     "react-native-reanimated": "^3.16.7",
     "react-native-safe-area-context": "^5.2.0",
     "react-native-screens": "^4.8.0",
     "react-native-url-polyfill": "^2.0.0",
     "react-native-vector-icons": "^10.2.0",
     "react-native-web": "~0.19.13",
-    "expo-location": "~18.0.7",
-    "expo-media-library": "~17.0.6"
+    "react-native-webrtc": "^124.0.5",
+    "socket.io-client": "^4.8.1",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

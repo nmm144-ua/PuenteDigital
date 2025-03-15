@@ -71,6 +71,8 @@ const LoginScreen = ({ navigation }) => {
             const { success, error } = await login(email, password);
             
             if (success) {
+                // La navegación será gestionada automáticamente por AppNavigator
+                // cuando el estado de autenticación cambia
             } else {
                 Alert.alert('Error', error?.message || 'Error al iniciar sesión');
             }
@@ -151,6 +153,7 @@ const LoginScreen = ({ navigation }) => {
         </View>
     );
 };
+
 
 const styles = StyleSheet.create({
     container: {

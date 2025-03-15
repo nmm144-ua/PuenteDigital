@@ -1,5 +1,6 @@
 // src/services/AsistenciaService.js
-import supabase from '../../supabase';
+import { supabase } from '../../supabase';
+import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -9,9 +10,16 @@ class AsistenciaService {
     try {
       // Obtener información del usuario desde AsyncStorage
       const userDataString = await AsyncStorage.getItem('userData');
-      const userData = userDataString ? JSON.parse(userDataString) : null;
+      
+      if (!userDataString) {
+        console.error('No se encontró información de usuario en AsyncStorage');
+        throw new Error('No se puede identificar al usuario');
+      }
+      
+      const userData = JSON.parse(userDataString);
       
       if (!userData || !userData.id) {
+        console.error('Datos de usuario inválidos:', userData);
         throw new Error('No se puede identificar al usuario');
       }
       
@@ -26,14 +34,16 @@ class AsistenciaService {
           descripcion,
           room_id: roomId,
           estado: 'pendiente',
-          timestamp: new Date().toISOString()
+          created_at: new Date().toISOString()
         }])
-        .select()
-        .single();
+        .select();
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error en Supabase:', error);
+        throw error;
+      }
       
-      return data;
+      return data[0];
     } catch (error) {
       console.error('Error al crear solicitud de asistencia:', error);
       throw error;
@@ -44,7 +54,12 @@ class AsistenciaService {
   async obtenerMisSolicitudes() {
     try {
       const userDataString = await AsyncStorage.getItem('userData');
-      const userData = userDataString ? JSON.parse(userDataString) : null;
+      
+      if (!userDataString) {
+        throw new Error('No se puede identificar al usuario');
+      }
+      
+      const userData = JSON.parse(userDataString);
       
       if (!userData || !userData.id) {
         throw new Error('No se puede identificar al usuario');
@@ -54,7 +69,7 @@ class AsistenciaService {
         .from('solicitudes_asistencia')
         .select('*, asistente:asistente_id(*)')
         .eq('usuario_id', userData.id)
-        .order('timestamp', { ascending: false });
+        .order('created_at', { ascending: false });
       
       if (error) throw error;
       
@@ -90,12 +105,11 @@ class AsistenciaService {
         .from('solicitudes_asistencia')
         .update({ estado: 'cancelada' })
         .eq('id', solicitudId)
-        .select()
-        .single();
+        .select();
       
       if (error) throw error;
       
-      return data;
+      return data[0];
     } catch (error) {
       console.error('Error al cancelar solicitud:', error);
       throw error;
@@ -106,7 +120,12 @@ class AsistenciaService {
   async verificarSolicitudPendiente() {
     try {
       const userDataString = await AsyncStorage.getItem('userData');
-      const userData = userDataString ? JSON.parse(userDataString) : null;
+      
+      if (!userDataString) {
+        return null;
+      }
+      
+      const userData = JSON.parse(userDataString);
       
       if (!userData || !userData.id) {
         return null;
@@ -117,7 +136,7 @@ class AsistenciaService {
         .select('*')
         .eq('usuario_id', userData.id)
         .in('estado', ['pendiente', 'en_proceso'])
-        .order('timestamp', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .single();
       
@@ -128,6 +147,17 @@ class AsistenciaService {
       return data || null;
     } catch (error) {
       console.error('Error al verificar solicitud pendiente:', error);
+      return null;
+    }
+  }
+  
+  // Obtener información del usuario actual
+  async obtenerUsuarioActual() {
+    try {
+      const userDataString = await AsyncStorage.getItem('userData');
+      return userDataString ? JSON.parse(userDataString) : null;
+    } catch (error) {
+      console.error('Error al obtener usuario actual:', error);
       return null;
     }
   }

@@ -3,6 +3,7 @@ import * as Application from 'expo-application';
 import * as Device from 'expo-device';
 import * as Network from 'expo-network';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Crear el servicio de autenticación
 const createAuthService = () => {
@@ -73,14 +74,21 @@ const createAuthService = () => {
             const { data, error } = await supabase
               .from('usuario')
               .update({
-                ultimo_acceso : new Date().toISOString(),
-                ip: deviceInfo.ipAddress,
-                fecha_registro: new Date().toISOString()
+                ultimo_acceso: new Date().toISOString(),
+                ip: deviceInfo.ipAddress
               })
               .eq('id_dispositivo', deviceInfo.deviceId)
               .select();
               
             if (!error) {
+              // Guardar en AsyncStorage para acceso fácil
+              const userData = {
+                id: data[0]?.id || existingData.id,
+                id_dispositivo: deviceInfo.deviceId,
+                tipo_usuario: 'anonimo'
+              };
+              
+              await AsyncStorage.setItem('userData', JSON.stringify(userData));
               return { success: true, data: data[0] || existingData };
             }
           }
@@ -92,11 +100,23 @@ const createAuthService = () => {
               ip: deviceInfo.ipAddress,
               id_dispositivo: deviceInfo.deviceId,
               tipo_usuario: 'anonimo',
-              fecha_registro: new Date().toISOString()
+              fecha_registro: new Date().toISOString(),
+              ultimo_acceso: new Date().toISOString()
             })
             .select();
 
           if (error) throw error;
+          
+          // Guardar en AsyncStorage para acceso fácil
+          if (data && data.length > 0) {
+            const userData = {
+              id: data[0].id,
+              id_dispositivo: deviceInfo.deviceId,
+              tipo_usuario: 'anonimo'
+            };
+            
+            await AsyncStorage.setItem('userData', JSON.stringify(userData));
+          }
           
           return { success: true, data: data[0] };
         } catch (supabaseError) {
@@ -108,11 +128,23 @@ const createAuthService = () => {
                 ip: deviceInfo.ipAddress,
                 id_dispositivo: deviceInfo.deviceId,
                 tipo_usuario: 'anonimo',
-                fecha_registro: new Date().toISOString()
+                fecha_registro: new Date().toISOString(),
+                ultimo_acceso: new Date().toISOString()
               })
               .select();
               
             if (!error && data) {
+              // Guardar en AsyncStorage para acceso fácil
+              if (data && data.length > 0) {
+                const userData = {
+                  id: data[0].id,
+                  id_dispositivo: deviceInfo.deviceId,
+                  tipo_usuario: 'anonimo'
+                };
+                
+                await AsyncStorage.setItem('userData', JSON.stringify(userData));
+              }
+              
               return { success: true, data: data[0] };
             }
           } catch (finalError) {
@@ -151,9 +183,24 @@ const createAuthService = () => {
             tipo_usuario: 'registrado',
             fecha_registro: new Date().toISOString(),
             ultimo_acceso: new Date().toISOString()
-          });
+          })
+          .select();
 
         if (error) throw error;
+        
+        // Guardar información de usuario en AsyncStorage
+        if (data && data.length > 0) {
+          const userData = {
+            id: data[0].id,
+            user_id: authData.user.id,
+            nombre: fullName,
+            email,
+            tipo_usuario: 'registrado'
+          };
+          
+          await AsyncStorage.setItem('userData', JSON.stringify(userData));
+        }
+        
         return { success: true, data: authData };
       } catch (error) {
         return { success: false, error };
@@ -173,16 +220,35 @@ const createAuthService = () => {
 
         if (authError) throw authError;
 
-        // 2. Actualizar IP en tabla usuarios
-        const { error: updateError } = await supabase
+        // 2. Obtener información del usuario de la tabla usuario
+        const { data: userData, error: userQueryError } = await supabase
           .from('usuario')
-          .update({
-            ip: ipAddress,
-            ultimo_acceso: new Date().toISOString()
-          })
-          .eq('user_id', authData.user.id);
+          .select('*')
+          .eq('user_id', authData.user.id)
+          .single();
 
-        if (updateError) throw updateError;
+        if (!userQueryError && userData) {
+          // 3. Actualizar IP y último acceso
+          await supabase
+            .from('usuario')
+            .update({
+              ip: ipAddress,
+              ultimo_acceso: new Date().toISOString(),
+              id_dispositivo: deviceId // Actualizar también el id de dispositivo
+            })
+            .eq('id', userData.id);
+          
+          // 4. Guardar en AsyncStorage
+          const userDataStorage = {
+            id: userData.id,
+            user_id: authData.user.id,
+            nombre: userData.nombre,
+            email: userData.email,
+            tipo_usuario: userData.tipo_usuario
+          };
+          
+          await AsyncStorage.setItem('userData', JSON.stringify(userDataStorage));
+        }
 
         return { success: true, data: authData };
       } catch (error) {
@@ -193,6 +259,9 @@ const createAuthService = () => {
     // Cerrar sesión
     async logout() {
       try {
+        // Eliminar información de usuario del AsyncStorage
+        await AsyncStorage.removeItem('userData');
+        
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
         return { success: true };

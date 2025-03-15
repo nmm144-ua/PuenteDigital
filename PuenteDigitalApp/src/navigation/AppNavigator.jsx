@@ -13,9 +13,10 @@ import OpcionesInicioScreen from '../screens/OpcionesInicioScreen';
 import NoDisponibleScreen from '../screens/NoDisponibleScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 
-// Nuevas pantallas de videollamada con Agora
-
-//import socketService from '../services/socket.service';
+// Nuevas pantallas de videollamada
+import AsistenciaScreen from '../screens/Asistencia/AsistenciaScreen';
+import EsperaAsistenciaScreen from '../screens/Asistencia/EsperaAsistenciaScreen';
+import VideollamadaScreen from '../screens/Asistencia/VideollamadaScreen';
 
 const Stack = createStackNavigator();
 
@@ -53,8 +54,18 @@ const MainNavigator = () => {
       <Stack.Screen name="OpcionesInicio" component={OpcionesInicioScreen} />
       <Stack.Screen name="Tutoriales" component={NoDisponibleScreen} />
       <Stack.Screen name="Mensajes" component={NoDisponibleScreen} />
-      <Stack.Screen name="Asistencia" component={NoDisponibleScreen} />      
-    
+      
+      {/* Nuevas pantallas de videollamada */}
+      <Stack.Screen name="Asistencia" component={AsistenciaScreen} />
+      <Stack.Screen name="EsperaAsistencia" component={EsperaAsistenciaScreen} />
+      <Stack.Screen 
+        name="Videollamada" 
+        component={VideollamadaScreen}
+        options={{
+          headerShown: false,
+          gestureEnabled: false // Deshabilitar gesto de regreso
+        }}
+      />
     </Stack.Navigator>
   );
 };
@@ -76,7 +87,7 @@ const AppNavigator = () => {
 
   return (
     <NavigationContainer>
-           {user ? <MainNavigator /> : <AuthNavigator />}
+      {user ? <MainNavigator /> : <AuthNavigator />}
     </NavigationContainer>
   );
 };

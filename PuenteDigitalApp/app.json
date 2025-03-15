@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "PuenteDigitalApp",
+    "name": "PuenteDigital",
     "slug": "puentedigitalapp",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,7 +19,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Esta aplicación necesita acceso a la cámara para videollamadas",
         "NSMicrophoneUsageDescription": "Esta aplicación necesita acceso al micrófono para llamadas de voz",
-        "NSBluetoothAlwaysUsageDescription": "Esta aplicación utiliza Bluetooth para conectarse a dispositivos de audio"
+        "NSBluetoothAlwaysUsageDescription": "Esta aplicación utiliza Bluetooth para conectarse a dispositivos de audio",
+        "NSPhotoLibraryUsageDescription": "Esta app necesita acceso a la galería"
       }
     },
     "android": {
@@ -41,7 +42,9 @@
         "android.permission.WAKE_LOCK",
         "CAMERA",
         "RECORD_AUDIO",
-        "INTERNET"
+        "INTERNET",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {

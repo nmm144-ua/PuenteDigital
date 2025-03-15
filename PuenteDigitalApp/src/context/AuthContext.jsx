@@ -28,16 +28,31 @@ export const AuthProvider = ({ children }) => {
         // Usuario inició sesión o se refrescó el token
         if (session?.user) {
           setUser(session.user);
-          updateLastAccess(session.user.id);
-          logEvent('session_start', session.user.id);
+          await updateLastAccess(session.user.id);
+          
+          // Obtener información de usuario de la tabla usuario
+          const { data: userData, error } = await supabase
+            .from('usuario')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .single();
+
+          if (userData && !error) {
+            // Guardar información de usuario en AsyncStorage
+            await AsyncStorage.setItem('userData', JSON.stringify({
+              id: userData.id,             // ID en la tabla usuario
+              user_id: userData.user_id,   // UUID de auth.users
+              nombre: userData.nombre,
+              email: userData.email,
+              tipo_usuario: userData.tipo_usuario
+            }));
+          }
         }
       } else if (event === 'SIGNED_OUT') {
         // Usuario cerró sesión
-        if (user) {
-          logEvent('session_end', user.id);
-        }
         setUser(null);
         await AsyncStorage.removeItem('device_info_permission_granted');
+        await AsyncStorage.removeItem('userData'); // Limpiar datos de usuario
       } else if (event === 'USER_UPDATED') {
         // La información del usuario ha sido actualizada
         setUser(session?.user || null);
@@ -59,34 +74,25 @@ export const AuthProvider = ({ children }) => {
     if (!userId) return;
     
     try {
+      // Primero intentamos actualizar usando user_id
+      const { data: userData, error: userError } = await supabase
+        .from('usuario')
+        .select('id')
+        .eq('user_id', userId)
+        .single();
+
+      if (userError || !userData) {
+        console.warn('No se encontró usuario con user_id:', userId);
+        return;
+      }
+
+      // Actualizamos el último acceso
       await supabase
         .from('usuario')
         .update({ ultimo_acceso: new Date().toISOString() })
-        .eq('user_id', userId);
-
-        await supabase
-        .from('usuario')
-        .update({ ultimo_acceso: new Date().toISOString() })
-        .eq('id', userId);
+        .eq('id', userData.id);
     } catch (error) {
       console.error('Error al actualizar último acceso:', error);
-    }
-  };
-
-  // Registro básico de eventos de usuario
-  const logEvent = async (eventType, userId = null) => {
-    try {
-      const eventData = {
-        user_id: userId,
-        tipo_evento: eventType,
-        timestamp: new Date().toISOString()
-      };
-      
-      await supabase
-        .from('eventos_usuario')
-        .insert(eventData);
-    } catch (error) {
-      console.error('Error al registrar evento:', error);
     }
   };
 
@@ -97,9 +103,28 @@ export const AuthProvider = ({ children }) => {
       
       if (session?.user) {
         setUser(session.user);
-        updateLastAccess(session.user.id);
+        await updateLastAccess(session.user.id);
+        
+        // Obtener y guardar la información completa del usuario
+        const { data: userData, error } = await supabase
+          .from('usuario')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .single();
+
+        if (userData && !error) {
+          // Guardar información de usuario en AsyncStorage
+          await AsyncStorage.setItem('userData', JSON.stringify({
+            id: userData.id,             // ID en la tabla usuario
+            user_id: userData.user_id,   // UUID de auth.users
+            nombre: userData.nombre,
+            email: userData.email,
+            tipo_usuario: userData.tipo_usuario
+          }));
+        }
       } else {
         setUser(null);
+        await AsyncStorage.removeItem('userData');
       }
     } catch (error) {
       console.error('Error verificando usuario:', error);
@@ -113,23 +138,27 @@ export const AuthProvider = ({ children }) => {
   const registerAnonymous = async () => {
     try {
       setLoading(true);
-      logEvent('anonymous_access');
       
       const result = await authService.registerAnonymousUser();
       
-      // Si el registro anónimo fue exitoso pero no establecemos un user,
-      // podemos crear un usuario temporal (opcional)
+      // Si el registro anónimo fue exitoso, guardamos la información en AsyncStorage
       if (result.success && result.data) {
-        // NOTA: Este usuario 'semi-autenticado' solo se usa si quieres
-        // que los usuarios anónimos tengan acceso a rutas protegidas
-        // Si no lo deseas, comenta o elimina estas líneas
+        // Crear un objeto con la información del usuario anónimo
         const tempUser = {
-          id: result.data.id_dispositivo,
-          role: 'anonymous',
+          id: result.data.id,  // ID en la tabla usuario
+          id_dispositivo: result.data.id_dispositivo,
+          tipo_usuario: 'anonimo',
           isAnonymous: true
         };
-        setUser(tempUser);
         
+        // Guardar en AsyncStorage
+        await AsyncStorage.setItem('userData', JSON.stringify(tempUser));
+        
+        // Establecer el usuario en el estado
+        setUser({
+          ...tempUser,
+          role: 'anonymous'
+        });
       }
       
       return result;
@@ -147,17 +176,9 @@ export const AuthProvider = ({ children }) => {
       const result = await authService.loginUser(email, password);
       
       // La actualización del usuario será manejada por onAuthStateChange
-      // No necesitamos establecer manualmente el usuario aquí
-      
-      if (result.success) {
-        logEvent('login_success');
-      } else {
-        logEvent('login_failed');
-      }
       
       return result;
     } catch (error) {
-      logEvent('login_error');
       console.error('Error en login:', error);
       return { success: false, error };
     } finally {
@@ -172,17 +193,9 @@ export const AuthProvider = ({ children }) => {
       const result = await authService.registerUser(fullName, email, password);
       
       // La actualización del usuario será manejada por onAuthStateChange
-      // No necesitamos establecer manualmente el usuario aquí
-      
-      if (result.success) {
-        logEvent('register_success');
-      } else {
-        logEvent('register_failed');
-      }
       
       return result;
     } catch (error) {
-      logEvent('register_error');
       console.error('Error en registro:', error);
       return { success: false, error };
     } finally {
@@ -194,12 +207,10 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       setLoading(true);
-      logEvent('logout', user?.id);
       
       const result = await authService.logout();
       
       // La actualización del usuario será manejada por onAuthStateChange
-      // No necesitamos establecer manualmente el usuario como null aquí
       
       return result;
     } catch (error) {
