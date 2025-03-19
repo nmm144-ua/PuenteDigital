@@ -143,9 +143,9 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
     }, 1000);
     
     // Consultar cada 10 segundos si la solicitud fue aceptada
-    const checkInterval = setInterval(() => {
+    /*const checkInterval = setInterval(() => {
       cargarSolicitud();
-    }, 10000);
+    }, 10000);*/
     
     // Prevenir navegación hacia atrás sin cancelar la solicitud
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -155,13 +155,13 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
     
     return () => {
       clearInterval(timerRef.current);
-      clearInterval(checkInterval);
+     // clearInterval(checkInterval);
       backHandler.remove();
       
-      // Desconectar del socket si navegamos fuera sin aceptar
+     /* // Desconectar del socket si navegamos fuera sin aceptar
       if (socketConnectedRef.current && roomId) {
         SocketService.leaveRoom(roomId);
-      }
+      }*/
     };
   }, []);
   

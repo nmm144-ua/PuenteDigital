@@ -114,6 +114,58 @@ export const useCallStore = defineStore('call', {
         }
       });
     },
+
+
+    // Añade este método a tu call.store.js
+
+    /**
+     * Método para reconectar con un usuario específico
+     * @param {string} userId - ID del usuario con el que reconectar
+     * @returns {Promise<boolean>} - True si la reconexión fue exitosa
+     */
+    async reconnectWithUser(userId) {
+      console.log(`Iniciando reconexión con ${userId}`);
+      
+      // Si no hay conexión con este usuario, no hacer nada
+      if (!this.remoteStreams[userId]) {
+        console.warn(`No hay stream remoto para ${userId}, no se puede reconectar`);
+        return false;
+      }
+      
+      try {
+        // 1. Guardar referencia al estado actual
+        const currentState = {
+          stream: this.remoteStreams[userId],
+          connection: this.webRTCService.getConnection(userId)
+        };
+        
+        // 2. Cerrar la conexión existente
+        console.log(`Cerrando conexión existente con ${userId}`);
+        await this.webRTCService.closeConnection(userId);
+        
+        // 3. Actualizar estado interno
+        this.connectionStates[userId] = 'reconnecting';
+        delete this.remoteStreams[userId];
+        
+        // 4. Esperar un momento para que la conexión se cierre completamente
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // 5. Iniciar una nueva llamada
+        console.log(`Iniciando nueva conexión con ${userId}`);
+        await this.callUser(userId);
+        
+        // 6. Verificar si la reconexión fue exitosa
+        const reconnected = !!this.remoteStreams[userId];
+        
+        console.log(`Reconexión con ${userId} ${reconnected ? 'exitosa' : 'fallida'}`);
+        return reconnected;
+        
+      } catch (error) {
+        console.error(`Error al reconectar con ${userId}:`, error);
+        this.connectionStates[userId] = 'failed';
+        return false;
+      }
+    },
     
     // Unirse a una sala
     async joinRoom(roomId, userName, role = 'usuario') {
@@ -319,7 +371,7 @@ export const useCallStore = defineStore('call', {
       webrtcService.cleanup();
       
       // Desconectar socket
-      socketService.leaveRoom();
+      //socketService.leaveRoom();
       socketService.disconnect();
       
       // Restablecer estado

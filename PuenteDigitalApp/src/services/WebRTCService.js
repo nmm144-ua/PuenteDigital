@@ -20,6 +20,35 @@ class WebRTCService {
     this.pendingIceCandidates = []; // Para almacenar candidatos ICE hasta que se establezca la descripción remota
     this.isInitializing = false;
     
+    // Enriquecer el prototipo de MediaStream para mejor compatibilidad con la web
+    if (MediaStream && MediaStream.prototype) {
+      // Asegurar que getTracks siempre devuelve un array completo
+      const originalGetTracks = MediaStream.prototype.getTracks;
+      MediaStream.prototype.getTracks = function() {
+        if (originalGetTracks) {
+          const tracks = originalGetTracks.call(this);
+          if (tracks && tracks.length > 0) return tracks;
+        }
+        
+        // Fallback: combinar audio y video tracks
+        const audioTracks = this.getAudioTracks ? this.getAudioTracks() : [];
+        const videoTracks = this.getVideoTracks ? this.getVideoTracks() : [];
+        return [...audioTracks, ...videoTracks];
+      };
+      
+      // Definir propiedad active si no existe
+      if (!Object.getOwnPropertyDescriptor(MediaStream.prototype, 'active')) {
+        Object.defineProperty(MediaStream.prototype, 'active', {
+          get: function() {
+            const tracks = this.getTracks();
+            return tracks.length > 0 && tracks.some(t => t.enabled);
+          },
+          configurable: true
+        });
+      }
+    }
+
+
     // Configuración de servidores ICE (STUN/TURN)
     this.iceServers = [
       { urls: 'stun:stun.l.google.com:19302' },
@@ -161,12 +190,9 @@ class WebRTCService {
       
       // Crear stream remoto si no existe
       if (!this.remoteStream) {
-        this.remoteStream = new MediaStream();
-        
-        // Agregar todos los tracks recibidos
-        event.streams[0].getTracks().forEach(track => {
-          this.remoteStream.addTrack(track);
-        });
+        // Usar el stream original pero adaptarlo para la web
+        const adaptedStream = this.adaptMediaStreamForWeb(event.streams[0]);
+        this.remoteStream = adaptedStream;
         
         // Notificar que se ha recibido el stream remoto
         if (this.onRemoteStreamCallback) {
@@ -476,6 +502,47 @@ class WebRTCService {
       callback(this.remoteStream);
     }
   }
+
+// Adapta un MediaStream de react-native-webrtc para ser compatible con la web
+    adaptMediaStreamForWeb(stream) {
+      if (!stream) return null;
+      
+      // Crear una versión mejorada del objeto stream
+      const enhancedStream = stream;
+      
+      // Asegurarse que getTracks combina audio y video correctamente
+      const originalGetTracks = stream.getTracks;
+      enhancedStream.getTracks = function() {
+        // Si existe la implementación original, usarla
+        if (originalGetTracks && typeof originalGetTracks === 'function') {
+          return originalGetTracks.call(this);
+        }
+        
+        // Combinar tracks de audio y video si no existe la implementación original
+        const audioTracks = this.getAudioTracks ? this.getAudioTracks() : [];
+        const videoTracks = this.getVideoTracks ? this.getVideoTracks() : [];
+        return [...audioTracks, ...videoTracks];
+      };
+      
+      // Asegurarse que todos los métodos básicos estén disponibles
+      if (!enhancedStream.clone) {
+        enhancedStream.clone = function() {
+          return this;
+        };
+      }
+      
+      // Verificar y configurar la propiedad 'active'
+      if (typeof enhancedStream.active === 'undefined') {
+        Object.defineProperty(enhancedStream, 'active', {
+          get: function() {
+            const tracks = this.getTracks();
+            return tracks.length > 0 && tracks.some(t => t.enabled);
+          }
+        });
+      }
+      
+      return enhancedStream;
+    }
   
   // Limpiar recursos al finalizar
   cleanup() {
