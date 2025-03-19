@@ -26,15 +26,7 @@
       >
         <i class="fas fa-phone-slash"></i>
       </button>
-      
-      <button 
-        class="control-button"
-        :class="{ 'active': chatOpen }"
-        @click="$emit('toggle-chat')"
-        title="Chat"
-      >
-        <i class="fas fa-comment"></i>
-      </button>
+
     </div>
   </template>
   
@@ -50,12 +42,8 @@
         type: Boolean,
         default: true
       },
-      chatOpen: {
-        type: Boolean,
-        default: false
-      }
     },
-    emits: ['toggle-audio', 'toggle-video', 'end-call', 'toggle-chat']
+    emits: ['toggle-audio', 'toggle-video', 'end-call']
   }
   </script>
   

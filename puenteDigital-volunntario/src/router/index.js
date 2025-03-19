@@ -69,17 +69,6 @@ const routes = [
           userName: useAuthStore().user?.nombre || 'Asistente'
         })
       },
-      // Mantener rutas antiguas para retrocompatibilidad
-      {
-        path: 'room',
-        name: 'room',
-        component: () => import('../views/VideoCall/RoomView.vue'),
-      },
-      {
-        path: 'room/:id',
-        name: 'Room',
-        component: () => import('../views/VideoCall/RoomView.vue')
-      },
       {
         path: 'gestion-llamadas',
         name: 'GestionLlamadas',

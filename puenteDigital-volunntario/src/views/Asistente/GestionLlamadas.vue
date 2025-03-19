@@ -235,6 +235,7 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  gap: 16px; /* Espacio entre el título y el botón */
 }
 
 h1 {

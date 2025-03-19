@@ -314,6 +314,40 @@ export default {
   padding: 8px 12px;
 }
 
+.call-controls {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 16px !important;
+  padding: 12px !important;
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border-radius: 10px !important;
+  margin: 10px auto 20px !important;
+  width: fit-content !important;
+  max-width: 90% !important;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2) !important;
+  position: relative !important;
+  z-index: 1000 !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.control-button {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 50px !important;
+  height: 50px !important;
+  border-radius: 50% !important;
+  background-color: #F5F5F5 !important;
+  color: #1976D2 !important;
+  border: 1px solid #E0E0E0 !important;
+  cursor: pointer !important;
+  transition: all 0.3s !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
 .debug-header h3 {
   margin: 0;
   font-size: 16px;
