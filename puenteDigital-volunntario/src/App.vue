@@ -62,8 +62,9 @@ onMounted(() => {
                 <li class="nav-item"><router-link class="nav-link" to="/asistente">Mi Panel</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/historial">Historial</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/estado">Estado</router-link></li>
-                 <li class="nav-item"><router-link class="nav-link" to="/asistente/call">Asistencia</router-link></li>
-                 <li class="nav-item"><router-link class="nav-link" to="/asistente/gestion-llamadas">Gestionar Llamadas</router-link></li>
+                <li class="nav-item"><router-link class="nav-link" to="/asistente/gestion-llamadas">VideoLlamadas</router-link></li>
+                <li class="nav-item"><router-link class="nav-link" to="/asistente/solicitudes-chat">ChatTexto</router-link></li>
+
               </template>
             </template>
           </ul>

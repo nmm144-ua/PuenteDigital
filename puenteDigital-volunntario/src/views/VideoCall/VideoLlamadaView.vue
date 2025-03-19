@@ -1,4 +1,4 @@
-<!-- src/views/VideollamadaView.vue -->
+<!-- src/views/VideoLlamadaView.vue -->
 <template>
   <div class="videollamada-container" :class="{ 'in-call': isInCall, 'is-mobile': isMobileDevice }">
     <!-- Sala de espera -->
@@ -8,7 +8,9 @@
         :participants="participants"
         :user-name="userName"
         :is-asistente="isAsistente"
+        :solicitud-aceptada="solicitudAceptada"
         @start-call="startCall"
+        @accept-request="acceptRequest" 
         @leave-room="leaveRoom"
       />
     </div>
@@ -24,23 +26,19 @@
       </div>
       
       <div class="videos-area" :class="{ 'with-chat': chatOpen, 'mobile-layout': isMobileDevice }">
-        <!-- Videos remotos -->
+        <!-- Videos remotos - COMPONENTE SIMPLIFICADO -->
         <video-grid 
           :remote-streams="remoteStreams" 
           :participants="participants"
-          :connection-states="connectionStates"
-          @track-state-changed="handleTrackStateChange"
-          @stream-connection-failed="handleStreamConnectionFailed"
         />
         
+        <!-- Video local -->
         <!-- Video local -->
         <div class="local-video-wrapper">
           <local-video 
             :stream="localStream" 
             :video-enabled="videoEnabled" 
             :audio-enabled="audioEnabled"
-            :show-debug-info="showDebugInfo"
-            @stream-error="handleLocalStreamError"
           />
         </div>
       </div>
@@ -67,7 +65,7 @@
         />
       </div>
       
-      <!-- Panel de configuración de dispositivos -->
+      <!-- Panel de configuración de dispositivos simplificado -->
       <div v-if="deviceOptionsOpen" class="device-options-panel">
         <div class="panel-header">
           <h3>Configuración de dispositivos</h3>
@@ -76,36 +74,6 @@
           </button>
         </div>
         <div class="panel-content">
-          <!-- Selector de micrófono -->
-          <div class="device-selector">
-            <label for="audio-input">Micrófono</label>
-            <select id="audio-input" v-model="selectedAudioInput" @change="changeAudioDevice">
-              <option v-for="device in audioInputDevices" :key="device.deviceId" :value="device.deviceId">
-                {{ device.label || `Micrófono ${audioInputDevices.indexOf(device) + 1}` }}
-              </option>
-            </select>
-          </div>
-          
-          <!-- Selector de cámara -->
-          <div class="device-selector">
-            <label for="video-input">Cámara</label>
-            <select id="video-input" v-model="selectedVideoInput" @change="changeVideoDevice">
-              <option v-for="device in videoInputDevices" :key="device.deviceId" :value="device.deviceId">
-                {{ device.label || `Cámara ${videoInputDevices.indexOf(device) + 1}` }}
-              </option>
-            </select>
-          </div>
-          
-          <!-- Selector de altavoz (solo funciona en algunos navegadores) -->
-          <div class="device-selector" v-if="audioOutputSupported">
-            <label for="audio-output">Altavoz</label>
-            <select id="audio-output" v-model="selectedAudioOutput" @change="changeAudioOutput">
-              <option v-for="device in audioOutputDevices" :key="device.deviceId" :value="device.deviceId">
-                {{ device.label || `Altavoz ${audioOutputDevices.indexOf(device) + 1}` }}
-              </option>
-            </select>
-          </div>
-          
           <!-- Opción para cambiar cámara en móviles -->
           <div class="device-selector" v-if="isMobileDevice">
             <button class="switch-camera-button" @click="switchCamera">
@@ -113,19 +81,9 @@
             </button>
           </div>
           
-          <!-- Configuración de depuración para desarrollo -->
-          <div class="device-selector debug-options" v-if="isDevelopment">
-            <label>
-              <input type="checkbox" v-model="showDebugInfo"> Mostrar información de depuración
-            </label>
-          </div>
-          
           <div class="device-actions">
-            <button class="apply-button" @click="applyDeviceSettings">
-              <i class="fas fa-check"></i> Aplicar
-            </button>
             <button class="cancel-button" @click="deviceOptionsOpen = false">
-              <i class="fas fa-times"></i> Cancelar
+              <i class="fas fa-times"></i> Cerrar
             </button>
           </div>
         </div>
@@ -201,24 +159,7 @@ export default {
       error: null,
       notification: null,
       isMobileDevice: false,
-      connectionStates: {},
-      
-      // Dispositivos de audio y video
-      audioInputDevices: [],
-      videoInputDevices: [],
-      audioOutputDevices: [],
-      selectedAudioInput: '',
-      selectedVideoInput: '',
-      selectedAudioOutput: '',
-      audioOutputSupported: false,
-      
-      // Opciones de depuración
-      isDevelopment: process.env.NODE_ENV === 'development',
-      showDebugInfo: false,
-      
-      // Intervalo para verificar la conexión
-      connectionCheckInterval: null,
-      connectionStates: {},
+      // Eliminar estado de conexión para simplificar
     };
   },
   computed: {
@@ -248,13 +189,22 @@ export default {
     },
     isAsistente() {
       return this.callStore.userRole === 'asistente';
-    }
+    },
+    solicitudAceptada: {
+      get() {
+        return this.callStore.solicitudAceptada;
+      },
+      set(value) {
+        // Si necesitas modificar, usa una acción en el store
+        this.callStore.setSolicitudAceptada(value);
+      }
+      }
   },
   watch: {
     isInCall(newValue) {
       if (newValue) {
-        // Si entramos en llamada, iniciar la verificación periódica de conexión
-        this.startConnectionCheck();
+        // Si entramos en llamada, iniciar monitor
+        this.startConnectionMonitor();
         
         // Mostrar notificación
         this.showNotification('Llamada iniciada correctamente', 'success');
@@ -264,35 +214,33 @@ export default {
           this.chatOpen = false;
         }
       } else {
-        // Si salimos de la llamada, detener verificación
-        this.stopConnectionCheck();
+        // Si salimos de la llamada, detener monitor
+        this.stopConnectionMonitor();
       }
     }
   },
-  async created() {
+  created() {
     // Detectar si es un dispositivo móvil
     this.detectMobileDevice();
     
     // Escuchar cambios en el tamaño de la ventana
     window.addEventListener('resize', this.handleResize);
-    
+  },
+  async mounted() {
     this.loading = true;
     this.loadingMessage = 'Inicializando conexión...';
     
-    // Inicializar store
-    this.callStore.initialize();
-    
-    // Establecer configuración inicial
-    this.callStore.setUserRole(this.role);
-    
-    // Verificar soporte de audioOutput
-    this.checkAudioOutputSupport();
-    
-    // Enumerar dispositivos
-    await this.enumerateDevices();
-    
-    // Unirse a la sala
     try {
+      // Inicializar store
+      this.callStore.initialize();
+      
+      // Establecer configuración inicial
+      this.callStore.setUserRole(this.role);
+      
+      // IMPORTANTE: Asegurar una sola conexión de socket
+      await socketService.connect();
+      
+      // Unirse a la sala
       this.loadingMessage = 'Conectando a la sala...';
       await this.callStore.joinRoom(this.roomId, this.userName, this.role);
       
@@ -310,20 +258,35 @@ export default {
     // Capturar error de cierre de página
     window.addEventListener('beforeunload', this.cleanupBeforeUnload);
   },
-  beforeDestroy() {
+  beforeUnmount() {
     window.removeEventListener('beforeunload', this.cleanupBeforeUnload);
     window.removeEventListener('resize', this.handleResize);
-    this.stopConnectionCheck();
+    this.stopConnectionMonitor();
     this.callStore.cleanup();
   },
   methods: {
+    log(message) {
+      console.log(`[VideoLlamada] ${message}`);
+    },
+    
     // Detección de dispositivo móvil
     detectMobileDevice() {
       const userAgent = navigator.userAgent || navigator.vendor || window.opera;
       const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
       
-      this.isMobileDevice = mobileRegex.test(userAgent) || window.innerWidth < 768;
-      console.log("Detectado como dispositivo móvil:", this.isMobileDevice);
+      // Usar solo User Agent para detección, evitando cambios dinámicos
+      const isMobileDevice = mobileRegex.test(userAgent);
+      
+      // Solo actualizar si es diferente para evitar cambios constantes
+      if (this.isMobileDevice !== isMobileDevice) {
+        this.isMobileDevice = isMobileDevice;
+        this.log(`Detectado como dispositivo móvil: ${this.isMobileDevice}`);
+        
+        // Propagar el cambio a los componentes hijos mediante eventos
+        this.$nextTick(() => {
+          this.$emit('device-type-changed', this.isMobileDevice);
+        });
+      }
     },
     
     // Manejar cambio de tamaño de ventana
@@ -331,218 +294,92 @@ export default {
       this.detectMobileDevice();
     },
     
-    // Obtener los dispositivos disponibles
-    async enumerateDevices() {
-      try {
-        // Solicitar permisos primero para obtener etiquetas
-        await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
-          .catch(err => {
-            console.warn('No se obtuvo permiso completo para dispositivos:', err);
-            // Intentar con solo audio
-            return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-          })
-          .catch(err => {
-            console.warn('No se obtuvo permiso para audio:', err);
-            // Último intento solo con video
-            return navigator.mediaDevices.getUserMedia({ audio: false, video: true });
-          })
-          .catch(err => {
-            console.warn('No se pudo obtener ningún permiso:', err);
-            // Continuar sin permisos explícitos
-          });
-        
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        
-        this.audioInputDevices = devices.filter(device => device.kind === 'audioinput');
-        this.videoInputDevices = devices.filter(device => device.kind === 'videoinput');
-        this.audioOutputDevices = devices.filter(device => device.kind === 'audiooutput');
-        
-        console.log('Dispositivos de audio disponibles:', this.audioInputDevices.length);
-        console.log('Dispositivos de video disponibles:', this.videoInputDevices.length);
-        console.log('Salidas de audio disponibles:', this.audioOutputDevices.length);
-        
-        // Seleccionar los dispositivos por defecto
-        if (this.audioInputDevices.length > 0) {
-          this.selectedAudioInput = this.audioInputDevices[0].deviceId;
-        }
-        
-        if (this.videoInputDevices.length > 0) {
-          this.selectedVideoInput = this.videoInputDevices[0].deviceId;
-        }
-        
-        if (this.audioOutputDevices.length > 0 && this.audioOutputSupported) {
-          this.selectedAudioOutput = this.audioOutputDevices[0].deviceId;
-        }
-      } catch (error) {
-        console.error('Error al enumerar dispositivos:', error);
-      }
-    },
-    
-    // Verificar si el navegador soporta selección de salida de audio
-    checkAudioOutputSupport() {
-      const audioElement = document.createElement('audio');
-      this.audioOutputSupported = typeof audioElement.setSinkId === 'function';
-      console.log('Soporte para selección de salida de audio:', this.audioOutputSupported);
-    },
-    
-    // Aplicar configuración de dispositivos seleccionados
-    async applyDeviceSettings() {
-      this.loading = true;
-      this.loadingMessage = 'Aplicando configuración de dispositivos...';
+    // MÉTODO SIMPLIFICADO: Iniciar monitor de conexiones
+    startConnectionMonitor() {
+      // Detener monitor anterior si existe
+      this.stopConnectionMonitor();
       
-      try {
-        // Detener stream actual
-        if (this.localStream) {
-          this.callStore.stopLocalStream();
-        }
+      // Monitor simplificado que solo verifica si hay conexión cada 10 segundos
+      this._connectionMonitor = setInterval(() => {
+        this.log(`Verificando estado de conexión`);
         
-        // Obtener nuevos streams con los dispositivos seleccionados
-        const constraints = {
-          audio: this.selectedAudioInput ? { deviceId: { exact: this.selectedAudioInput } } : true,
-          video: this.selectedVideoInput ? { deviceId: { exact: this.selectedVideoInput } } : true
-        };
-        
-        // Iniciar nuevo stream con los dispositivos seleccionados
-        await webrtcService.getLocalStream(true, true, constraints);
-        
-        // Actualizar stream en el store
-        this.callStore.localStream = webrtcService.localStream;
-        
-        // Cerrar panel de opciones
-        this.deviceOptionsOpen = false;
-        
-        // Mostrar notificación
-        this.showNotification('Dispositivos configurados correctamente', 'success');
-      } catch (error) {
-        console.error('Error al aplicar configuración de dispositivos:', error);
-        this.showNotification('Error al configurar dispositivos: ' + error.message, 'error');
-      } finally {
-        this.loading = false;
-      }
-    },
-    
-    // Cambiar dispositivo de audio
-    async changeAudioDevice() {
-      // Se aplica al hacer clic en Aplicar
-    },
-    
-    // Cambiar dispositivo de video
-    async changeVideoDevice() {
-      // Se aplica al hacer clic en Aplicar
-    },
-    
-    // Cambiar salida de audio
-    async changeAudioOutput() {
-      if (!this.audioOutputSupported) return;
-      
-      try {
-        // Aplicar a todos los elementos de audio y video en la página
-        const mediaElements = document.querySelectorAll('audio, video');
-        
-        for (const element of mediaElements) {
-          if (typeof element.setSinkId === 'function') {
-            await element.setSinkId(this.selectedAudioOutput);
-          }
-        }
-        
-        console.log('Salida de audio cambiada a:', this.selectedAudioOutput);
-      } catch (error) {
-        console.error('Error al cambiar salida de audio:', error);
-        this.showNotification('Error al cambiar salida de audio', 'error');
-      }
-    },
-    
-    // Cambiar entre cámara frontal y trasera (para móviles)
-    async switchCamera() {
-      this.loading = true;
-      this.loadingMessage = 'Cambiando cámara...';
-      
-      try {
-        await webrtcService.switchCamera();
-        this.showNotification('Cámara cambiada correctamente', 'success');
-      } catch (error) {
-        console.error('Error al cambiar cámara:', error);
-        this.showNotification('Error al cambiar cámara: ' + error.message, 'error');
-      } finally {
-        this.loading = false;
-      }
-    },
-    
-    // Iniciar verificación periódica de conexión
-    startConnectionCheck() {
-      // Detener verificación anterior si existe
-      this.stopConnectionCheck();
-      
-      // Iniciar nueva verificación cada 10 segundos
-      this.connectionCheckInterval = setInterval(() => {
-        // Verificar estado de los streams remotos activos
-        const streamIds = Object.keys(this.remoteStreams);
-        console.log(`Verificando ${streamIds.length} streams remotos activos`);
-        
-        // Actualizar estados de conexión (usar asignación directa, no $set)
+        // Verificar si hay participantes sin stream
         this.participants.forEach(participant => {
-          const userId = participant.userId;
-          // Actualizar directamente en Vue 3
-          const hasStream = Boolean(this.remoteStreams[userId]);
-          this.connectionStates[userId] = hasStream ? 'connected' : 'disconnected';
+          // No intentar conectar con asistentes, solo con usuarios normales
+          if (participant.userRole === 'asistente' || !this.isAsistente) {
+            return;
+          }
           
-          // Intentar reconectar si soy asistente y no hay stream
-          if (this.isAsistente && !hasStream && participant.userRole !== 'asistente') {
-            console.log(`No hay stream para ${userId}, intentando reconectar`);
-            this.reconnectWithParticipant(userId);
+          const userId = participant.userId;
+          const hasStream = Boolean(this.remoteStreams[userId]);
+          
+          // Si no hay stream, intentar reconectar
+          if (!hasStream) {
+            this.log(`No hay stream para ${userId}, intentando reconectar`);
+            this.reconnectWithUser(userId);
           }
         });
       }, 10000);
     },
-        
-    // Detener verificación de conexión
-    stopConnectionCheck() {
-      if (this.connectionCheckInterval) {
-        clearInterval(this.connectionCheckInterval);
-        this.connectionCheckInterval = null;
+    
+    // Detener monitor de conexiones
+    stopConnectionMonitor() {
+      if (this._connectionMonitor) {
+        clearInterval(this._connectionMonitor);
+        this._connectionMonitor = null;
       }
     },
     
-    // Reconectar con un participante específico
-    async reconnectWithParticipant(userId) {
-      console.log(`Intentando reconectar con ${userId}`);
+    // MÉTODO SIMPLIFICADO: Reconectar con un usuario específico
+    async reconnectWithUser(userId) {
+      this.log(`Intentando reconectar con ${userId}`);
       
       try {
-        // Cerrar conexión actual
+        // 1. Cerrar la conexión actual
         webrtcService.closeConnection(userId);
         
-        // Esperar un momento antes de reconectar
+        // 2. Esperar un momento antes de reconectar
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Iniciar nueva conexión
-        await webrtcService.initConnection(userId, true);
-        
-        // Notificar al otro usuario
-        socketService.callUser(userId);
-        
-        console.log(`Reconexión con ${userId} iniciada`);
+        // 3. Intentar establecer nueva conexión
+        if (this.isAsistente) {
+          await this.callStore.callUser(userId);
+          this.log(`Reconexión con ${userId} iniciada`);
+        }
       } catch (error) {
-        console.error(`Error al reconectar con ${userId}:`, error);
+        this.log(`Error al reconectar con ${userId}: ${error.message}`);
       }
     },
     
     // Mostrar notificación
     showNotification(message, type = 'info', duration = 5000) {
-        // Crear objeto de notificación
-        this.notification = {
-          message,
-          type
-        };
-        
-        // Auto cerrar después de la duración especificada
-        if (duration > 0) {
-          setTimeout(() => {
-            // Usar una comparación segura
-            if (this.notification && this.notification.message === message) {
-              this.notification = null;
-            }
-          }, duration);
-        }
+      // Crear objeto de notificación
+      this.notification = {
+        message,
+        type
+      };
+      
+      // Auto cerrar después de la duración especificada
+      if (duration > 0) {
+        setTimeout(() => {
+          // Usar una comparación segura
+          if (this.notification && this.notification.message === message) {
+            this.notification = null;
+          }
+        }, duration);
+      }
+    },
+
+    acceptRequest() {
+      console.log("*** INICIANDO ACEPTACIÓN DE SOLICITUD ***");
+      this.callStore.aceptarSolicitud().then(result => {
+        console.log("Solicitud aceptada:", result);
+        this.solicitudAceptada = true;
+        this.showNotification('Solicitud aceptada correctamente', 'success');
+      }).catch(error => {
+        console.error("Error al aceptar solicitud:", error);
+        this.error = `Error al aceptar solicitud: ${error.message}`;
+      });
     },
     
     // Obtener icono para el tipo de notificación
@@ -557,35 +394,130 @@ export default {
       return iconMap[this.notification?.type] || iconMap.info;
     },
     
-    // Iniciar llamada
-    async startCall() {
+    // Cambiar entre cámara frontal y trasera
+    async switchCamera() {
       this.loading = true;
-      this.loadingMessage = 'Iniciando videollamada...';
+      this.loadingMessage = 'Cambiando cámara...';
       
       try {
-        // Iniciar stream local
-        await this.callStore.startLocalStream();
-        
-        // Filtrar participantes según rol
-        const targetParticipants = this.isAsistente
-          ? this.participants.filter(p => p.userRole !== 'asistente')
-          : this.participants.filter(p => p.userRole === 'asistente');
-        
-        // Iniciar llamadas con los participantes adecuados
-        if (targetParticipants.length > 0) {
-          for (const participant of targetParticipants) {
-            await this.callStore.callUser(participant.userId);
-          }
-        } else {
-          this.error = this.isAsistente
-            ? 'No hay usuarios para llamar en esta sala.'
-            : 'No hay asistentes disponibles para llamar en esta sala.';
-        }
+        await webrtcService.switchCamera();
+        this.showNotification('Cámara cambiada correctamente', 'success');
       } catch (error) {
-        this.error = `Error al iniciar llamada: ${error.message}`;
+        this.log(`Error al cambiar cámara: ${error.message}`);
+        this.showNotification('Error al cambiar cámara: ' + error.message, 'error');
       } finally {
         this.loading = false;
       }
+    },
+    
+    // Iniciar llamada - SIMPLIFICADO
+    async startCall() {
+      console.log("*** BOTÓN INICIAR VIDEOLLAMADA PRESIONADO ***");
+      this.loading = true;
+      this.loadingMessage = "Iniciando videollamada...";
+      
+      try {
+        // Filtrar usuarios para llamar (no asistentes)
+        const usuariosParaLlamar = this.participants.filter(p => p.userRole !== 'asistente');
+        console.log("Usuarios para llamar:", usuariosParaLlamar);
+        
+        if (usuariosParaLlamar.length === 0) {
+          this.error = "No hay usuarios para llamar";
+          return;
+        }
+        
+        // Asegurarse de tener stream local
+        if (!this.localStream) {
+          this.localStream = await this.callStore.startLocalStream();
+        }
+        
+        // IMPLEMENTACIÓN DIRECTA CON SOCKET
+        for (const usuario of usuariosParaLlamar) {
+          console.log(`Llamando a usuario ${usuario.userName} (${usuario.userId})`);
+          
+          // PASO 1: Enviar call-requested directamente
+          await this._emitSocketEvent('call-user', {
+            roomId: this.roomId,
+            to: usuario.userId,
+            from: this.callStore.userId,
+            fromName: this.callStore.userName
+          });
+          
+          // Esperar un momento
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // PASO 2: Inicializar WebRTC y enviar oferta
+          try {
+            // Inicializar conexión WebRTC
+            const peerConnection = await this._initWebRTCConnection(usuario.userId);
+            
+            // Crear oferta
+            const offer = await this._createOffer(peerConnection);
+            
+            // Enviar oferta directamente
+            await this._emitSocketEvent('offer', {
+              offer,
+              to: usuario.userId,
+              from: this.callStore.userId
+            });
+            
+            console.log(`Oferta WebRTC enviada a ${usuario.userId}`);
+          } catch (peerError) {
+            console.error(`Error con conexión peer para ${usuario.userId}:`, peerError);
+            // Continuar con el siguiente usuario
+          }
+        }
+        
+        // Actualizar estado
+        this.isInCall = true;
+        this.callStore.isInCall = true;
+        
+        this.showNotification('Videollamada iniciada correctamente', 'success');
+      } catch (error) {
+        console.error("Error al iniciar videollamada:", error);
+        this.error = `Error al iniciar videollamada: ${error.message}`;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    // Métodos auxiliares para acceso directo
+    _emitSocketEvent(event, data) {
+      return new Promise((resolve) => {
+        console.log(`Emitiendo evento ${event}:`, data);
+        // Emisión directa
+        if (socketService.socket) {
+          socketService.socket.emit(event, data);
+          console.log(`Evento ${event} emitido correctamente`);
+        } else {
+          console.error(`No se pudo emitir ${event}: socket no disponible`);
+        }
+        resolve();
+      });
+    },
+
+    _initWebRTCConnection(userId) {
+      return new Promise(async (resolve, reject) => {
+        try {
+          console.log(`Inicializando conexión WebRTC con ${userId}`);
+          await webrtcService.initConnection(userId, true);
+          resolve(webrtcService);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    },
+
+    _createOffer(peerConnection) {
+      return new Promise(async (resolve, reject) => {
+        try {
+          console.log("Creando oferta WebRTC...");
+          const offer = await webrtcService.createOffer();
+          resolve(offer);
+        } catch (error) {
+          reject(error);
+        }
+      });
     },
     
     // Alternar micrófono
@@ -622,11 +554,6 @@ export default {
     toggleDeviceOptions() {
       this.deviceOptionsOpen = !this.deviceOptionsOpen;
       
-      // Si abrimos el panel, refrescar la lista de dispositivos
-      if (this.deviceOptionsOpen) {
-        this.enumerateDevices();
-      }
-      
       // En móvil, cerrar chat si está abierto
       if (this.isMobileDevice && this.chatOpen && this.deviceOptionsOpen) {
         this.chatOpen = false;
@@ -636,37 +563,6 @@ export default {
     // Enviar mensaje
     sendMessage(message) {
       this.callStore.sendMessage(message);
-    },
-    
-    // Manejar cambio de estado de tracks
-    handleTrackStateChange({ userId, trackType, state }) {
-      console.log(`Track ${trackType} de ${userId} cambió a ${state}`);
-      
-      // Actualizar UI según sea necesario
-      if (trackType === 'video' && state === 'muted') {
-        // El video del usuario se apagó
-        this.showNotification(`El participante ha desactivado su cámara`, 'info', 3000);
-      } else if (trackType === 'video' && state === 'unmuted') {
-        // El video del usuario se encendió
-        this.showNotification(`El participante ha activado su cámara`, 'info', 3000);
-      }
-    },
-    
-    // Manejar error de conexión de stream
-    handleStreamConnectionFailed(userId) {
-      const participantName = this.participants.find(p => p.userId === userId)?.userName || 'Participante';
-      this.showNotification(`Problema de conexión con ${participantName}`, 'warning');
-      
-      // Intentar reconectar si somos asistente
-      if (this.isAsistente) {
-        this.reconnectWithParticipant(userId);
-      }
-    },
-    
-    // Manejar error de stream local
-    handleLocalStreamError(error) {
-      console.error('Error en stream local:', error);
-      this.showNotification('Error en tu cámara o micrófono', 'error');
     },
     
     // Finalizar llamada
@@ -829,22 +725,6 @@ export default {
   margin-bottom: 20px;
 }
 
-.device-selector label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 500;
-  color: #333;
-}
-
-.device-selector select {
-  width: 100%;
-  padding: 10px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
-  background-color: #f9f9f9;
-  font-size: 0.9rem;
-}
-
 .switch-camera-button {
   width: 100%;
   padding: 10px;
@@ -866,30 +746,17 @@ export default {
   margin-top: 20px;
 }
 
-.apply-button, .cancel-button {
+.cancel-button {
   padding: 10px 15px;
   border-radius: 4px;
   cursor: pointer;
-  border: none;
+  background-color: #f5f5f5;
+  color: #333;
+  border: 1px solid #ddd;
   display: flex;
   align-items: center;
   gap: 5px;
   font-weight: 500;
-}
-
-.apply-button {
-  background-color: #1976D2;
-  color: white;
-}
-
-.apply-button:hover {
-  background-color: #1565C0;
-}
-
-.cancel-button {
-  background-color: #f5f5f5;
-  color: #333;
-  border: 1px solid #ddd;
 }
 
 .cancel-button:hover {
@@ -902,12 +769,6 @@ export default {
   color: white;
   cursor: pointer;
   font-size: 1.1rem;
-}
-
-.debug-options {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid #eee;
 }
 
 .notification {
@@ -1042,7 +903,7 @@ export default {
 }
 
 .error-content .close-button {
-  background-color: #757575; /* Gris neutro */
+  background-color: #757575;
   color: #FFFFFF;
 }
 
@@ -1051,7 +912,7 @@ export default {
 }
 
 .error-content .leave-button {
-  background-color: #1976D2; /* Azul principal */
+  background-color: #1976D2;
   color: #FFFFFF;
 }
 

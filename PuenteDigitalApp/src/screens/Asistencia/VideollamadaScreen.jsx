@@ -29,11 +29,11 @@ const VideollamadaScreen = ({ route, navigation }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
-  const [callStatus, setCallStatus] = useState('connecting'); // 'connecting', 'connected', 'ended'
+  const [callStatus, setCallStatus] = useState('waiting'); // 'waiting', 'connecting', 'connected', 'ended'
   const [callDuration, setCallDuration] = useState(0);
   
   const durationTimerRef = useRef(null);
-  const webrtcInitializedRef = useRef(false);
+  const initialized = useRef(false);
   
   // Formatear el tiempo de la llamada
   const formatCallDuration = (seconds) => {
@@ -47,53 +47,47 @@ const VideollamadaScreen = ({ route, navigation }) => {
   // Función para finalizar la llamada
   const endCall = async () => {
     try {
+      // Detener el temporizador de duración
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
+      
       // Notificar a través del socket que la llamada ha finalizado
       SocketService.endCall(roomId, asistenteId);
       
-      // Detener y liberar los streams
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-      }
-      
-      // Limpiar el servicio WebRTC
+      // Limpiar recursos de WebRTC
       WebRTCService.cleanup();
       
       // Actualizar el estado
       setCallStatus('ended');
+      setLocalStream(null);
+      setRemoteStream(null);
       
       // Navegar de vuelta a la pantalla anterior
-      navigation.navigate('OpcionesInicio');
+      navigation.goBack();
     } catch (error) {
       console.error('Error al finalizar la llamada:', error);
+      navigation.goBack();
     }
   };
   
   // Función para alternar micrófono
   const toggleMute = () => {
-    if (localStream) {
-      const audioTracks = localStream.getAudioTracks();
-      audioTracks.forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsMuted(!isMuted);
-    }
+    const newMuteState = WebRTCService.toggleMute(isMuted);
+    setIsMuted(newMuteState);
   };
   
   // Función para alternar cámara
   const toggleCamera = () => {
-    if (localStream) {
-      const videoTracks = localStream.getVideoTracks();
-      videoTracks.forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsCameraOff(!isCameraOff);
-    }
+    const newCameraState = WebRTCService.toggleVideo(isCameraOff);
+    setIsCameraOff(newCameraState);
   };
   
   // Función para cambiar entre cámara frontal y trasera
   const switchCamera = async () => {
     try {
-      await WebRTCService.switchCamera(localStream);
+      await WebRTCService.switchCamera();
     } catch (error) {
       console.error('Error al cambiar de cámara:', error);
       Alert.alert('Error', 'No se pudo cambiar la cámara');
@@ -102,96 +96,135 @@ const VideollamadaScreen = ({ route, navigation }) => {
   
   // Función para alternar altavoz
   const toggleSpeaker = () => {
-    // Esta funcionalidad requiere configuración adicional en Android/iOS
-    WebRTCService.toggleSpeaker(!isSpeakerOn);
-    setIsSpeakerOn(!isSpeakerOn);
+    const success = WebRTCService.toggleSpeaker(!isSpeakerOn);
+    if (success) {
+      setIsSpeakerOn(!isSpeakerOn);
+    }
   };
   
-  // Función para inicializar WebRTC
-  const inicializarWebRTC = async () => {
+  // Manejar evento de sala aceptada por el asistente
+  const handleRoomAccepted = (data) => {
+    console.log('Sala aceptada por asistente:', data);
+    
+    // Verificar que sea para esta sala
+    if (data.roomId === roomId) {
+      // El asistente ha aceptado la solicitud pero NO estamos en llamada todavía
+      // Solo actualizamos el estado para mostrar que el asistente está disponible
+      setCallStatus('accepted');
+      
+      // Actualizar información del asistente si está disponible
+      const asistenteName = data.asistenteName || 'Asistente';
+      const asistenteId = data.asistenteId;
+      
+      // Mostrar notificación al usuario
+      Alert.alert(
+        'Solicitud aceptada',
+        `${asistenteName} ha aceptado tu solicitud y pronto iniciará la videollamada.`,
+        [{ text: 'OK' }]
+      );
+    }
+  };
+  
+  // Manejar evento de solicitud de llamada
+  const handleCallRequested = (data) => {
+    console.log('Solicitud de llamada recibida de:', data);
+    
+    // Actualizar el estado para mostrar que estamos conectando
+    setCallStatus('connecting');
+    
+    // No hacemos nada más aquí, esperamos a que llegue la oferta WebRTC
+    // La conexión se manejará automáticamente cuando llegue la oferta
+  };
+  
+  // Manejar stream remoto recibido
+  const handleRemoteStream = (stream) => {
+    console.log('Stream remoto recibido');
+    setRemoteStream(stream);
+    setCallStatus('connected');
+    
+    // Iniciar temporizador de duración de llamada
+    if (!durationTimerRef.current) {
+      durationTimerRef.current = setInterval(() => {
+        setCallDuration(prev => prev + 1);
+      }, 1000);
+    }
+  };
+  
+  // Inicializar el servicio WebRTC PASIVAMENTE
+  const initializeWebRTC = async () => {
+    if (initialized.current) return;
+    
     try {
       // Verificar permisos de cámara y micrófono
-      const permisos = await PermissionsService.requestCallPermissions();
-      if (!permisos) {
-        Alert.alert(
-          'Permisos requeridos',
-          'Para realizar videollamadas necesitas conceder permisos de cámara y micrófono.',
-          [{ text: 'Entendido', onPress: () => navigation.goBack() }]
-        );
-        return;
+      const hasPermissions = await PermissionsService.checkCallPermissions();
+      if (!hasPermissions) {
+        const granted = await PermissionsService.requestCallPermissions();
+        if (!granted) {
+          Alert.alert(
+            'Permisos requeridos',
+            'Para realizar videollamadas necesitas conceder permisos de cámara y micrófono.',
+            [{ text: 'Entendido', onPress: () => navigation.goBack() }]
+          );
+          return;
+        }
       }
       
-      // Inicializar el servicio WebRTC
+      // Inicializar WebRTC (solo preparación, no inicia conexión)
       await WebRTCService.init();
       
-      // Obtener el stream local (cámara y micrófono)
+      // Establecer callback para recibir stream remoto
+      WebRTCService.onRemoteStream(handleRemoteStream);
+      
+      // Obtener stream local para la vista previa
       const stream = await WebRTCService.getLocalStream();
       setLocalStream(stream);
       
-      // Configurar WebRTC para recibir el stream remoto
-      WebRTCService.onRemoteStream((stream) => {
-        console.log('Stream remoto recibido:', stream);
-        setRemoteStream(stream);
-        setCallStatus('connected');
-        
-        // Iniciar temporizador de duración de llamada
-        durationTimerRef.current = setInterval(() => {
-          setCallDuration(prev => prev + 1);
-        }, 1000);
-      });
+      // Definir que estamos inicializados
+      initialized.current = true;
       
-      // Configurar listeners para eventos del socket
-      SocketService.onIceCandidate((data) => {
-        WebRTCService.addIceCandidate(data.candidate);
-      });
-      
-      SocketService.onOffer(async (data) => {
-        await WebRTCService.handleOffer(data.offer);
-        const answer = await WebRTCService.createAnswer();
-        SocketService.sendAnswer(answer, data.from, user?.id || 'anonymous');
-      });
-      
-      SocketService.onAnswer((data) => {
-        WebRTCService.handleAnswer(data.answer);
-      });
-      
-      SocketService.onCallEnded(() => {
-        Alert.alert('Llamada finalizada', 'El asistente ha finalizado la llamada');
-        endCall();
-      });
-      
-      // Si somos el asistente, crear oferta para iniciar la llamada
-      if (asistenteId) {
-        // Usuario común: esperar a que el asistente llame
-      } else {
-        // Lógica para cuando el asistente inicia la llamada (no necesaria aquí)
-      }
-      
-      webrtcInitializedRef.current = true;
+      console.log('WebRTC inicializado en modo pasivo - esperando oferta del asistente');
     } catch (error) {
       console.error('Error al inicializar WebRTC:', error);
       Alert.alert(
-        'Error de conexión',
-        'No se pudo establecer la videollamada. Por favor, inténtalo de nuevo.',
+        'Error de preparación',
+        'No se pudieron inicializar los componentes de videollamada. Por favor, intenta nuevamente.',
         [{ text: 'Volver', onPress: () => navigation.goBack() }]
       );
     }
   };
   
+  // Configurar listeners de Socket.IO
+  const setupSocketListeners = () => {
+    // Registrar callback para sala aceptada
+    SocketService.onRoomAccepted(handleRoomAccepted);
+    
+    // Registrar callback para solicitud de llamada
+    SocketService.onCallRequested(handleCallRequested);
+  };
+  
+  // Limpiar listeners de Socket.IO
+  const cleanupSocketListeners = () => {
+    SocketService.offRoomAccepted(handleRoomAccepted);
+    SocketService.offCallRequested(handleCallRequested);
+  };
+  
   useEffect(() => {
-    // Inicializar WebRTC si no se ha hecho ya
-    if (!webrtcInitializedRef.current) {
-      inicializarWebRTC();
-    }
+    // Configurar listeners para eventos de Socket.IO
+    setupSocketListeners();
+    
+    // Inicializar WebRTC
+    initializeWebRTC();
     
     // Prevenir navegación hacia atrás sin finalizar la llamada
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       Alert.alert(
-        'Finalizar videollamada',
-        '¿Estás seguro que deseas finalizar la videollamada?',
+        callStatus === 'connected' ? 'Finalizar videollamada' : 'Cancelar solicitud',
+        callStatus === 'connected' 
+          ? '¿Estás seguro que deseas finalizar la videollamada?' 
+          : '¿Estás seguro que deseas cancelar tu solicitud de asistencia?',
         [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Finalizar', style: 'destructive', onPress: endCall }
+          { text: 'No', style: 'cancel' },
+          { text: 'Sí', style: 'destructive', onPress: endCall }
         ]
       );
       return true;
@@ -201,104 +234,168 @@ const VideollamadaScreen = ({ route, navigation }) => {
       // Limpiar al desmontar
       backHandler.remove();
       
+      // Detener temporizador de duración
       if (durationTimerRef.current) {
         clearInterval(durationTimerRef.current);
       }
       
-      if (callStatus !== 'ended') {
-        endCall();
-      }
+      // Limpiar listeners de Socket.IO
+      cleanupSocketListeners();
+      
+      // Limpiar recursos de WebRTC
+      WebRTCService.cleanup();
     };
   }, []);
   
   return (
     <SafeAreaView style={styles.container}>
-      {/* Stream remoto (pantalla completa) */}
-      {remoteStream ? (
+      {/* Stream remoto (pantalla completa) - solo visible cuando estamos conectados */}
+      {remoteStream && callStatus === 'connected' ? (
         <RTCView
           streamURL={remoteStream.toURL()}
           style={styles.remoteStream}
           objectFit="cover"
+          zOrder={0}
         />
       ) : (
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>
-            {callStatus === 'connecting' 
-              ? `Conectando con ${asistenteName || 'el asistente'}...` 
-              : 'Llamada finalizada'}
-          </Text>
+        // Estado de espera o conexión
+        <View style={styles.waitingContainer}>
+          <View style={styles.statusCard}>
+            <MaterialIcons 
+              name={
+                callStatus === 'waiting' ? 'hourglass-empty' : 
+                callStatus === 'accepted' ? 'person' :
+                callStatus === 'connecting' ? 'sync' : 'videocam-off'
+              } 
+              size={60} 
+              color="#007BFF" 
+            />
+            <Text style={styles.statusTitle}>
+              {callStatus === 'waiting' ? 'Esperando asistente...' : 
+               callStatus === 'accepted' ? 'Solicitud aceptada' :
+               callStatus === 'connecting' ? 'Iniciando videollamada...' : 
+               'Llamada finalizada'}
+            </Text>
+            <Text style={styles.statusMessage}>
+              {callStatus === 'waiting' ? 'Un asistente revisará tu solicitud pronto.' : 
+               callStatus === 'accepted' ? `${asistenteName || 'El asistente'} iniciará la videollamada en breve.` :
+               callStatus === 'connecting' ? 'Estableciendo conexión con el asistente...' : 
+               'La videollamada ha finalizado.'}
+            </Text>
+            
+            {/* Solo mostrar la vista previa si tenemos stream local */}
+            {localStream && (
+              <View style={styles.localPreviewContainer}>
+                <Text style={styles.previewLabel}>Tu cámara:</Text>
+                <RTCView
+                  streamURL={localStream.toURL()}
+                  style={styles.localPreview}
+                  objectFit="cover"
+                  mirror
+                  zOrder={1}
+                />
+              </View>
+            )}
+          </View>
         </View>
       )}
       
-      {/* Stream local (miniatura) */}
-      {localStream && (
+      {/* Stream local (miniatura) - solo visible durante la llamada */}
+      {remoteStream && callStatus === 'connected' && localStream && (
         <View style={styles.localStreamContainer}>
           <RTCView
             streamURL={localStream.toURL()}
             style={styles.localStream}
             objectFit="cover"
+            mirror
+            zOrder={1}
           />
         </View>
       )}
       
-      {/* Información de la llamada */}
-      <View style={styles.callInfoContainer}>
-        <Text style={styles.callInfoText}>
-          {callStatus === 'connected' 
-            ? `Duración: ${formatCallDuration(callDuration)}` 
-            : callStatus === 'connecting' 
-              ? 'Conectando...' 
-              : 'Llamada finalizada'}
-        </Text>
-        <Text style={styles.participantName}>
-          {asistenteName || 'Asistente'}
-        </Text>
-      </View>
+      {/* Información de la llamada - solo visible durante la llamada */}
+      {callStatus === 'connected' && (
+        <View style={styles.callInfoContainer}>
+          <Text style={styles.callInfoText}>
+            {`Duración: ${formatCallDuration(callDuration)}`}
+          </Text>
+          <Text style={styles.participantName}>
+            {asistenteName || 'Asistente'}
+          </Text>
+        </View>
+      )}
       
-      {/* Controles de la llamada */}
-      <View style={styles.controlsContainer}>
-        <TouchableOpacity style={styles.controlButton} onPress={toggleMute}>
-          <MaterialIcons 
-            name={isMuted ? 'mic-off' : 'mic'} 
-            size={24} 
-            color="#fff" 
-          />
-          <Text style={styles.controlText}>
-            {isMuted ? 'Activar' : 'Silenciar'}
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.controlButton} onPress={toggleCamera}>
-          <MaterialIcons 
-            name={isCameraOff ? 'videocam-off' : 'videocam'} 
-            size={24} 
-            color="#fff" 
-          />
-          <Text style={styles.controlText}>
-            {isCameraOff ? 'Activar' : 'Apagar'}
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.controlButton} onPress={switchCamera}>
-          <MaterialIcons name="flip-camera-ios" size={24} color="#fff" />
-          <Text style={styles.controlText}>Cambiar</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.controlButton} onPress={toggleSpeaker}>
-          <MaterialIcons 
-            name={isSpeakerOn ? 'volume-up' : 'volume-off'} 
-            size={24} 
-            color="#fff" 
-          />
-          <Text style={styles.controlText}>
-            {isSpeakerOn ? 'Altavoz' : 'Auricular'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* Controles de la llamada - solo visibles durante la llamada */}
+      {callStatus === 'connected' && (
+        <View style={styles.controlsContainer}>
+          <TouchableOpacity 
+            style={[
+              styles.controlButton,
+              isMuted && styles.controlButtonActive
+            ]} 
+            onPress={toggleMute}
+          >
+            <MaterialIcons 
+              name={isMuted ? 'mic-off' : 'mic'} 
+              size={24} 
+              color="#fff" 
+            />
+            <Text style={styles.controlText}>
+              {isMuted ? 'Activar' : 'Silenciar'}
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[
+              styles.controlButton,
+              isCameraOff && styles.controlButtonActive
+            ]} 
+            onPress={toggleCamera}
+          >
+            <MaterialIcons 
+              name={isCameraOff ? 'videocam-off' : 'videocam'} 
+              size={24} 
+              color="#fff" 
+            />
+            <Text style={styles.controlText}>
+              {isCameraOff ? 'Activar' : 'Apagar'}
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.controlButton} 
+            onPress={switchCamera}
+          >
+            <MaterialIcons name="flip-camera-ios" size={24} color="#fff" />
+            <Text style={styles.controlText}>Cambiar</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[
+              styles.controlButton,
+              isSpeakerOn && styles.controlButtonActive
+            ]} 
+            onPress={toggleSpeaker}
+          >
+            <MaterialIcons 
+              name={isSpeakerOn ? 'volume-up' : 'volume-off'} 
+              size={24} 
+              color="#fff" 
+            />
+            <Text style={styles.controlText}>
+              {isSpeakerOn ? 'Altavoz' : 'Auricular'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
       
-      {/* Botón de finalizar llamada */}
+      {/* Botón de finalizar llamada - siempre visible con texto contextual */}
       <TouchableOpacity style={styles.endCallButton} onPress={endCall}>
-        <MaterialIcons name="call-end" size={36} color="#fff" />
+        {callStatus === 'connected' ? (
+          <MaterialIcons name="call-end" size={36} color="#fff" />
+        ) : (
+          <Text style={styles.endCallText}>Cancelar solicitud</Text>
+        )}
       </TouchableOpacity>
     </SafeAreaView>
   );
@@ -314,15 +411,58 @@ const styles = StyleSheet.create({
     width: width,
     height: height,
   },
-  loadingContainer: {
+  waitingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    padding: 20,
   },
-  loadingText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '500',
+  statusCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 25,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  statusTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 15,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  statusMessage: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 22,
+  },
+  localPreviewContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  previewLabel: {
+    fontSize: 14,
+    color: '#777',
+    marginBottom: 8,
+  },
+  localPreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
   localStreamContainer: {
     position: 'absolute',
@@ -334,6 +474,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 2,
     borderColor: '#fff',
+    elevation: 5,
   },
   localStream: {
     width: '100%',
@@ -374,6 +515,10 @@ const styles = StyleSheet.create({
   controlButton: {
     alignItems: 'center',
     padding: 10,
+    borderRadius: 8,
+  },
+  controlButtonActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   controlText: {
     color: '#fff',
@@ -383,13 +528,18 @@ const styles = StyleSheet.create({
   endCallButton: {
     position: 'absolute',
     bottom: 30,
-    left: width / 2 - 30,
-    width: 60,
+    left: width / 2 - 80,
+    width: 160,
     height: 60,
     borderRadius: 30,
     backgroundColor: '#FF3B30',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  endCallText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

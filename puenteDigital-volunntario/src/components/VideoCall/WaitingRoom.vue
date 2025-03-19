@@ -1,4 +1,4 @@
-<!-- components/VideoCall/WaitingRoom.vue -->
+<!-- components/VideoCall/WaitingRoom.vue (modificado) -->
 <template>
   <div class="room-card">
     <div class="room-header">
@@ -26,24 +26,45 @@
         </div>
       </div>
       
-      <div class="notification-box" v-if="participants.length > 0">
-        <i class="fas fa-info-circle"></i>
-        <p>Hay usuarios esperando asistencia. Puedes iniciar la videollamada.</p>
+      <!-- Muestra información diferente dependiendo del estado -->
+      <div v-if="isAsistente && !solicitudAceptada" class="notification-box" :class="{ 'warning': participants.length === 0 }">
+        <i :class="participants.length > 0 ? 'fas fa-info-circle' : 'fas fa-exclamation-triangle'"></i>
+        <p v-if="participants.length > 0">
+          Hay usuarios esperando asistencia. Debes aceptar la solicitud antes de iniciar la videollamada.
+        </p>
+        <p v-else>
+          No hay otros participantes conectados en esta sala.
+        </p>
       </div>
       
-      <div class="notification-box warning" v-else>
-        <i class="fas fa-exclamation-triangle"></i>
-        <p>No hay otros participantes conectados en esta sala.</p>
+      <!-- Cuando el asistente ya aceptó la solicitud pero no inició la videollamada -->
+      <div v-if="isAsistente && solicitudAceptada" class="notification-box success">
+        <i class="fas fa-check-circle"></i>
+        <p>
+          Has aceptado la solicitud. Ahora puedes iniciar la videollamada cuando estés listo.
+        </p>
       </div>
     </div>
     
     <div class="action-buttons">
+      <!-- Si es asistente y aún no ha aceptado la solicitud -->
       <button 
+        v-if="isAsistente && !solicitudAceptada"
         class="action-button primary" 
-        @click="$emit('start-call')"
+        @click="aceptarSolicitud"
         :disabled="participants.length === 0"
       >
-        Iniciar Asistencia Técnica
+        Aceptar Solicitud
+      </button>
+      
+      <!-- Si es asistente y ya aceptó la solicitud -->
+      <button 
+        v-if="isAsistente && solicitudAceptada" 
+        class="action-button success" 
+        @click="iniciarVideollamada"
+        :disabled="participants.length === 0"
+      >
+        Iniciar Videollamada
       </button>
       
       <button 
@@ -75,8 +96,20 @@ export default {
     isAsistente: {
       type: Boolean,
       default: false
-    }
-  },
+    },
+    solicitudAceptada: {
+      type: Boolean,
+      default: false
+    },
+    watch: {
+      solicitudAceptada(newValue) {
+          console.log('🔔 WaitingRoom - solicitudAceptada cambió:', {
+            newValue,
+            isAsistente: this.isAsistente,
+            participants: this.participants.length
+          });
+      }
+    }  },
   methods: {
     copyRoomId() {
       navigator.clipboard.writeText(this.roomId)
@@ -86,6 +119,14 @@ export default {
         .catch(err => {
           console.error('Error al copiar ID:', err);
         });
+    },
+    aceptarSolicitud() {
+      console.log("*** BOTÓN ACEPTAR SOLICITUD PRESIONADO ***");
+      this.$emit('accept-request');
+    },
+    iniciarVideollamada() {
+      console.log('🚀 Intentando iniciar videollamada');
+      this.$emit('start-call');
     }
   }
 };
@@ -202,6 +243,15 @@ export default {
   color: #f44336;
 }
 
+.notification-box.success {
+  background-color: #e8f5e9;
+  border-left-color: #4caf50;
+}
+
+.notification-box.success i {
+  color: #4caf50;
+}
+
 .action-buttons {
   display: flex;
   padding: 20px;
@@ -229,6 +279,20 @@ export default {
 }
 
 .action-button.primary:disabled {
+  background-color: #bdbdbd;
+  cursor: not-allowed;
+}
+
+.action-button.success {
+  background-color: #4caf50;
+  color: white;
+}
+
+.action-button.success:hover:not(:disabled) {
+  background-color: #388e3c;
+}
+
+.action-button.success:disabled {
   background-color: #bdbdbd;
   cursor: not-allowed;
 }

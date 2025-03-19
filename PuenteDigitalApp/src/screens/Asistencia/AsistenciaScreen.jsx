@@ -9,34 +9,49 @@ import {
   Alert,
   ActivityIndicator
 } from 'react-native';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsistenciaService from '../../services/AsistenciaService';
 
 const AsistenciaScreen = ({ navigation }) => {
   const [descripcion, setDescripcion] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [tipoAsistencia, setTipoAsistencia] = useState(null); // 'chat' o 'video'
 
-  // Solicitar asistencia por chat de texto (no implementado aún)
+  // Solicitar asistencia por chat de texto
   const solicitarAsistenciaTexto = async () => {
-    Alert.alert('Información', 'Esta función estará disponible próximamente');
-  };
-
-  // Solicitar asistencia por videollamada
-  const solicitarAsistenciaVideo = async () => {
+    setTipoAsistencia('chat');
     if (!descripcion.trim()) {
       Alert.alert('Error', 'Por favor, describe brevemente el problema');
       return;
     }
 
+    solicitarAsistencia('chat');
+  };
+
+  // Solicitar asistencia por videollamada
+  const solicitarAsistenciaVideo = async () => {
+    setTipoAsistencia('video');
+    if (!descripcion.trim()) {
+      Alert.alert('Error', 'Por favor, describe brevemente el problema');
+      return;
+    }
+
+    solicitarAsistencia('video');
+  };
+
+  // Función común para solicitar asistencia
+  const solicitarAsistencia = async (tipo) => {
     setIsLoading(true);
     try {
       // Crear la solicitud en la base de datos
-      const solicitud = await AsistenciaService.crearSolicitud(descripcion);
+      const solicitud = await AsistenciaService.crearSolicitud(descripcion, tipo);
       
       if (solicitud && solicitud.id) {
         // Navegar a la pantalla de espera
         navigation.navigate('EsperaAsistencia', { 
           solicitudId: solicitud.id,
-          roomId: solicitud.room_id
+          roomId: solicitud.room_id,
+          tipoAsistencia: tipo
         });
       } else {
         throw new Error('No se pudo crear la solicitud');
@@ -70,24 +85,46 @@ const AsistenciaScreen = ({ navigation }) => {
       <Text style={styles.subtitle}>¿Cómo prefieres recibir asistencia?</Text>
 
       <TouchableOpacity 
-        style={styles.button}
+        style={[
+          styles.button, 
+          styles.chatButton,
+          tipoAsistencia === 'chat' && styles.selectedButton
+        ]}
         onPress={solicitarAsistenciaTexto}
         disabled={isLoading}
       >
-        <Text style={styles.buttonText}>Asistencia por chat de texto</Text>
+        <View style={styles.buttonContent}>
+          <MaterialIcons name="chat" size={24} color="#fff" />
+          <Text style={styles.buttonText}>Asistencia por chat de texto</Text>
+        </View>
       </TouchableOpacity>
 
       <TouchableOpacity 
-        style={[styles.button, styles.primaryButton]}
+        style={[
+          styles.button, 
+          styles.videoButton,
+          tipoAsistencia === 'video' && styles.selectedButton
+        ]}
         onPress={solicitarAsistenciaVideo}
         disabled={isLoading}
       >
-        {isLoading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
+        <View style={styles.buttonContent}>
+          {isLoading && tipoAsistencia === 'video' ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <MaterialIcons name="videocam" size={24} color="#fff" />
+          )}
           <Text style={styles.buttonText}>Asistencia por videollamada</Text>
-        )}
+        </View>
       </TouchableOpacity>
+
+      <View style={styles.infoContainer}>
+        <MaterialIcons name="info-outline" size={20} color="#666" />
+        <Text style={styles.infoText}>
+          El chat de texto te permite comunicarte con un asistente a través de mensajes escritos.
+          La videollamada te permite una comunicación con video y audio en tiempo real.
+        </Text>
+      </View>
 
       <TouchableOpacity
         style={styles.linkButton}
@@ -106,6 +143,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+    backgroundColor: '#F5F7FB',
   },
   subtitle: {
     fontSize: 18,
@@ -113,6 +151,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
     marginBottom: 20,
+    fontWeight: '600',
   },
   card: {
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
@@ -146,22 +185,56 @@ const styles = StyleSheet.create({
     minHeight: 100,
     textAlignVertical: 'top',
     marginTop: 10,
+    backgroundColor: '#fff',
   },
   button: {
-    backgroundColor: '#6c757d',
     padding: 15,
-    borderRadius: 5,
+    borderRadius: 10,
     marginTop: 10,
-    width: '80%',
+    width: '90%',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  primaryButton: {
-    backgroundColor: '#007BFF',
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chatButton: {
+    backgroundColor: '#5C6BC0', // Azul índigo
+  },
+  videoButton: {
+    backgroundColor: '#007BFF', // Azul primario
+    marginTop: 15,
+  },
+  selectedButton: {
+    backgroundColor: '#28a745', // Verde para mostrar selección
   },
   buttonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '500',
+    marginLeft: 10,
+  },
+  infoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 10,
+    marginTop: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#007BFF',
+  },
+  infoText: {
+    color: '#666',
+    fontSize: 14,
+    marginLeft: 10,
+    flex: 1,
   },
   linkButton: {
     marginTop: 20,

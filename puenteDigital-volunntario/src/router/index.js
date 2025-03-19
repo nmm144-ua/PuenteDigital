@@ -53,12 +53,6 @@ const routes = [
         name: 'DetallesAsistente',
         component: () => import('../components/DetallesAsistente.vue')
       },
-      // Actualiza las rutas de videollamada para usar VideollamadaView
-      {
-        path: 'call',
-        name: 'HomeCall',
-        component: () => import('../views/VideoCall/HomeCallView.vue')
-      },
       {
         path: 'videollamada/:id',  // Nueva ruta para el nuevo componente
         name: 'VideollamadaView',
@@ -69,22 +63,22 @@ const routes = [
           userName: useAuthStore().user?.nombre || 'Asistente'
         })
       },
-      // Mantener rutas antiguas para retrocompatibilidad
-      {
-        path: 'room',
-        name: 'room',
-        component: () => import('../views/VideoCall/RoomView.vue'),
-      },
-      {
-        path: 'room/:id',
-        name: 'Room',
-        component: () => import('../views/VideoCall/RoomView.vue')
-      },
       {
         path: 'gestion-llamadas',
         name: 'GestionLlamadas',
         component: () => import('../views/Asistente/GestionLlamadas.vue')
       },
+      {
+        path: 'chat/:solicitudId/:roomId',
+        name: 'ChatAsistente',
+        component: () => import('../views/VideoCall/ChatAsistenteView.vue'),
+        props: true
+      },
+      {
+        path: 'solicitudes-chat',
+        name: 'SolicitudesChat',
+        component: () => import('../views/Asistente/SolicitudesChatView.vue')
+      }
     ]
   },
   {

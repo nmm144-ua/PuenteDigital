@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 class AsistenciaService {
   // Crear una nueva solicitud de asistencia
-  async crearSolicitud(descripcion) {
+  async crearSolicitud(descripcion,tipo) {
     try {
       // Obtener información del usuario desde AsyncStorage
       const userDataString = await AsyncStorage.getItem('userData');
@@ -34,7 +34,8 @@ class AsistenciaService {
           descripcion,
           room_id: roomId,
           estado: 'pendiente',
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          tipo_asistencia : tipo,
         }])
         .select();
       
