@@ -70,6 +70,17 @@ export default {
         const videoElement = this.videoRefs[userId];
         if (videoElement && videoElement.srcObject !== stream) {
           videoElement.srcObject = stream;
+          
+          // Detectar cuando el video se carga para analizar sus dimensiones
+          videoElement.onloadedmetadata = () => {
+            // Emitir evento con las dimensiones del video para facilitar la detección de orientación
+            this.$emit('video-loaded', {
+              userId,
+              width: videoElement.videoWidth,
+              height: videoElement.videoHeight,
+              isPortrait: videoElement.videoHeight > videoElement.videoWidth
+            });
+          };
         }
       });
     },
@@ -135,13 +146,14 @@ export default {
   background-color: #1a1a1a;
   border-radius: 8px;
   overflow: hidden;
-  aspect-ratio: 16/9;
+  /* Eliminado el aspect-ratio fijo */
 }
 
 .remote-video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* Cambiado a contain para mostrar todo el contenido */
+  object-fit: contain;
 }
 
 .username-label {

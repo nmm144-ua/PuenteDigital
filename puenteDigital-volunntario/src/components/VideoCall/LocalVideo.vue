@@ -43,9 +43,17 @@ export default {
         this.$nextTick(() => {
           if (this.$refs.videoElement && newStream) {
             this.$refs.videoElement.srcObject = newStream;
+            // Emitir el elemento de video para detectar su orientación
+            this.$emit('video-ready', this.$refs.videoElement);
           }
         });
       }
+    }
+  },
+  mounted() {
+    // También emitir en mounted por si ya está disponible
+    if (this.$refs.videoElement && this.stream) {
+      this.$emit('video-ready', this.$refs.videoElement);
     }
   }
 }
@@ -59,13 +67,15 @@ export default {
   border-radius: 8px;
   overflow: hidden;
   background-color: #1a1a1a;
-  aspect-ratio: 4/3;
+  /* Eliminado el aspect-ratio fijo para adaptarse al contenido real */
 }
 
 .local-video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* Cambiado de cover a contain para evitar recortar el video */
+  object-fit: contain;
+  background-color: #1a1a1a;
 }
 
 .video-muted {

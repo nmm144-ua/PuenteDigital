@@ -16,11 +16,20 @@
       <!-- Interfaz de videollamada -->
       <div v-else class="call-interface">
         <!-- Videos remotos -->
-        <video-grid :remote-streams="remoteStreams" :participants="participants" />
+        <mobile-orientation-detector>
+          <video-grid :remote-streams="remoteStreams" :participants="participants" />
+        </mobile-orientation-detector>
         
         <!-- Video local -->
         <div class="local-video-wrapper">
-          <local-video :stream="localStream" :video-enabled="videoEnabled" :audio-enabled="audioEnabled" />
+          <mobile-orientation-detector :show-hint="false">
+            <local-video 
+              :stream="localStream" 
+              :video-enabled="videoEnabled" 
+              :audio-enabled="audioEnabled" 
+              @video-ready="handleLocalVideoReady"
+            />
+          </mobile-orientation-detector>
         </div>
       </div>
       
@@ -59,6 +68,7 @@
   import VideoGrid from './VideoGrid.vue';
   import LocalVideo from './LocalVideo.vue';
   import CallControls from './CallControls.vue';
+  import MobileOrientationDetector from './MobileOrientationDetector.vue';
   
   export default {
     name: 'VideollamadaControls',
@@ -66,7 +76,8 @@
       WaitingRoom,
       VideoGrid,
       LocalVideo,
-      CallControls
+      CallControls,
+      MobileOrientationDetector
     },
     props: {
       roomId: {
@@ -85,7 +96,8 @@
     data() {
       return {
         loading: false,
-        error: null
+        error: null,
+        localVideoElement: null
       };
     },
     computed: {
@@ -184,6 +196,10 @@
       
       cleanupBeforeUnload() {
         this.callStore.cleanup();
+      },
+      
+      handleLocalVideoReady(videoElement) {
+        this.localVideoElement = videoElement;
       }
     }
   }
@@ -229,6 +245,13 @@
     border-radius: 8px;
     overflow: hidden;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    background-color: #1a1a1a;
+  }
+  
+  /* Clases adicionales para manejar orientación vertical */
+  .local-video-wrapper.portrait-mode {
+    width: 100px;
+    height: 180px;
   }
   
   /* Contenedor dedicado para los controles que asegura visibilidad */
