@@ -18,6 +18,7 @@ class WebRTCService {
     this.peerConnection = null;
     this.peers = {};
     this.remoteStreams = {};
+    this.pendingIceCandidates = {};
     this.iceServers = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
@@ -207,7 +208,7 @@ class WebRTCService {
     
     // Manejo de candidatos ICE
     socketService.on('ice-candidate', (data) => {
-      const fromUserId = data.from || data.userId || this.remoteUserId;
+      const fromUserId = data.from || data.userId;
       
       if (!fromUserId) {
         this.logError('No se puede procesar candidato ICE: remitente desconocido');
@@ -216,9 +217,13 @@ class WebRTCService {
       
       this.log(`Candidato ICE recibido de: ${fromUserId}`);
       
-      if (this.peers[fromUserId]) {
-        this.peers[fromUserId].signal(data.candidate);
-      } else if (this.peerConnection) {
+      // Usar una cola por cada usuario
+      if (!this.pendingIceCandidates[fromUserId]) {
+        this.pendingIceCandidates[fromUserId] = [];
+      }
+      
+      if (this.peerConnection && this.peerConnection.remoteDescription) {
+        // Si ya tenemos descripción remota, procesarlo normalmente
         if (data.candidate && typeof data.candidate === 'object') {
           const iceCandidate = new rtcAdapter.RTCIceCandidate(data.candidate);
           this.peerConnection.addIceCandidate(iceCandidate)
@@ -226,7 +231,9 @@ class WebRTCService {
             .catch(error => this.logError('Error al añadir candidato ICE:', error));
         }
       } else {
-        this.log('ADVERTENCIA: No hay peer para este candidato ICE');
+        // Si no tenemos descripción remota, ponerlo en espera
+        this.log(`Agregando candidato ICE a la cola para ${fromUserId}`);
+        this.pendingIceCandidates[fromUserId].push(data.candidate);
       }
     });
 
@@ -287,6 +294,28 @@ class WebRTCService {
       throw error;
     }
   }
+
+  processPendingCandidates(userId) {
+    if (this.pendingIceCandidates[userId] && this.pendingIceCandidates[userId].length > 0) {
+      this.log(`Procesando ${this.pendingIceCandidates[userId].length} candidatos ICE pendientes para ${userId}`);
+      
+      while (this.pendingIceCandidates[userId].length > 0) {
+        const candidate = this.pendingIceCandidates[userId].shift();
+        
+        if (candidate && typeof candidate === 'object') {
+          try {
+            const iceCandidate = new rtcAdapter.RTCIceCandidate(candidate);
+            this.peerConnection.addIceCandidate(iceCandidate)
+              .then(() => this.log('Candidato ICE pendiente añadido correctamente'))
+              .catch(error => this.logError('Error al añadir candidato ICE pendiente:', error));
+          } catch (error) {
+            this.logError('Error al crear candidato ICE:', error);
+          }
+        }
+      }
+    }
+  }
+  
 
   // Configurar listeners para eventos de la conexión nativa - SIMPLIFICADO
   setupPeerConnectionListeners() {
@@ -431,8 +460,6 @@ class WebRTCService {
       }
     };
   }
-
-  // Añade este método a tu clase WebRTCService en webrtc.service.js
 
     // Método para manejar tracks de video silenciados
     async handleMutedVideoTrack(userId) {
@@ -780,6 +807,9 @@ async restartConnection(userId) {
       this.log('Creando respuesta');
       const answer = await this.peerConnection.createAnswer();
       await this.peerConnection.setLocalDescription(answer);
+      await this.peerConnection.setRemoteDescription(remoteDesc);
+      this.log('Descripción remota establecida correctamente');
+      this.processPendingCandidates(fromUserId);
       
       // Enviar respuesta
       this.log('Enviando respuesta a', fromUserId);

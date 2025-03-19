@@ -262,61 +262,49 @@ export const useCallStore = defineStore('call', {
           await this.startLocalStream();
         }
         
-        // Filtrar solo usuarios normales (no asistentes)
-        const usuariosParaLlamar = this.participants.filter(p => p.userRole !== 'asistente');
+        // Filtrar solo usuarios que NO sean asistentes y NO sean uno mismo
+        const usuariosParaLlamar = this.participants.filter(p => 
+          p.userRole !== 'asistente' && p.userId !== this.userId
+        );
         
         console.log("Usuarios para llamar:", usuariosParaLlamar);
         
         if (usuariosParaLlamar.length === 0) {
-          console.error('No hay usuarios para llamar en esta sala');
+          console.error('No hay usuarios normales para llamar en esta sala');
           this.error = 'No hay usuarios para llamar en esta sala';
           return false;
         }
         
         console.log(`*** INICIANDO VIDEOLLAMADA CON ${usuariosParaLlamar.length} USUARIOS ***`);
         
-        // PASO 1: Notificar a usuarios que se inicia la llamada (USAR SOCKET DIRECTO)
-        for (const usuario of usuariosParaLlamar) {
-          console.log(`Enviando solicitud de llamada a ${usuario.userName} (${usuario.userId})`);
-          
-          // Emisión directa del evento call-requested
-          socketService.socket.emit('call-user', {
-            roomId: this.roomId,
-            to: usuario.userId,
-            from: this.userId,
-            fromName: this.userName
-          });
-        }
-        
-        // Esperar un momento para que los clientes se preparen
-        console.log("Esperando 2 segundos para que los clientes se preparen...");
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // PASO 2: Establecer conexiones WebRTC y enviar ofertas
+        // Enviar solicitud de llamada a cada usuario
         for (const usuario of usuariosParaLlamar) {
           try {
-            console.log(`*** INICIANDO CONEXIÓN WEBRTC CON ${usuario.userName} (${usuario.userId}) ***`);
+            console.log(`Notificando solicitud de llamada a ${usuario.userName} (${usuario.userId})`);
             
-            // Crear conexión WebRTC
+            // Notificar solicitud de llamada
+            socketService.socket.emit('call-requested', {
+              roomId: this.roomId,
+              to: usuario.userId,
+              from: this.userId,
+              fromName: this.userName
+            });
+            
+            // Esperar un momento para que el cliente procese la notificación
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            console.log(`Iniciando conexión WebRTC con ${usuario.userName} (${usuario.userId})`);
+            
+            // Iniciar conexión WebRTC como iniciador
             await webrtcService.initConnection(usuario.userId, true);
             
-            // Crear y enviar oferta
-            const offer = await webrtcService.createOffer();
-            console.log(`Enviando oferta WebRTC a ${usuario.userId}`);
-            
-            // Envío directo de la oferta
-            socketService.socket.emit('offer', {
-              offer,
-              to: usuario.userId,
-              from: this.userId
-            });
+            // Actualizar estado
+            this.isInCall = true;
           } catch (error) {
             console.error(`Error al conectar con usuario ${usuario.userId}:`, error);
           }
         }
         
-        console.log("*** VIDEOLLAMADA INICIADA CORRECTAMENTE ***");
-        this.isInCall = true;
         return true;
       } catch (error) {
         console.error('Error al iniciar videollamada:', error);
