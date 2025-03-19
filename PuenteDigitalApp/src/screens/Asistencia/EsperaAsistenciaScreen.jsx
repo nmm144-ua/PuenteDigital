@@ -11,19 +11,16 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import AsistenciaService from '../../services/AsistenciaService';
 import SocketService from '../../services/socketService';
-import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 
 const EsperaAsistenciaScreen = ({ route, navigation }) => {
-  const { solicitudId, roomId, tipoAsistencia = 'video' } = route.params;
+  const { solicitudId, roomId } = route.params;
   const { user } = useAuth();
   const [waitTime, setWaitTime] = useState(0);
   const [solicitud, setSolicitud] = useState(null);
   const [isConnecting, setIsConnecting] = useState(true);
-  const [asistenteName, setAsistenteName] = useState(null);
   
   const timerRef = useRef(null);
-  const checkIntervalRef = useRef(null);
-  const socketInitializedRef = useRef(false);
+  const socketConnectedRef = useRef(false);
   
   // Formatear el tiempo de espera (minutos:segundos)
   const formatTime = (seconds) => {
@@ -44,9 +41,9 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Primero abandonar la sala de socket.io si estamos conectados
-              if (socketInitializedRef.current && roomId) {
-                SocketService.leaveRoom();
+              // Primero abandonar la sala de socket.io
+              if (socketConnectedRef.current && roomId) {
+                SocketService.leaveRoom(roomId);
               }
               
               // Luego actualizar la solicitud en la base de datos
@@ -57,7 +54,6 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
             } catch (error) {
               console.error('Error al cancelar solicitud:', error);
               Alert.alert('Error', 'No se pudo cancelar la solicitud');
-              navigation.navigate('OpcionesInicio');
             }
           }
         }
@@ -71,127 +67,85 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
       const data = await AsistenciaService.obtenerSolicitud(solicitudId);
       setSolicitud(data);
       
-      // Si la solicitud ya está en proceso o asignada, procesar
+      // Si la solicitud ya está en proceso o completada, navegar a la pantalla de videollamada
       if (data.estado === 'en_proceso' && data.asistente_id) {
-        const nombreAsistente = data.asistente?.nombre || 'Asistente';
-        setAsistenteName(nombreAsistente);
+        navigation.replace('Videollamada', { 
+          solicitudId: data.id,
+          roomId: data.room_id,
+          asistenteId: data.asistente_id,
+          asistenteName: data.asistente?.nombre || 'Asistente'
+        });
       }
-      
-      return data;
     } catch (error) {
       console.error('Error al cargar solicitud:', error);
-      return null;
     }
   };
   
-  // Manejar evento de sala aceptada por el asistente
-  const handleRoomAccepted = (data) => {
-    console.log('Sala aceptada por asistente:', data);
-    
-    // Verificar que sea para esta sala
-    if (data.roomId === roomId) {
-      // Guardar información del asistente
-      setAsistenteName(data.asistenteName || 'Asistente');
-      
-      // Navegar a la pantalla correspondiente
-      if (tipoAsistencia === 'chat') {
-        navigation.replace('Chat', { 
-          solicitudId,
-          roomId,
-          asistenteId: data.asistenteId,
-          asistenteName: data.asistenteName || 'Asistente'
-        });
-      } else {
-        // Para videollamada, vamos a la pantalla de videollamada
-        // pero NO iniciamos la llamada, solo esperamos pasivamente
-        navigation.replace('Videollamada', { 
-          solicitudId,
-          roomId,
-          asistenteId: data.asistenteId,
-          asistenteName: data.asistenteName || 'Asistente'
-        });
-      }
-    }
-  };
-  
-  // Inicializar la conexión socket
+  // Inicializar la conexión al socket
   const inicializarSocket = async () => {
-    if (socketInitializedRef.current) return;
-    
-    try {
-      // Conectar al servidor de sockets si no estamos conectados
-      if (!SocketService.isConnected) {
+    if (!socketConnectedRef.current) {
+      try {
+        // Obtener información del usuario
+        const userData = await AsistenciaService.obtenerUsuarioActual();
+        const userId = userData?.id || user?.id || 'anonymous';
+        const userName = userData?.nombre || user?.nombre || 'Usuario';
+        
+        // Conectar al servidor de sockets
         await SocketService.connect();
-      }
-      
-      // Unirse a la sala de espera
-      const userId = user?.id || 'anonymous';
-      const userName = user?.nombre || 'Usuario';
-      
-      await SocketService.joinRoom(roomId, userId, userName);
-      
-      // Configurar evento para cuando un asistente acepta la solicitud
-      SocketService.onRoomAccepted(handleRoomAccepted);
-      
-      socketInitializedRef.current = true;
-      setIsConnecting(false);
-    } catch (error) {
-      console.error('Error al inicializar Socket.IO:', error);
-      setIsConnecting(false);
-    }
-  };
-  
-  // Iniciar la aplicación
-  const iniciar = async () => {
-    // Cargar la información de la solicitud
-    const solicitudData = await cargarSolicitud();
-    
-    // Si la solicitud ya está en proceso, mostrar notificación y redirigir
-    if (solicitudData && solicitudData.estado === 'en_proceso' && solicitudData.asistente_id) {
-      // Mostrar notificación
-      const nombreAsistente = solicitudData.asistente?.nombre || 'Un asistente';
-      Alert.alert(
-        'Solicitud aceptada',
-        `${nombreAsistente} ya ha aceptado tu solicitud.`,
-        [{ text: 'Continuar' }]
-      );
-      
-      // Redirigir a la pantalla correspondiente
-      if (tipoAsistencia === 'chat') {
-        navigation.replace('Chat', { 
-          solicitudId: solicitudData.id,
-          roomId: solicitudData.room_id,
-          asistenteId: solicitudData.asistente_id,
-          asistenteName: nombreAsistente
+        
+        // Unirse a la sala
+        SocketService.joinRoom(roomId, userId, userName);
+        
+        // Escuchar la llamada entrante cuando un asistente acepta
+        SocketService.onCallRequested((data) => {
+          // Cuando un asistente inicia una llamada, navegar a la pantalla de videollamada
+          navigation.replace('Videollamada', { 
+            solicitudId,
+            roomId,
+            asistenteId: data.from,
+            asistenteName: data.fromName
+          });
         });
-      } else {
-        navigation.replace('Videollamada', { 
-          solicitudId: solicitudData.id,
-          roomId: solicitudData.room_id,
-          asistenteId: solicitudData.asistente_id,
-          asistenteName: nombreAsistente
-        });
+        
+        socketConnectedRef.current = true;
+        setIsConnecting(false);
+      } catch (error) {
+        console.error('Error al conectar con el servidor:', error);
+        Alert.alert(
+          'Error de conexión',
+          'No se pudo establecer conexión con el servidor. Inténtalo de nuevo.',
+          [
+            { 
+              text: 'Reintentar', 
+              onPress: () => inicializarSocket() 
+            },
+            { 
+              text: 'Cancelar', 
+              onPress: () => navigation.goBack(),
+              style: 'cancel'
+            }
+          ]
+        );
       }
-      return;
     }
-    
-    // Inicializar la conexión socket
-    await inicializarSocket();
   };
   
   useEffect(() => {
-    // Iniciar la aplicación
-    iniciar();
+    // Inicializar la conexión con el servidor de WebRTC
+    inicializarSocket();
+    
+    // Cargar la información de la solicitud
+    cargarSolicitud();
     
     // Iniciar temporizador para mostrar tiempo de espera
     timerRef.current = setInterval(() => {
       setWaitTime(prev => prev + 1);
     }, 1000);
     
-    // Consultar periódicamente si la solicitud fue aceptada
-    checkIntervalRef.current = setInterval(() => {
+    // Consultar cada 10 segundos si la solicitud fue aceptada
+    /*const checkInterval = setInterval(() => {
       cargarSolicitud();
-    }, 5000);
+    }, 10000);*/
     
     // Prevenir navegación hacia atrás sin cancelar la solicitud
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -200,37 +154,21 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
     });
     
     return () => {
-      // Limpiar temporizadores
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
-      
-      // Remover handler de navegación
+      clearInterval(timerRef.current);
+     // clearInterval(checkInterval);
       backHandler.remove();
       
-      // Remover listener de socket
-      SocketService.offRoomAccepted(handleRoomAccepted);
-      
-      // No desconectar del socket, solo abandonar la sala si estamos en ella
-      if (socketInitializedRef.current && roomId && SocketService.currentRoom === roomId) {
-        SocketService.leaveRoom();
-      }
+     /* // Desconectar del socket si navegamos fuera sin aceptar
+      if (socketConnectedRef.current && roomId) {
+        SocketService.leaveRoom(roomId);
+      }*/
     };
   }, []);
   
   return (
     <View style={styles.container}>
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>
-          Esperando asistente
-        </Text>
-        
-        <View style={styles.iconContainer}>
-          {tipoAsistencia === 'chat' ? (
-            <MaterialIcons name="chat" size={60} color="#007BFF" />
-          ) : (
-            <MaterialIcons name="videocam" size={60} color="#007BFF" />
-          )}
-        </View>
+        <Text style={styles.cardTitle}>Esperando asistente</Text>
         
         <ActivityIndicator size="large" color="#007BFF" style={styles.spinner} />
         
@@ -239,23 +177,9 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
         </Text>
         
         <Text style={styles.cardText}>
-          Estamos buscando un asistente disponible para ayudarte con tu 
-          {tipoAsistencia === 'chat' ? ' chat' : 'a videollamada'}.
-          {asistenteName ? (
-            ` ${asistenteName} te atenderá pronto.`
-          ) : (
-            ` En cuanto alguien acepte tu solicitud serás notificado.`
-          )}
+          Estamos buscando un asistente disponible para ayudarte. En cuanto alguien acepte tu solicitud, 
+          comenzará la videollamada automáticamente.
         </Text>
-        
-        <View style={styles.infoContainer}>
-          <MaterialIcons name="info-outline" size={20} color="#666" />
-          <Text style={styles.infoText}>
-            {tipoAsistencia === 'chat' 
-              ? 'El asistente podrá ver tu descripción del problema y te ayudará a resolverlo mediante mensajes de texto.'
-              : 'El asistente podrá ver tu descripción del problema y te ayudará a resolverlo mediante una videollamada.'}
-          </Text>
-        </View>
         
         {isConnecting && (
           <Text style={styles.connectingText}>
@@ -268,7 +192,6 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
         style={styles.cancelButton}
         onPress={cancelarSolicitud}
       >
-        <MaterialIcons name="cancel" size={18} color="#fff" style={styles.buttonIcon} />
         <Text style={styles.cancelButtonText}>Cancelar solicitud</Text>
       </TouchableOpacity>
     </View>
@@ -285,8 +208,8 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 25,
+    borderRadius: 10,
+    padding: 20,
     width: '100%',
     alignItems: 'center',
     shadowColor: '#000',
@@ -302,15 +225,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     textAlign: 'center',
   },
-  iconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#F0F8FF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
   cardText: {
     fontSize: 16,
     color: '#555',
@@ -325,24 +239,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 10,
-    color: '#444',
-  },
-  infoContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 20,
-    borderLeftWidth: 3,
-    borderLeftColor: '#007BFF',
-    width: '100%',
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 10,
-    flex: 1,
-    lineHeight: 20,
   },
   connectingText: {
     fontSize: 14,
@@ -354,14 +250,8 @@ const styles = StyleSheet.create({
     marginTop: 30,
     backgroundColor: '#dc3545',
     padding: 15,
-    borderRadius: 10,
+    borderRadius: 5,
     width: '80%',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  buttonIcon: {
-    marginRight: 8,
   },
   cancelButtonText: {
     color: '#fff',

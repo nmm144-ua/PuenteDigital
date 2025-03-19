@@ -14,7 +14,6 @@ LogBox.ignoreLogs([
   'startMediaDevicesEventMonitor' // Ignorar el error específico de Daily.co
 ]);
 
-
 export default function App() {
   return (
     <SafeAreaProvider>

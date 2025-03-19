@@ -1,43 +1,30 @@
 <!-- src/components/VideoCall/VideoGrid.vue -->
 <template>
-  <div class="video-grid" :class="[gridClass, { 'mobile-layout': isMobileDevice }]">
-    <!-- Mostrar videos remotos si hay -->
-    <template v-if="Object.keys(remoteStreams).length > 0">
-      <div 
-        v-for="(stream, userId) in remoteStreams" 
-        :key="userId" 
-        class="grid-item"
-        :class="{ 'no-video': !hasVideoTrack(userId) }"
-      >
-        <!-- Elemento de video con id y data-attribute -->
-        <video 
-          ref="videoElements"
-          :id="`video-${userId}`"
-          :data-user-id="userId"
-          autoplay 
-          playsinline
-          muted
-          class="remote-video"
-        ></video>
-        
-        <!-- Indicador cuando no hay video -->
-        <div v-if="!hasVideoTrack(userId)" class="no-video-indicator">
-          <i class="fas fa-video-slash"></i>
+  <div class="video-grid-container">
+    <div class="video-grid" :class="[gridClass]">
+      <template v-if="Object.keys(remoteStreams).length > 0">
+        <div 
+          v-for="(stream, userId) in remoteStreams" 
+          :key="userId" 
+          class="grid-item"
+          :class="{ 'portrait-video': videoOrientations[userId] && videoOrientations[userId].isPortrait }"
+        >
+          <video 
+            ref="videoElements" 
+            autoplay 
+            playsinline
+            muted
+            class="remote-video"
+            :data-user-id="userId"
+          ></video>
+          <div class="username-label">
+            {{ getParticipantName(userId) }}
+          </div>
         </div>
-        
-        <!-- Etiqueta con nombre de usuario -->
-        <div class="username-label">
-          {{ getParticipantName(userId) }}
-          <span v-if="!hasAudioTrack(userId)" class="muted-indicator">
-            <i class="fas fa-microphone-slash"></i>
-          </span>
-        </div>
+      </template>
+      <div v-else class="empty-grid">
+        <p>Esperando a que otros participantes se unan a la llamada...</p>
       </div>
-    </template>
-    
-    <!-- Mensaje cuando no hay participantes -->
-    <div v-else class="empty-grid">
-      <p>Esperando a que otros participantes se unan a la llamada...</p>
     </div>
   </div>
 </template>
@@ -46,12 +33,10 @@
 export default {
   name: 'VideoGrid',
   props: {
-    // Streams remotos recibidos
     remoteStreams: {
       type: Object,
       required: true
     },
-    // Lista de participantes
     participants: {
       type: Array,
       default: () => []
@@ -59,16 +44,12 @@ export default {
   },
   data() {
     return {
-      isMobileDevice: false,
-      streamStatus: {},
-      refreshTimer: null,
-      
-      // Para monitoreo de congelación de video
-      videoMonitoringIntervals: {}
+      videoOrientations: {},
+      streamPlayIntervals: {},
+      streamTimers: {}
     };
   },
   computed: {
-    // Determinar la clase de grid según el número de participantes
     gridClass() {
       const count = Object.keys(this.remoteStreams).length;
       if (count <= 1) return 'grid-1';
@@ -79,362 +60,297 @@ export default {
     }
   },
   watch: {
-    // Vigilar cambios en streams remotos
     remoteStreams: {
-      deep: true,
-      handler() {
-        // En el siguiente tick del DOM, intentar conectar los streams
-        this.$nextTick(() => {
-          this.attachStreams();
+      handler(newStreams, oldStreams) {
+        // Detectar nuevos streams o cambios en streams existentes
+        Object.keys(newStreams).forEach(userId => {
+          if (!oldStreams || !oldStreams[userId] || oldStreams[userId] !== newStreams[userId]) {
+            // Stream nuevo o cambiado
+            console.log(`Stream nuevo o cambiado para usuario ${userId}`);
+            
+            // Verificar si el stream es válido
+            if (this.isValidMediaStream(newStreams[userId])) {
+              // Si tenemos un temporizador activo para este usuario, limpiarlo
+              if (this.streamTimers[userId]) {
+                clearTimeout(this.streamTimers[userId]);
+              }
+              
+              // Configurar un temporizador para asegurarnos de que el stream se procese
+              this.streamTimers[userId] = setTimeout(() => {
+                this.updateVideoStreamForUser(userId);
+              }, 100);
+            } else {
+              console.warn(`Stream inválido recibido para usuario ${userId}`);
+            }
+          }
         });
-      }
+        
+        // Eliminar streams que ya no existen
+        Object.keys(this.videoOrientations).forEach(userId => {
+          if (!newStreams[userId]) {
+            this.cleanupUserResources(userId);
+          }
+        });
+        
+        this.$nextTick(() => {
+          this.updateVideoStreams();
+        });
+      },
+      deep: true,
+      immediate: true
     }
-  },
-  created() {
-    this.detectMobileDevice();
-    window.addEventListener('resize', this.handleResize);
-  },
-  mounted() {
-    // Primera conexión de streams
-    this.attachStreams();
-    
-    // Programar un refresco periódico de los videos
-    this.refreshTimer = setInterval(() => {
-      this.refreshAllVideos();
-    }, 5000);
-  },
-  beforeUnmount() {
-    window.removeEventListener('resize', this.handleResize);
-    
-    // Limpiar todos los temporizadores
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
-    }
-    
-    // Limpiar los intervalos de monitoreo de video individuales
-    Object.values(this.videoMonitoringIntervals).forEach(interval => {
-      clearInterval(interval);
-    });
   },
   methods: {
-    // Detectar si es un dispositivo móvil
-    detectMobileDevice() {
-      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-      const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
-      this.isMobileDevice = mobileRegex.test(userAgent) || window.innerWidth < 768;
-      console.log("Detectado como dispositivo móvil:", this.isMobileDevice);
-    },
-    
-    // Manejar cambio de tamaño de ventana
-    handleResize() {
-      this.detectMobileDevice();
-    },
-    
-    // MÉTODO PRINCIPAL: Conectar streams a elementos de video
-    attachStreams() {
-      console.log("Ejecutando attachStreams con streams:", Object.keys(this.remoteStreams));
+    // Verificar que un objeto MediaStream es válido
+    isValidMediaStream(stream) {
+      if (!stream || typeof stream !== 'object') return false;
       
-      if (Object.keys(this.remoteStreams).length === 0) {
-        console.log("No hay streams remotos para conectar");
+      // Verificar que el stream tiene al menos algunas propiedades esperadas
+      return (
+        // Verificamos por la propiedad 'id' que debería estar en cualquier MediaStream
+        (stream.id && typeof stream.id === 'string') ||
+        // O verificamos si tiene algún método típico de MediaStream
+        (typeof stream.getTracks === 'function') ||
+        (typeof stream.getVideoTracks === 'function') ||
+        (typeof stream.getAudioTracks === 'function')
+      );
+    },
+    
+    // Verificar si un MediaStream está activo
+    isMediaStreamActive(stream) {
+      if (!stream) return false;
+      
+      try {
+        // Primero intentamos usar la propiedad 'active' nativa
+        if (typeof stream.active === 'boolean') {
+          return stream.active;
+        }
+        
+        // Si no hay propiedad 'active', verificamos los tracks
+        if (typeof stream.getTracks === 'function') {
+          const tracks = stream.getTracks();
+          return tracks.length > 0 && tracks.some(track => track.enabled);
+        }
+        
+        // Intentamos con video y audio tracks por separado
+        const videoTracks = typeof stream.getVideoTracks === 'function' ? stream.getVideoTracks() : [];
+        const audioTracks = typeof stream.getAudioTracks === 'function' ? stream.getAudioTracks() : [];
+        
+        return (videoTracks.length > 0 || audioTracks.length > 0);
+      } catch (error) {
+        console.warn('Error al verificar si el stream está activo:', error);
+        // Asumimos que está activo como último recurso
+        return true;
+      }
+    },
+    
+    // Limpiar recursos para un usuario específico
+    cleanupUserResources(userId) {
+      // Eliminar orientación guardada
+      if (this.videoOrientations[userId]) {
+        delete this.videoOrientations[userId];
+      }
+      
+      // Limpiar cualquier intervalo de monitoreo
+      if (this.streamPlayIntervals[userId]) {
+        clearInterval(this.streamPlayIntervals[userId]);
+        delete this.streamPlayIntervals[userId];
+      }
+      
+      // Limpiar temporizadores
+      if (this.streamTimers[userId]) {
+        clearTimeout(this.streamTimers[userId]);
+        delete this.streamTimers[userId];
+      }
+      
+      console.log(`Recursos limpiados para usuario ${userId}`);
+    },
+    
+    // Actualizar stream para un usuario específico
+    updateVideoStreamForUser(userId) {
+      // Obtener todos los elementos de video
+      const videoElements = this.$refs.videoElements;
+      if (!videoElements) return;
+      
+      // Convertir a array si no lo es
+      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
+      
+      // Buscar el video correspondiente a este usuario
+      const video = videos.find(v => v.getAttribute('data-user-id') === userId);
+      if (!video) {
+        console.warn(`No se encontró elemento de video para usuario ${userId}`);
         return;
       }
       
-      // IMPORTANTE: Crear elementos para cada userId
-      Object.keys(this.remoteStreams).forEach(userId => {
-        let videoElement = document.getElementById(`video-${userId}`);
+      const stream = this.remoteStreams[userId];
+      if (!stream) {
+        console.warn(`No hay stream para usuario ${userId}`);
+        return;
+      }
+      
+      // Verificar si el stream es válido y activo
+      if (!this.isValidMediaStream(stream)) {
+        console.warn(`Stream inválido para usuario ${userId}`);
+        return;
+      }
+      
+      if (!this.isMediaStreamActive(stream)) {
+        console.warn(`Stream inactivo para usuario ${userId}`);
+        return;
+      }
+      
+      // Asignar stream al video si es diferente
+      if (video.srcObject !== stream) {
+        console.log(`Asignando stream al video de ${userId}`);
         
-        // Si no existe, crear uno nuevo dinámicamente
-        if (!videoElement) {
-          console.log(`Creando elemento de video para ${userId}`);
-          const gridContainer = this.$el;
+        try {
+          // Asignar stream y configurar eventos
+          video.srcObject = stream;
           
-          // Crear grid item
-          const gridItem = document.createElement('div');
-          gridItem.className = 'grid-item';
-          gridItem.setAttribute('data-user-id', userId);
-          
-          // Crear elemento de video
-          videoElement = document.createElement('video');
-          videoElement.id = `video-${userId}`;
-          videoElement.setAttribute('data-user-id', userId);
-          videoElement.autoplay = true;
-          videoElement.playsInline = true;
-          videoElement.className = 'remote-video';
-          
-          // Crear nombre de usuario
-          const usernameLabel = document.createElement('div');
-          usernameLabel.className = 'username-label';
-          usernameLabel.textContent = this.getParticipantName(userId);
-          
-          // Añadir elementos al DOM
-          gridItem.appendChild(videoElement);
-          gridItem.appendChild(usernameLabel);
-          gridContainer.appendChild(gridItem);
-        }
-        
-        // Conectar stream al elemento
-        const stream = this.remoteStreams[userId];
-        if (stream) {
-          console.log(`Conectando stream para ${userId}`);
-          
-          // Asignar stream y reproducir
-          videoElement.srcObject = stream;
-          
-          // Intentar reproducir de inmediato
-          videoElement.play()
-            .then(() => {
-              console.log(`Video para ${userId} reproduciendo correctamente`);
-            })
-            .catch(error => {
-              console.warn(`Error al reproducir video para ${userId}:`, error);
-              
-              // Si falla, intentar reproducir como mudo
-              videoElement.muted = true;
-              videoElement.play()
-                .then(() => console.log(`Video para ${userId} reproduciendo en mudo`))
-                .catch(e => console.error(`No se pudo reproducir video para ${userId}:`, e));
+          // Configurar evento onloadedmetadata
+          video.onloadedmetadata = () => {
+            console.log(`Video ${userId} cargado: ${video.videoWidth}x${video.videoHeight}`);
+            
+            // Detectar orientación
+            const isPortrait = video.videoHeight > video.videoWidth;
+            this.videoOrientations[userId] = {
+              width: video.videoWidth,
+              height: video.videoHeight,
+              isPortrait: isPortrait
+            };
+            
+            // Emitir evento
+            this.$emit('video-dimension', {
+              userId,
+              width: video.videoWidth,
+              height: video.videoHeight,
+              isPortrait: isPortrait
             });
+            
+            // Reproducir video con manejo de errores
+            this.playVideo(video, userId);
+          };
+          
+          // Configurar un temporizador de seguridad para casos donde onloadedmetadata no se dispara
+          setTimeout(() => {
+            if (!this.videoOrientations[userId]) {
+              console.log(`Forzando reproducción de video para ${userId} (no se detectó metadata)`);
+              this.playVideo(video, userId);
+            }
+          }, 2000);
+        } catch (error) {
+          console.error(`Error al asignar stream para usuario ${userId}:`, error);
         }
+      }
+    },
+    
+    // Reproducir video con manejo de errores
+    playVideo(video, userId) {
+      if (!video) return;
+      
+      // Intentar reproducir el video
+      video.play().then(() => {
+        console.log(`Video para ${userId} comenzó a reproducirse correctamente`);
+        
+        // Configurar un intervalo para verificar que el video sigue reproduciéndose
+        if (this.streamPlayIntervals[userId]) {
+          clearInterval(this.streamPlayIntervals[userId]);
+        }
+        
+        // Monitorear estado de reproducción cada 5 segundos
+        this.streamPlayIntervals[userId] = setInterval(() => {
+          if (video.paused || video.ended) {
+            console.log(`Video para ${userId} detenido, intentando reanudar...`);
+            video.play().catch(e => console.warn(`No se pudo reanudar video: ${e.message}`));
+          }
+        }, 5000);
+        
+      }).catch(err => {
+        console.warn(`Fallo al reproducir video de ${userId}, intentando con muted:`, err);
+        
+        // Si falla, intentar con muted
+        video.muted = true;
+        
+        // Darle un pequeño tiempo antes de intentar reproducir de nuevo
+        setTimeout(() => {
+          video.play().catch(e => {
+            console.error(`Fallo incluso con muted para ${userId}:`, e);
+            
+            // Si sigue fallando, tal vez hay un problema con el stream
+            // Intentar una última vez después de un tiempo más largo
+            setTimeout(() => {
+              console.log(`Último intento de reproducir video para ${userId}`);
+              video.play().catch(() => {
+                // Ya no hacemos nada más, para evitar errores en cascada
+              });
+            }, 2000);
+          });
+        }, 500);
       });
     },
-    // Método para crear elementos de video faltantes
-    createVideoElementFor(userId) {
-      // Buscar el contenedor de la cuadrícula
-      const gridContainer = this.$el;
-      if (!gridContainer) return null;
-      
-      // Crear un nuevo elemento para el grid item
-      const gridItem = document.createElement('div');
-      gridItem.className = 'grid-item';
-      gridItem.setAttribute('data-user-id', userId);
-      
-      // Crear el elemento de video
-      const videoElement = document.createElement('video');
-      videoElement.id = `video-${userId}`;
-      videoElement.setAttribute('data-user-id', userId);
-      videoElement.autoplay = true;
-      videoElement.playsInline = true;
-      videoElement.className = 'remote-video';
-      
-      // Añadir evento de error para monitoreo
-      videoElement.onerror = (e) => {
-        console.error(`Error en video de ${userId}:`, e);
-      };
-      
-      // Añadir el video al item del grid
-      gridItem.appendChild(videoElement);
-      
-      // Añadir etiqueta con nombre de usuario
-      const nameLabel = document.createElement('div');
-      nameLabel.className = 'username-label';
-      nameLabel.textContent = this.getParticipantName(userId);
-      gridItem.appendChild(nameLabel);
-      
-      // Añadir el grid item al contenedor
-      gridContainer.appendChild(gridItem);
-      
-      return videoElement;
-    },
-
-    // Método mejorado para reproducir video
-    playVideo(videoElement, userId) {
-      // Asegurar que está muted para autoplay
-      videoElement.muted = true;
-      
-      const playPromise = videoElement.play();
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            console.log(`Video para ${userId} reproduciendo correctamente`);
-            // Iniciar monitoreo de calidad
-            this.startVideoMonitoring(videoElement, userId);
-          })
-          .catch(error => {
-            console.warn(`Error al reproducir video para ${userId}:`, error);
-            
-            // Forzar un reintento rápido
-            setTimeout(() => {
-              videoElement.play()
-                .catch(e => {
-                  console.error(`Error en segundo intento: ${e.message}`);
-                  
-                  // Implementar reconexión agresiva después de múltiples fallos
-                  setTimeout(() => {
-                    this.refreshVideo(videoElement, userId);
-                  }, 1000);
-                });
-            }, 200);
-          });
-      }
-    },
     
-    // Monitorear un video específico para detectar congelaciones
-    startVideoMonitoring(videoElement, userId) {
-      // Limpiar intervalo anterior si existe
-      if (this.videoMonitoringIntervals[userId]) {
-        clearInterval(this.videoMonitoringIntervals[userId]);
-      }
+    // Actualizar todos los streams de video
+    updateVideoStreams() {
+      const videoElements = this.$refs.videoElements;
+      if (!videoElements) return;
       
-      // Inicializar datos de monitoreo
-      videoElement._monitorData = {
-        lastTime: videoElement.currentTime,
-        lastCheck: Date.now(),
-        freezeCount: 0
-      };
+      // Convertir a array si no lo es
+      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
       
-      // Crear nuevo intervalo de monitoreo
-      this.videoMonitoringIntervals[userId] = setInterval(() => {
-        // Si el video está reproduciendo y tiene datos cargados
-        if (!videoElement.paused && videoElement.readyState >= 3) {
-          const now = Date.now();
-          
-          // Verificar si el tiempo actual ha cambiado desde la última verificación
-          const currentTime = videoElement.currentTime;
-          const timeDiff = Math.abs(currentTime - videoElement._monitorData.lastTime);
-          
-          // Si han pasado al menos 2 segundos desde el último check
-          if (now - videoElement._monitorData.lastCheck >= 2000) {
-            // Si el tiempo no ha avanzado significativamente (menos de 0.1 segundos)
-            if (timeDiff < 0.1) {
-              videoElement._monitorData.freezeCount++;
-              
-              // Si está congelado por 2 o más verificaciones consecutivas
-              if (videoElement._monitorData.freezeCount >= 2) {
-                console.warn(`Video congelado detectado para ${userId}, refrescando...`);
-                this.refreshVideo(videoElement, userId);
-                videoElement._monitorData.freezeCount = 0;
-              }
-            } else {
-              // El video está avanzando correctamente, reiniciar contador
-              videoElement._monitorData.freezeCount = 0;
-            }
-            
-            // Actualizar datos para la próxima verificación
-            videoElement._monitorData.lastTime = currentTime;
-            videoElement._monitorData.lastCheck = now;
-          }
-        }
-      }, 2000); // Verificar cada 2 segundos
-    },
-    
-    // Refrescar todos los videos cada cierto tiempo
-    refreshAllVideos() {
-      if (!this.$refs.videoElements) return;
-      
-      const elements = Array.isArray(this.$refs.videoElements) 
-        ? this.$refs.videoElements 
-        : [this.$refs.videoElements];
-      
-      elements.forEach(videoElement => {
-        const userId = videoElement.getAttribute('data-user-id');
+      // Para cada video, verificar su stream
+      videos.forEach(video => {
+        if (!video) return;
+        
+        const userId = video.getAttribute('data-user-id');
         if (!userId || !this.remoteStreams[userId]) return;
         
-        // Verificar si el video está detenido o en estado de carga
-        if (videoElement.paused || videoElement.readyState < 3) {
-          console.log(`Refrescando video para ${userId} (estado: ${videoElement.paused ? 'pausado' : 'buffering'})`);
-          this.refreshVideo(videoElement, userId);
+        // Si el video no tiene un stream asignado o es diferente, actualizarlo
+        if (!video.srcObject || video.srcObject !== this.remoteStreams[userId]) {
+          this.updateVideoStreamForUser(userId);
         }
       });
     },
     
-    // MÉTODO CLAVE: Refrescar un video específico
-    refreshVideo(videoElement, userId) {
-      const stream = this.remoteStreams[userId];
-      if (!stream) return;
-      
-      try {
-        // Método simple pero efectivo: desconectar y reconectar el stream
-        videoElement.pause();
-        
-        // 1. Guardar referencia al stream actual
-        const currentStream = videoElement.srcObject;
-        
-        // 2. Desconectar stream
-        videoElement.srcObject = null;
-        
-        // 3. Pequeño delay para asegurar desconexión completa
-        setTimeout(() => {
-          // 4. Reconectar el mismo stream u otro actualizado
-          videoElement.srcObject = stream === currentStream ? stream : this.remoteStreams[userId];
-          
-          // 5. Forzar recarga de datos multimedia
-          videoElement.load();
-          
-          // 6. Intentar reproducir
-          videoElement.play().catch(() => {
-            // Si falla, forzar muted y reintentar
-            videoElement.muted = true;
-            videoElement.play().catch(() => {
-              console.error(`No se pudo reproducir video para ${userId} después de refrescar`);
-            });
-          });
-        }, 200);
-      } catch (error) {
-        console.error(`Error al refrescar video para ${userId}:`, error);
-      }
-    },
-    
-    // Actualizar estado del stream
-    updateStreamStatus(userId, stream) {
-      if (!stream) return;
-      
-      const videoTracks = stream.getVideoTracks();
-      const audioTracks = stream.getAudioTracks();
-      
-      const hasVideo = videoTracks.length > 0 && 
-                       videoTracks[0].enabled && 
-                       !videoTracks[0].muted;
-      
-      const hasAudio = audioTracks.length > 0 && 
-                       audioTracks[0].enabled && 
-                       !audioTracks[0].muted;
-      
-      // Actualizar estado
-      this.streamStatus[userId] = { hasVideo, hasAudio };
-    },
-    
-    // Verificar si un stream tiene track de video activo
-    hasVideoTrack(userId) {
-      if (this.streamStatus[userId]) {
-        return this.streamStatus[userId].hasVideo;
-      }
-      
-      const stream = this.remoteStreams[userId];
-      if (!stream) return false;
-      
-      const videoTracks = stream.getVideoTracks();
-      return videoTracks.length > 0 && videoTracks[0].enabled && !videoTracks[0].muted;
-    },
-    
-    // Verificar si un stream tiene track de audio activo
-    hasAudioTrack(userId) {
-      if (this.streamStatus[userId]) {
-        return this.streamStatus[userId].hasAudio;
-      }
-      
-      const stream = this.remoteStreams[userId];
-      if (!stream) return false;
-      
-      const audioTracks = stream.getAudioTracks();
-      return audioTracks.length > 0 && audioTracks[0].enabled && !audioTracks[0].muted;
-    },
-    
-    // Obtener el nombre del participante
     getParticipantName(userId) {
       const participant = this.participants.find(p => p.userId === userId);
       return participant ? participant.userName : 'Usuario';
     }
+  },
+  mounted() {
+    // Iniciar con los streams actuales
+    this.updateVideoStreams();
+  },
+  beforeDestroy() {
+    // Limpiar todos los intervalos y temporizadores
+    Object.keys(this.streamPlayIntervals).forEach(userId => {
+      clearInterval(this.streamPlayIntervals[userId]);
+    });
+    
+    Object.keys(this.streamTimers).forEach(userId => {
+      clearTimeout(this.streamTimers[userId]);
+    });
   }
 }
 </script>
 
 <style scoped>
+.video-grid-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 15px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
 .video-grid {
   display: grid;
   gap: 10px;
   width: 100%;
   height: 100%;
-  min-height: 400px;
+  min-height: 300px;
 }
 
 .grid-1 {
@@ -460,22 +376,6 @@ export default {
   grid-template-rows: repeat(4, 1fr);
 }
 
-.mobile-layout.grid-1 {
-  grid-template-columns: 1fr;
-}
-
-.mobile-layout.grid-2 {
-  grid-template-columns: 1fr;
-  grid-template-rows: repeat(2, 1fr);
-}
-
-.mobile-layout.grid-4,
-.mobile-layout.grid-9,
-.mobile-layout.grid-16 {
-  grid-template-columns: 1fr;
-  grid-auto-rows: minmax(200px, 1fr);
-}
-
 .grid-item {
   position: relative;
   width: 100%;
@@ -489,50 +389,32 @@ export default {
   align-items: center;
 }
 
-.grid-item.no-video {
-  background-color: #263238;
+/* Manejo de videos en modo portrait directamente en el grid */
+.grid-item.portrait-video .remote-video {
+  width: auto !important;
+  height: 100% !important;
+  max-height: 100%;
 }
 
+/* Videos landscape (por defecto) */
 .remote-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  background-color: #000000;
-}
-
-.no-video-indicator {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: white;
-  font-size: 3rem;
-  background-color: rgba(0, 0, 0, 0.5);
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100%;
+  object-fit: contain;
+  background-color: #000;
 }
 
 .username-label {
   position: absolute;
   bottom: 8px;
   left: 8px;
-  padding: 6px 10px;
-  background-color: rgba(0, 0, 0, 0.7);
+  padding: 4px 8px;
+  background-color: rgba(0, 0, 0, 0.6);
   color: white;
   border-radius: 4px;
-  display: flex;
-  align-items: center;
   font-size: 0.9rem;
   z-index: 2;
-}
-
-.muted-indicator {
-  margin-left: 8px;
-  color: #ff5252;
 }
 
 .empty-grid {
@@ -540,10 +422,32 @@ export default {
   justify-content: center;
   align-items: center;
   height: 100%;
-  color: white;
+  color: #ffffff;
   text-align: center;
   background-color: #1a1a1a;
   border-radius: 8px;
   padding: 20px;
+}
+
+/* Media queries para adaptarse a diferentes pantallas */
+@media (min-width: 1200px) {
+  .grid-item {
+    min-height: 250px;
+  }
+}
+
+@media (max-width: 768px) {
+  .video-grid-container {
+    padding: 10px;
+  }
+  
+  .grid-item {
+    min-height: 150px;
+  }
+  
+  .username-label {
+    font-size: 0.8rem;
+    padding: 3px 6px;
+  }
 }
 </style>

@@ -3,7 +3,6 @@ import { io } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import WebRTCService from './WebRTCService';
-import EventEmitter from './events';
 
 class SocketService {
   constructor() {
@@ -11,27 +10,12 @@ class SocketService {
     this.isConnected = false;
     this.currentRoom = null;
     this.eventListeners = {};
-    this.pendingListeners = {};
-    
-    // Estado para identificación
-    this.userId = null;
-    this.userName = null;
-    
-    // Estado para chat
-    this.messageCallbacks = [];
-    this.typingCallbacks = [];
-    this.userInfoCallbacks = [];
-    this.roomAcceptedCallbacks = [];
-    this.callRequestedCallbacks = [];
     
     // Server URL - cambiar a la URL real de tu servidor
     this.serverUrl = 'http://192.168.1.99:3001';
-
-    EventEmitter.on('webrtc:iceCandidate', (data) => {
-      this.sendIceCandidate(data.candidate, data.userId);
-    })
   }
   
+  // Conectar al servidor de señalización
   async connect() {
     try {
       // Si ya estamos conectados, no hacer nada
@@ -64,31 +48,25 @@ class SocketService {
       
       // Devolver una promesa que se resuelve cuando la conexión está establecida
       return new Promise((resolve, reject) => {
-        // Establecer tiempo límite para la conexión
-        const timeout = setTimeout(() => {
-          if (!this.isConnected) {
-            reject(new Error('Tiempo de conexión agotado'));
-          }
-        }, 10000);
-        
         // Evento de conexión exitosa
         this.socket.on('connect', () => {
           console.log('Conectado al servidor de señalización:', this.socket.id);
           this.isConnected = true;
-          
-          // Registrar listeners pendientes si hay
-          this.registerPendingListeners();
-          
-          clearTimeout(timeout);
           resolve(true);
         });
         
         // Evento de error de conexión
         this.socket.on('connect_error', (error) => {
           console.error('Error de conexión con el servidor:', error);
-          clearTimeout(timeout);
           reject(error);
         });
+        
+        // Establecer tiempo límite para la conexión
+        setTimeout(() => {
+          if (!this.isConnected) {
+            reject(new Error('Tiempo de conexión agotado'));
+          }
+        }, 10000);
       });
     } catch (error) {
       console.error('Error al conectar con el servidor:', error);
@@ -96,6 +74,7 @@ class SocketService {
     }
   }
   
+  // Configurar listeners básicos
   setupBaseListeners() {
     if (!this.socket) return;
     
@@ -120,31 +99,12 @@ class SocketService {
       // Si estábamos en una sala, volver a unirnos
       if (this.currentRoom) {
         console.log(`Volviendo a unirse a la sala ${this.currentRoom}`);
-        this.joinRoom(this.currentRoom, this.userId, this.userName);
+        // Aquí podrías reimplementar la lógica de unirse a la sala
       }
     });
   }
   
-  registerPendingListeners() {
-    if (!this.pendingListeners || !this.socket) return;
-    
-    Object.keys(this.pendingListeners).forEach(event => {
-      if (!this.pendingListeners[event] || this.pendingListeners[event].length === 0) return;
-      
-      this.pendingListeners[event].forEach(callback => {
-        console.log(`Registrando listener pendiente para evento: ${event}`);
-        this.socket.on(event, callback);
-        
-        if (!this.eventListeners[event]) {
-          this.eventListeners[event] = [];
-        }
-        this.eventListeners[event].push(callback);
-      });
-      
-      this.pendingListeners[event] = [];
-    });
-  }
-  
+  // Desconectar del servidor
   disconnect() {
     console.log('Desconectando socket...');
     if (this.socket) {
@@ -153,45 +113,25 @@ class SocketService {
       this.isConnected = false;
       this.currentRoom = null;
       this.eventListeners = {};
-      this.pendingListeners = {};
-      
       console.log('Socket desconectado correctamente');
     }
   }
   
-  async joinRoom(roomId, userId, userName, userRole = 'usuario') {
-    if (!roomId || !userId) {
-      console.error('joinRoom: Se requiere roomId y userId');
-      return false;
+  // Unirse a una sala
+  joinRoom(roomId, userId, userName) {
+    if (!this.socket || !this.isConnected) {
+      throw new Error('No hay conexión con el servidor');
     }
     
-    try {
-      // Si no hay socket o no está conectado, intentar conectar primero
-      if (!this.socket || !this.isConnected) {
-        console.log('No hay conexión de socket, intentando conectar...');
-        await this.connect();
-      }
-      
-      console.log(`Uniendo al usuario ${userName} (${userId}) a la sala ${roomId}`);
-      
-      // Guardar información importante
-      this.currentRoom = roomId;
-      this.userId = userId;
-      this.userName = userName;
-      
-      // Emitir evento de unirse a sala
-      this.socket.emit('join-room', { roomId, userId, userName, userRole });
-      
-      // Configurar listeners para WebRTC y eventos de sala
-      this.setupRoomListeners();
-      
-      return true;
-    } catch (error) {
-      console.error('Error al unirse a la sala:', error);
-      return false;
-    }
+    console.log(`Uniendo al usuario ${userName} (${userId}) a la sala ${roomId}`);
+    this.socket.emit('join-room', { roomId, userId, userName });
+    this.currentRoom = roomId;
+    
+    // Registrar listeners para eventos de sala
+    this.setupRoomListeners();
   }
   
+  // Configurar listeners específicos de sala
   setupRoomListeners() {
     // Eliminar listeners anteriores para evitar duplicados
     this.off('user-joined');
@@ -201,7 +141,6 @@ class SocketService {
     this.off('ice-candidate');
     this.off('call-requested');
     this.off('call-ended');
-    this.off('room-accepted');
     
     // Configurar evento para usuarios que se unen
     this.on('user-joined', (participant) => {
@@ -213,34 +152,25 @@ class SocketService {
       console.log('Usuarios en la sala:', users);
     });
     
-    // Escuchar aceptación de sala (importante para el chat)
-    this.on('room-accepted', (data) => {
-      console.log('Sala aceptada por asistente:', data);
-      // Notificar a los callbacks registrados
-      this.roomAcceptedCallbacks.forEach(callback => callback(data));
-    });
-    
-    // Configurar manejo de ofertas WebRTC 
+    // Configurar manejo de ofertas
     this.on('offer', async (data) => {
       console.log('Oferta recibida de:', data.from);
       try {
-        // Establecer IDs para WebRTC
-        WebRTCService.setUserIds(this.userId, data.from);
-        
         // Procesar la oferta y generar respuesta
         const answer = await WebRTCService.handleIncomingOffer(data.offer, data.from);
         
         // Enviar respuesta
-        this.sendAnswer(answer, data.from);
+        this.sendAnswer(answer, data.from, data.to);
       } catch (error) {
         console.error('Error al manejar oferta:', error);
       }
     });
     
-    // Configurar manejo de respuestas WebRTC (no usado en app móvil)
+    // Configurar manejo de respuestas
     this.on('answer', (data) => {
       console.log('Respuesta recibida de:', data.from);
-      // App móvil no usa este evento ya que no inicia ofertas
+      WebRTCService.handleAnswer(data.answer)
+        .catch(error => console.error('Error al manejar respuesta:', error));
     });
     
     // Configurar manejo de candidatos ICE
@@ -249,238 +179,144 @@ class SocketService {
       WebRTCService.addIceCandidate(data.candidate)
         .catch(error => console.error('Error al agregar candidato ICE:', error));
     });
-    
-    // Configurar manejo de finalización de llamada
-    this.on('call-ended', (data) => {
-      console.log('Llamada finalizada por:', data.from);
-      // Liberar recursos WebRTC
-      WebRTCService.cleanup();
-    });
-    
-    // IMPORTANTE: Evento call-requested (cuando el asistente inicia la videollamada)
-    this.on('call-requested', (data) => {
-      console.log('Solicitud de llamada recibida de:', data.from);
-      // Notificar a través de los callbacks registrados
-      this.callRequestedCallbacks.forEach(callback => callback(data));
+  }
+  
+  // Abandonar la sala actual
+  leaveRoom(roomId) {
+    if (this.socket && this.isConnected && roomId) {
+      console.log(`Abandonando sala: ${roomId}`);
+      // Usar un evento personalizado en lugar de 'disconnect' (que es reservado)
+      this.socket.emit('leave-room', { roomId });
+      this.currentRoom = null;
       
-      // NO iniciamos aquí la videollamada, solo notificamos
-      // El asistente enviará una oferta WebRTC cuando esté listo
-    });
-  }
-  
-  leaveRoom() {
-    if (!this.socket || !this.isConnected || !this.currentRoom) {
-      return false;
+      // Limpiar listeners específicos de sala
+      this.off('user-joined');
+      this.off('room-users');
+      
+      console.log('Sala abandonada correctamente');
     }
-    
-    console.log(`Abandonando sala: ${this.currentRoom}`);
-    
-    // Emitir evento para abandonar la sala
-    this.socket.emit('leave-room', { 
-      roomId: this.currentRoom,
-      userId: this.userId 
-    });
-    
-    // Limpiar listeners específicos de sala
-    this.off('user-joined');
-    this.off('room-users');
-    this.off('offer');
-    this.off('answer');
-    this.off('ice-candidate');
-    this.off('call-requested');
-    this.off('call-ended');
-    this.off('room-accepted');
-    this.off('chat-message');
-    this.off('user-typing');
-    this.off('user-info');
-    
-    // Limpiar información de la sala
-    const roomId = this.currentRoom;
-    this.currentRoom = null;
-    
-    console.log('Sala abandonada correctamente');
-    return roomId;
   }
   
-  // Método para enviar respuesta (SOLO esto inicia la app móvil cuando recibe una oferta)
-  sendAnswer(answer, toUserId) {
+  // Enviar oferta WebRTC
+  sendOffer(offer, toUserId, fromUserId) {
     if (!this.socket || !this.isConnected) {
-      console.error('No hay conexión con el servidor');
-      return false;
+      throw new Error('No hay conexión con el servidor');
     }
     
-    if (!toUserId) {
-      console.error('Se requiere ID de destino para enviar respuesta');
-      return false;
+    console.log(`Enviando oferta a ${toUserId} desde ${fromUserId || 'unknown'}`);
+    this.socket.emit('offer', {
+      offer: offer,
+      to: toUserId,
+      from: fromUserId || 'unknown'
+    });
+  }
+  
+  // Enviar respuesta WebRTC
+  sendAnswer(answer, toUserId, fromUserId) {
+    if (!this.socket || !this.isConnected) {
+      throw new Error('No hay conexión con el servidor');
     }
     
-    console.log(`Enviando respuesta a ${toUserId} desde ${this.userId || 'unknown'}`);
-    
+    console.log(`Enviando respuesta a ${toUserId} desde ${fromUserId || 'unknown'}`);
     this.socket.emit('answer', {
       answer: answer,
       to: toUserId,
-      from: this.userId || 'unknown'
+      from: fromUserId || 'unknown'
     });
-    
-    return true;
   }
   
   // Enviar candidato ICE
-  sendIceCandidate(candidate, toUserId) {
+  sendIceCandidate(candidate, toUserId, fromUserId) {
     if (!this.socket || !this.isConnected) {
       console.warn('No se puede enviar candidato ICE: no hay conexión');
-      return false;
+      return;
     }
     
     if (!toUserId) {
       console.warn('No se puede enviar candidato ICE: falta ID de destino');
-      return false;
+      return;
     }
     
     this.socket.emit('ice-candidate', {
       candidate: candidate,
       to: toUserId,
-      from: this.userId || 'unknown'
+      from: fromUserId || 'unknown'
     });
+  }
+  
+  // Iniciar llamada a otro usuario
+  callUser(roomId, toUserId, fromUserId, fromName) {
+    if (!this.socket || !this.isConnected) {
+      throw new Error('No hay conexión con el servidor');
+    }
     
-    return true;
+    console.log(`Solicitando llamada a ${toUserId} desde ${fromUserId || 'unknown'}`);
+    this.socket.emit('call-user', {
+      roomId: roomId,
+      to: toUserId,
+      from: fromUserId || 'unknown',
+      fromName: fromName || 'Usuario'
+    });
+  }
+  
+  // Responder a una solicitud de llamada
+  respondToCall(toUserId, fromUserId, accepted) {
+    if (!this.socket || !this.isConnected) {
+      throw new Error('No hay conexión con el servidor');
+    }
+    
+    console.log(`Respondiendo a llamada: ${accepted ? 'aceptada' : 'rechazada'}`);
+    this.socket.emit('call-response', {
+      to: toUserId,
+      from: fromUserId || 'unknown',
+      accepted: accepted
+    });
   }
   
   // Finalizar llamada
   endCall(roomId, toUserId) {
     if (!this.socket || !this.isConnected) {
       console.warn('No se puede finalizar llamada: no hay conexión');
-      return false;
-    }
-    
-    roomId = roomId || this.currentRoom;
-    
-    if (!roomId) {
-      console.warn('No se puede finalizar llamada: no hay sala activa');
-      return false;
-    }
-    
-    console.log(`Finalizando llamada en sala ${roomId} con ${toUserId || 'todos los usuarios'}`);
-    
-    this.socket.emit('end-call', {
-      roomId: roomId,
-      to: toUserId || undefined,
-      from: this.userId || 'unknown'
-    });
-    
-    return true;
-  }
-  
-  // Enviar mensaje de chat
-  sendMessage(content, toUserId) {
-    if (!this.socket || !this.isConnected || !this.currentRoom) {
-      console.error('No hay conexión con el servidor o no estás en una sala');
-      return false;
-    }
-    
-    const messageData = {
-      roomId: this.currentRoom,
-      message: content,
-      to: toUserId,
-      from: this.userId || 'unknown',
-      fromName: this.userName || 'Usuario',
-      timestamp: new Date().toISOString()
-    };
-    
-    console.log(`Enviando mensaje en sala ${this.currentRoom}`);
-    
-    this.socket.emit('chat-message', messageData);
-    
-    return messageData;
-  }
-  
-  // Notificar escritura
-  sendTypingNotification(isTyping, toUserId) {
-    if (!this.socket || !this.isConnected || !this.currentRoom) {
-      return false;
-    }
-    
-    const data = {
-      roomId: this.currentRoom,
-      userId: this.userId || 'unknown',
-      userName: this.userName || 'Usuario',
-      to: toUserId,
-      isTyping
-    };
-    
-    this.socket.emit('user-typing', data);
-    
-    return true;
-  }
-  
-  // Callbacks para eventos importantes
-  onRoomAccepted(callback) {
-    if (typeof callback === 'function') {
-      this.roomAcceptedCallbacks.push(callback);
-    }
-  }
-  
-  offRoomAccepted(callback) {
-    this.roomAcceptedCallbacks = this.roomAcceptedCallbacks.filter(cb => cb !== callback);
-  }
-  
-  onCallRequested(callback) {
-    if (typeof callback === 'function') {
-      this.callRequestedCallbacks.push(callback);
-    }
-  }
-  
-  offCallRequested(callback) {
-    this.callRequestedCallbacks = this.callRequestedCallbacks.filter(cb => cb !== callback);
-  }
-  
-  // Métodos para callbacks de mensajes y eventos
-  onMessage(callback) {
-    if (typeof callback === 'function') {
-      this.messageCallbacks.push(callback);
-    }
-  }
-  
-  onTyping(callback) {
-    if (typeof callback === 'function') {
-      this.typingCallbacks.push(callback);
-    }
-  }
-  
-  onUserInfo(callback) {
-    if (typeof callback === 'function') {
-      this.userInfoCallbacks.push(callback);
-    }
-  }
-  
-  offMessage(callback) {
-    this.messageCallbacks = this.messageCallbacks.filter(cb => cb !== callback);
-  }
-  
-  offTyping(callback) {
-    this.typingCallbacks = this.typingCallbacks.filter(cb => cb !== callback);
-  }
-  
-  offUserInfo(callback) {
-    this.userInfoCallbacks = this.userInfoCallbacks.filter(cb => cb !== callback);
-  }
-  
-  // Registrar evento para escuchar
-  on(event, callback) {
-    if (!callback || typeof callback !== 'function') {
-      console.warn(`No se proporcionó un callback válido para el evento '${event}'`);
       return;
     }
     
+    console.log(`Finalizando llamada con ${toUserId || 'todos los usuarios'}`);
+    if (toUserId) {
+      // Finalizar con un usuario específico
+      this.socket.emit('end-call', {
+        roomId: roomId,
+        to: toUserId,
+        from: 'anonymous'
+      });
+    } else {
+      // Finalizar con todos en la sala
+      this.socket.emit('end-call', {
+        roomId: roomId,
+        from: 'anonymous'
+      });
+    }
+  }
+  
+  // Enviar mensaje de chat
+  sendMessage(roomId, message, senderName) {
+    if (!this.socket || !this.isConnected) {
+      throw new Error('No hay conexión con el servidor');
+    }
+    
+    console.log(`Enviando mensaje en sala ${roomId}`);
+    this.socket.emit('send-message', {
+      roomId: roomId,
+      message: message,
+      sender: senderName || 'Usuario'
+    });
+  }
+  
+  // Métodos para gestionar event listeners
+  
+  // Registrar un event listener
+  on(event, callback) {
     if (!this.socket) {
       console.warn(`No se puede registrar listener para '${event}': no hay socket`);
-      
-      // Guardar la solicitud para registrarla cuando el socket esté disponible
-      if (!this.pendingListeners[event]) {
-        this.pendingListeners[event] = [];
-      }
-      this.pendingListeners[event].push(callback);
-      
       return;
     }
     
@@ -494,7 +330,7 @@ class SocketService {
     this.eventListeners[event].push(callback);
   }
   
-  // Eliminar listener de evento
+  // Eliminar un event listener
   off(event, callback) {
     if (!this.socket) return;
     
@@ -517,39 +353,53 @@ class SocketService {
     }
   }
   
-  // Método para limpiar todos los recursos
-  cleanup() {
-    // Abandonar la sala actual
-    this.leaveRoom();
-    
-    // Limpiar callbacks
-    this.messageCallbacks = [];
-    this.typingCallbacks = [];
-    this.userInfoCallbacks = [];
-    this.roomAcceptedCallbacks = [];
-    this.callRequestedCallbacks = [];
-    
-    // Eliminar todos los listeners
-    if (this.socket) {
-      Object.keys(this.eventListeners).forEach(event => {
-        this.eventListeners[event].forEach(callback => {
-          this.socket.off(event, callback);
-        });
-      });
-    }
-    
-    this.eventListeners = {};
-    this.pendingListeners = {};
-    
-    return true;
+  // Métodos de conveniencia para escuchar eventos específicos
+  
+  // Escuchar ofertas WebRTC entrantes
+  onOffer(callback) {
+    this.on('offer', callback);
+  }
+  
+  // Escuchar respuestas WebRTC entrantes
+  onAnswer(callback) {
+    this.on('answer', callback);
+  }
+  
+  // Escuchar candidatos ICE entrantes
+  onIceCandidate(callback) {
+    this.on('ice-candidate', callback);
+  }
+  
+  // Escuchar solicitudes de llamada entrantes
+  onCallRequested(callback) {
+    this.on('call-requested', callback);
+  }
+  
+  // Escuchar respuestas a solicitudes de llamada
+  onCallResponse(callback) {
+    this.on('call-response', callback);
+  }
+  
+  // Escuchar finalización de llamada
+  onCallEnded(callback) {
+    this.on('call-ended', callback);
+  }
+  
+  // Escuchar mensajes de chat entrantes
+  onNewMessage(callback) {
+    this.on('new-message', callback);
+  }
+  
+  // Escuchar cuando otro usuario abandona la sala
+  onUserLeft(callback) {
+    this.on('user-left', callback);
   }
   
   // Cambiar la URL del servidor
   async setServerUrl(url) {
-    if (!url) return false;
+    if (!url) return;
     
     console.log(`Cambiando URL del servidor a: ${url}`);
-    
     await AsyncStorage.setItem('signaling_server_url', url);
     this.serverUrl = url;
     
@@ -559,10 +409,7 @@ class SocketService {
       this.disconnect();
       await this.connect();
     }
-    
-    return true;
   }
 }
 
-const socketService = new SocketService();
-export default socketService;
+export default new SocketService();

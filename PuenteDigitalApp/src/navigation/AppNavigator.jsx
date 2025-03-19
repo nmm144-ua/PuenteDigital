@@ -17,8 +17,6 @@ import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import AsistenciaScreen from '../screens/Asistencia/AsistenciaScreen';
 import EsperaAsistenciaScreen from '../screens/Asistencia/EsperaAsistenciaScreen';
 import VideollamadaScreen from '../screens/Asistencia/VideollamadaScreen';
-import ChatScreen from '../screens/Asistencia/ChatScreen';
-console.log('ChatScreen component:', ChatScreen); // Debe mostrar un objeto o función, no undefined
 
 const Stack = createStackNavigator();
 
@@ -57,6 +55,7 @@ const MainNavigator = () => {
       <Stack.Screen name="Tutoriales" component={NoDisponibleScreen} />
       <Stack.Screen name="Mensajes" component={NoDisponibleScreen} />
       
+      {/* Nuevas pantallas de videollamada */}
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} />
       <Stack.Screen name="EsperaAsistencia" component={EsperaAsistenciaScreen} />
       <Stack.Screen 
@@ -67,7 +66,6 @@ const MainNavigator = () => {
           gestureEnabled: false // Deshabilitar gesto de regreso
         }}
       />
-      <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 };

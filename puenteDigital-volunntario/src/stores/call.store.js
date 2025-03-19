@@ -21,7 +21,6 @@ export const useCallStore = defineStore('call', {
     
     // Estado de la llamada
     isInCall: false,
-    solicitudAceptada: false, // NUEVO: Para saber si el asistente ya aceptó la solicitud
     localStream: null,
     remoteStreams: {},
     audioEnabled: true,
@@ -66,10 +65,6 @@ export const useCallStore = defineStore('call', {
       // Establecer ID de usuario en WebRTC
       webrtcService.setUserId(this.userId);
     },
-
-    setSolicitudAceptada(value) {
-      this.solicitudAceptada = value;
-    },
     
     // Establecer rol de usuario
     setUserRole(role) {
@@ -79,11 +74,6 @@ export const useCallStore = defineStore('call', {
     // Establecer solicitud actual
     setCurrentRequest(request) {
       this.currentRequest = request;
-    },
-
-
-    resetSolicitudAceptada() {
-      this.solicitudAceptada = false;
     },
     
     // Configurar escuchas de socket
@@ -112,34 +102,73 @@ export const useCallStore = defineStore('call', {
         this.messages.push(messageData);
       });
       
-      // MODIFICADO: Simplificado, ya no manejamos automáticamente
-      // la aceptación de llamada para evitar conflictos de señalización
+      // Cuando se solicita iniciar una llamada
       socketService.on('call-requested', ({ from, fromName }) => {
         console.log('Solicitud de llamada recibida de:', fromName);
-        // No hacemos nada automáticamente, dejamos que los componentes
-        // manejen la respuesta según el flujo adecuado
-      });
-
-      socketService.on('room-accepted', (data) => {
-        console.log('🔔 EVENTO room-accepted RECIBIDO:', data);
-        
-        // Verificar si el roomId coincide con el actual
-        if (data.roomId === this.roomId) {
-          console.log('✅ Sala aceptada coincide con sala actual');
-          
-          // Actualizar estado de solicitud aceptada
-          this.solicitudAceptada = true;
+        // Si somos usuario normal, aceptar automáticamente si ya nos unimos a la sala
+        if (this.userRole === 'usuario') {
+          this.acceptCall(from);
         } else {
-          console.warn('❌ roomId no coincide', {
-            currentRoomId: this.roomId,
-            receivedRoomId: data.roomId
-          });
+          // Si somos asistente, aceptar también
+          this.acceptCall(from);
         }
       });
     },
+
+
+    // Añade este método a tu call.store.js
+
+    /**
+     * Método para reconectar con un usuario específico
+     * @param {string} userId - ID del usuario con el que reconectar
+     * @returns {Promise<boolean>} - True si la reconexión fue exitosa
+     */
+    async reconnectWithUser(userId) {
+      console.log(`Iniciando reconexión con ${userId}`);
+      
+      // Si no hay conexión con este usuario, no hacer nada
+      if (!this.remoteStreams[userId]) {
+        console.warn(`No hay stream remoto para ${userId}, no se puede reconectar`);
+        return false;
+      }
+      
+      try {
+        // 1. Guardar referencia al estado actual
+        const currentState = {
+          stream: this.remoteStreams[userId],
+          connection: this.webRTCService.getConnection(userId)
+        };
+        
+        // 2. Cerrar la conexión existente
+        console.log(`Cerrando conexión existente con ${userId}`);
+        await this.webRTCService.closeConnection(userId);
+        
+        // 3. Actualizar estado interno
+        this.connectionStates[userId] = 'reconnecting';
+        delete this.remoteStreams[userId];
+        
+        // 4. Esperar un momento para que la conexión se cierre completamente
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // 5. Iniciar una nueva llamada
+        console.log(`Iniciando nueva conexión con ${userId}`);
+        await this.callUser(userId);
+        
+        // 6. Verificar si la reconexión fue exitosa
+        const reconnected = !!this.remoteStreams[userId];
+        
+        console.log(`Reconexión con ${userId} ${reconnected ? 'exitosa' : 'fallida'}`);
+        return reconnected;
+        
+      } catch (error) {
+        console.error(`Error al reconectar con ${userId}:`, error);
+        this.connectionStates[userId] = 'failed';
+        return false;
+      }
+    },
     
     // Unirse a una sala
-    async joinRoom(roomId, userName, role = 'asistente') {
+    async joinRoom(roomId, userName, role = 'usuario') {
       try {
         this.loading = true;
         this.error = null;
@@ -177,145 +206,7 @@ export const useCallStore = defineStore('call', {
       }
     },
     
-    // NUEVO: Método para que el asistente acepte una solicitud
-    async aceptarSolicitud() {
-      try {
-        console.log("🚀 MÉTODO ACEPTAR SOLICITUD INICIADO");
-        console.log(`🔍 Detalles:
-          - UserRole: ${this.userRole}
-          - RoomId: ${this.roomId}
-          - UserName: ${this.userName}
-          - UserId: ${this.userId}`);
-        
-        // Verificar que somos asistente
-        if (this.userRole !== 'asistente') {
-          console.error('Solo el asistente puede aceptar solicitudes');
-          this.error = 'Solo el asistente puede aceptar solicitudes';
-          return false;
-        }
-        
-        // Acceder directamente al socket
-        if (!socketService.socket) {
-          console.error('No hay conexión de socket');
-          this.error = 'No hay conexión de socket';
-          return false;
-        }
-        
-        console.log(`Aceptando solicitud en sala ${this.roomId} como ${this.userName} (${this.userId})`);
-        
-        // EMITIR DIRECTAMENTE EL EVENTO - Esto es crucial
-        socketService.socket.emit('accept-room', {
-          roomId: this.roomId,
-          asistenteId: this.userId,
-          asistenteName: this.userName
-        });
-        
-        console.log("*** EVENTO ACCEPT-ROOM EMITIDO DIRECTAMENTE ***");
-
-        try {
-          if (this.currentRequest && this.currentRequest.id) {
-            await solicitudesAsistenciaService.updateSolicitud(
-              this.currentRequest.id, 
-              { 
-                estado: 'en_proceso', 
-                asistente_id: this.userId 
-              }
-            );
-          }
-        } catch (dbError) {
-          console.warn('Error al actualizar solicitud en BD:', dbError);
-          // No bloquear el flujo si falla la actualización
-        }
-
-        // Actualizar estado local
-        this.solicitudAceptada = true;
-        
-        return true;
-      } catch (error) {
-        console.error('Error al aceptar solicitud:', error);
-        this.error = `Error al aceptar solicitud: ${error.message}`;
-        return false;
-      }
-    },
-    
-    // MODIFICADO: Método para iniciar la videollamada (solo asistente)
-    async startCall() {
-      try {
-        console.log("*** MÉTODO START CALL INICIADO ***");
-        this.loading = true;
-        
-        // Verificaciones de seguridad
-        if (this.userRole !== 'asistente') {
-          console.error('Solo el asistente puede iniciar llamadas');
-          this.error = 'Solo el asistente puede iniciar llamadas';
-          return false;
-        }
-        
-        if (!this.solicitudAceptada) {
-          console.error('Debes aceptar la solicitud antes de iniciar la videollamada');
-          this.error = 'Debes aceptar la solicitud antes de iniciar la videollamada';
-          return false;
-        }
-        
-        // Iniciar stream local si no existe
-        if (!this.localStream) {
-          await this.startLocalStream();
-        }
-        
-        // Filtrar solo usuarios que NO sean asistentes y NO sean uno mismo
-        const usuariosParaLlamar = this.participants.filter(p => 
-          p.userRole !== 'asistente' && p.userId !== this.userId
-        );
-        
-        console.log("Usuarios para llamar:", usuariosParaLlamar);
-        
-        if (usuariosParaLlamar.length === 0) {
-          console.error('No hay usuarios normales para llamar en esta sala');
-          this.error = 'No hay usuarios para llamar en esta sala';
-          return false;
-        }
-        
-        console.log(`*** INICIANDO VIDEOLLAMADA CON ${usuariosParaLlamar.length} USUARIOS ***`);
-        
-        // Enviar solicitud de llamada a cada usuario
-        for (const usuario of usuariosParaLlamar) {
-          try {
-            console.log(`Notificando solicitud de llamada a ${usuario.userName} (${usuario.userId})`);
-            
-            // Notificar solicitud de llamada
-            socketService.socket.emit('call-requested', {
-              roomId: this.roomId,
-              to: usuario.userId,
-              from: this.userId,
-              fromName: this.userName
-            });
-            
-            // Esperar un momento para que el cliente procese la notificación
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            console.log(`Iniciando conexión WebRTC con ${usuario.userName} (${usuario.userId})`);
-            
-            // Iniciar conexión WebRTC como iniciador
-            await webrtcService.initConnection(usuario.userId, true);
-            
-            // Actualizar estado
-            this.isInCall = true;
-          } catch (error) {
-            console.error(`Error al conectar con usuario ${usuario.userId}:`, error);
-          }
-        }
-        
-        return true;
-      } catch (error) {
-        console.error('Error al iniciar videollamada:', error);
-        this.error = `Error al iniciar videollamada: ${error.message}`;
-        return false;
-      } finally {
-        this.loading = false;
-      }
-    },
-    
-    // Iniciar llamada con un participante específico
+    // Iniciar llamada con otro participante
     async callUser(targetUserId) {
       try {
         console.log(`Llamando a usuario ${targetUserId}...`);
@@ -328,15 +219,19 @@ export const useCallStore = defineStore('call', {
         // Iniciar conexión WebRTC
         await webrtcService.initConnection(targetUserId, true);
         
+        // Notificar al otro usuario
+        socketService.callUser(targetUserId);
+        
+        this.isInCall = true;
         return true;
       } catch (error) {
         console.error('Error al iniciar llamada:', error);
         this.error = 'Error al iniciar llamada: ' + error.message;
-        throw error;
+        return false;
       }
     },
     
-    // Aceptar llamada entrante (para usuarios)
+    // Aceptar llamada entrante
     async acceptCall(fromUserId) {
       try {
         console.log(`Aceptando llamada de ${fromUserId}`);
@@ -449,7 +344,11 @@ export const useCallStore = defineStore('call', {
         this.participants.push(participant);
         console.log('Participante añadido:', participant.userName);
         
-        // MODIFICADO: Ya no llamamos automáticamente, esperamos acción del asistente
+        // Si somos asistente y ya estamos en llamada, llamar al nuevo usuario
+        if (this.userRole === 'asistente' && this.isInCall && participant.userRole !== 'asistente') {
+          console.log('Llamando automáticamente a nuevo usuario:', participant.userName);
+          this.callUser(participant.userId);
+        }
       }
     },
     
@@ -472,7 +371,7 @@ export const useCallStore = defineStore('call', {
       webrtcService.cleanup();
       
       // Desconectar socket
-      socketService.leaveRoom();
+      //socketService.leaveRoom();
       socketService.disconnect();
       
       // Restablecer estado
@@ -481,7 +380,6 @@ export const useCallStore = defineStore('call', {
       this.participants = [];
       this.messages = [];
       this.isInCall = false;
-      this.solicitudAceptada = false;
       this.localStream = null;
       this.remoteStreams = {};
       this.currentRequest = null;
