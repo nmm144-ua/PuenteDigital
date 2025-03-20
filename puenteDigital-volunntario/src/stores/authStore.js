@@ -62,6 +62,9 @@ export const useAuthStore = defineStore('auth', {
         
         return true;
 
+        return true;
+
+
       } catch (error) {
         this.error = error.message;
       } finally {
