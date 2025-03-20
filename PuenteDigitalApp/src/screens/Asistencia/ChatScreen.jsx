@@ -2,177 +2,168 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
+  StyleSheet,
   TextInput,
   TouchableOpacity,
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  StyleSheet,
-  SafeAreaView,
   ActivityIndicator,
+  SafeAreaView,
   Alert,
   BackHandler
 } from 'react-native';
-import { useAuth } from '../../context/AuthContext';
+import ChatService from '../../services/ChatService';
+import AsistenciaService from '../../services/AsistenciaService';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
-import SocketService from '../../services/socketService';
 
 const ChatScreen = ({ route, navigation }) => {
-  const { solicitudId, roomId, asistenteId, asistenteName } = route.params;
-  const { user } = useAuth();
+  const { solicitudId, roomId } = route.params;
   
   const [messages, setMessages] = useState([]);
-  const [inputMessage, setInputMessage] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
-  const [typing, setTyping] = useState(false);
+  const [remoteUserIsTyping, setRemoteUserIsTyping] = useState(false);
+  const [solicitud, setSolicitud] = useState(null);
   
-  const flatListRef = useRef();
+  const flatListRef = useRef(null);
   const typingTimeoutRef = useRef(null);
-  const chatInitializedRef = useRef(false);
+  
+  // Cargar datos de la solicitud
+  const loadSolicitud = async () => {
+    try {
+      const data = await AsistenciaService.obtenerSolicitud(solicitudId);
+      setSolicitud(data);
+      return data;
+    } catch (error) {
+      console.error('Error al cargar datos de la solicitud:', error);
+      Alert.alert('Error', 'No se pudo cargar la información de la solicitud');
+      return null;
+    }
+  };
   
   // Inicializar chat
-  const inicializarChat = async () => {
-    if (chatInitializedRef.current) return;
-    
+  const initializeChat = async () => {
     try {
-      setLoading(true);
+      setIsLoading(true);
       
-      // Conectar al servidor socket si no estamos conectados
-      if (!SocketService.isConnected) {
-        await SocketService.connect();
+      // Cargar solicitud
+      const solicitudData = await loadSolicitud();
+      if (!solicitudData) {
+        navigation.goBack();
+        return;
       }
+      
+      // Inicializar chat service
+      await ChatService.init();
+      
+      // Registrar callbacks
+      ChatService.registerCallbacks({
+        onMessageReceived: handleNewMessage,
+        onTypingStatus: handleTypingStatus
+      });
       
       // Unirse a la sala de chat
-      if (!SocketService.currentRoom || SocketService.currentRoom !== roomId) {
-        await SocketService.joinRoom(roomId, user?.id, user?.nombre);
-      }
+      await ChatService.joinRoom(roomId);
       
-      // Configurar listeners para mensajes y escritura
-      setupChatListeners();
+      // Marcar mensajes como leídos
+      await ChatService.markMessagesAsRead(solicitudId);
       
-      // Cargar mensajes anteriores (simulado)
-      setTimeout(() => {
-        setLoading(false);
-        chatInitializedRef.current = true;
-      }, 1000);
+      // Obtener mensajes
+      const historicalMessages = await ChatService.loadHistoricalMessages(roomId);
+      setMessages(historicalMessages);
+      
+      setIsLoading(false);
     } catch (error) {
       console.error('Error al inicializar chat:', error);
       Alert.alert(
         'Error de conexión',
-        'No se pudo conectar al servicio de chat. Intenta nuevamente.',
+        'No se pudo establecer conexión con el chat. Inténtalo de nuevo.',
         [{ text: 'Volver', onPress: () => navigation.goBack() }]
       );
     }
   };
   
-  // Configurar listeners para mensajes y escritura
-  const setupChatListeners = () => {
-    // Eliminar listeners anteriores
-    SocketService.off('chat-message');
-    SocketService.off('user-typing');
-    
-    // Registrar nuevo listener para mensajes
-    SocketService.on('chat-message', handleIncomingMessage);
-    
-    // Registrar nuevo listener para escritura
-    SocketService.on('user-typing', handleTypingNotification);
+  // Manejar nuevos mensajes
+  const handleNewMessage = (message) => {
+    setMessages((prevMessages) => [...prevMessages, message]);
+    setRemoteUserIsTyping(false); // Resetear estado de "está escribiendo"
   };
   
-  // Manejar mensaje recibido
-  const handleIncomingMessage = (data) => {
-    // No mostrar mensajes propios recibidos por socket (ya los añadimos al enviar)
-    if (data.from === user?.id) return;
-    
-    const newMessage = {
-      id: data.id || Date.now().toString(),
-      text: data.message,
-      senderId: data.from,
-      senderName: data.fromName || asistenteName || 'Asistente',
-      timestamp: new Date(data.timestamp || Date.now()),
-      isOwnMessage: false
-    };
-    
-    setMessages(prevMessages => [...prevMessages, newMessage]);
-    scrollToBottom();
-  };
-  
-  // Manejar notificación de escritura
-  const handleTypingNotification = (data) => {
-    // Verificar que la notificación sea del asistente
-    if (data.userId === user?.id) return;
-    
-    setIsTyping(data.isTyping);
-    
-    // Si deja de escribir, ocultar indicador después de un tiempo
-    if (!data.isTyping) {
-      setTimeout(() => setIsTyping(false), 1000);
+  // Manejar estado de "está escribiendo"
+  const handleTypingStatus = (userId, isTyping) => {
+    // Actualizar solo si el evento no es del usuario actual
+    if (userId !== ChatService.userId) {
+      setRemoteUserIsTyping(isTyping);
     }
   };
   
   // Enviar mensaje
   const sendMessage = async () => {
-    if (!inputMessage.trim()) return;
+    if (!inputText.trim()) return;
     
     try {
-      // Crear mensaje local
-      const messageData = {
-        id: Date.now().toString(),
-        text: inputMessage.trim(),
-        senderId: user?.id,
-        senderName: 'Tú',
-        timestamp: new Date(),
-        isOwnMessage: true
-      };
+      const message = await ChatService.sendMessage(inputText.trim(), solicitudId);
       
-      // Añadir mensaje a la lista local
-      setMessages(prevMessages => [...prevMessages, messageData]);
+      // Limpiar input y estado de escritura
+      setInputText('');
+      setIsTyping(false);
+      clearTimeout(typingTimeoutRef.current);
+      ChatService.sendTypingStatus(false);
       
-      // Limpiar input
-      setInputMessage('');
-      
-      // Enviar notificación de que ya no estamos escribiendo
-      SocketService.sendTypingNotification(false, asistenteId);
-      
-      // Enviar mensaje a través del socket
-      SocketService.sendMessage(messageData.text, asistenteId);
-      
-      // Desplazar al final de la lista
-      scrollToBottom();
+      // Hacer scroll al final
+      setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+      }, 100);
     } catch (error) {
       console.error('Error al enviar mensaje:', error);
-      Alert.alert('Error', 'No se pudo enviar el mensaje');
+      Alert.alert('Error', 'No se pudo enviar el mensaje. Inténtalo de nuevo.');
     }
   };
   
-  // Manejar cambio en el input
+  // Manejar cambios en el input (detectar escritura)
   const handleInputChange = (text) => {
-    setInputMessage(text);
+    setInputText(text);
     
-    // Notificar que el usuario está escribiendo
-    if (!typing && text.length > 0) {
-      setTyping(true);
-      SocketService.sendTypingNotification(true, asistenteId);
+    // Si empezamos a escribir, enviar evento
+    if (text.trim().length > 0 && !isTyping) {
+      setIsTyping(true);
+      ChatService.sendTypingStatus(true);
     }
     
-    // Si el usuario deja de escribir durante un tiempo, notificar
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-    
+    // Si dejamos de escribir, enviar evento después de 2 segundos
+    clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
-      if (typing) {
-        setTyping(false);
-        SocketService.sendTypingNotification(false, asistenteId);
+      if (isTyping) {
+        setIsTyping(false);
+        ChatService.sendTypingStatus(false);
       }
-    }, 1500);
+    }, 2000);
   };
   
-  // Desplazar al final de la lista
-  const scrollToBottom = () => {
-    if (flatListRef.current && messages.length > 0) {
-      flatListRef.current.scrollToEnd({ animated: true });
-    }
+  // Renderizar un mensaje
+  const renderMessage = ({ item }) => {
+    const isOwnMessage = item.isLocal;
+    
+    return (
+      <View style={[
+        styles.messageContainer,
+        isOwnMessage ? styles.ownMessageContainer : styles.otherMessageContainer
+      ]}>
+        <View style={[
+          styles.messageBubble,
+          isOwnMessage ? styles.ownMessageBubble : styles.otherMessageBubble
+        ]}>
+          <Text style={styles.messageText}>{item.message}</Text>
+          <Text style={styles.messageTime}>
+            {formatMessageTime(item.timestamp)}
+          </Text>
+        </View>
+      </View>
+    );
   };
   
   // Formatear hora del mensaje
@@ -183,109 +174,79 @@ const ChatScreen = ({ route, navigation }) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
   
-  // Renderizar un mensaje
-  const renderMessage = ({ item }) => (
-    <View style={[
-      styles.messageContainer,
-      item.isOwnMessage ? styles.ownMessageContainer : styles.otherMessageContainer
-    ]}>
-      <View style={[
-        styles.messageBubble,
-        item.isOwnMessage ? styles.ownMessageBubble : styles.otherMessageBubble
-      ]}>
-        {!item.isOwnMessage && (
-          <Text style={styles.senderName}>{item.senderName}</Text>
-        )}
-        <Text style={[
-          styles.messageText,
-          item.isOwnMessage ? styles.ownMessageText : styles.otherMessageText
-        ]}>
-          {item.text}
-        </Text>
-        <Text style={[
-          styles.messageTime,
-          item.isOwnMessage ? styles.ownMessageTime : styles.otherMessageTime
-        ]}>
-          {formatMessageTime(item.timestamp)}
-        </Text>
-      </View>
-    </View>
-  );
-  
-  // Salir del chat
-  const salirDelChat = () => {
-    Alert.alert(
-      'Salir del chat',
-      '¿Estás seguro que deseas salir del chat?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: 'Salir', 
-          style: 'destructive',
-          onPress: () => {
-            // Abandonar la sala de chat
-            if (SocketService.currentRoom === roomId) {
-              SocketService.leaveRoom();
-            }
-            
-            // Remover listeners
-            SocketService.off('chat-message', handleIncomingMessage);
-            SocketService.off('user-typing', handleTypingNotification);
-            
-            navigation.goBack();
-          }
-        }
-      ]
-    );
-  };
-  
+  // Efecto para inicializar chat al montar
   useEffect(() => {
-    // Inicializar chat
-    inicializarChat();
+    initializeChat();
     
-    // Prevenir navegación hacia atrás sin confirmar
+    // Manejar botón de retroceso
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      salirDelChat();
+      leaveChat();
       return true;
     });
     
     return () => {
       // Limpiar al desmontar
       backHandler.remove();
+      clearTimeout(typingTimeoutRef.current);
       
-      // Remover listeners
-      SocketService.off('chat-message', handleIncomingMessage);
-      SocketService.off('user-typing', handleTypingNotification);
-      
-      // Limpiar timeout de escritura
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-      }
-      
-      // Abandonar la sala de chat solo si estamos en ella
-      if (chatInitializedRef.current && SocketService.currentRoom === roomId) {
-        SocketService.leaveRoom();
-      }
+      // Salir de la sala de chat
+      ChatService.leaveRoom();
     };
   }, []);
   
+  // Efecto para hacer scroll cuando hay nuevos mensajes
+  useEffect(() => {
+    if (messages.length > 0 && flatListRef.current) {
+      setTimeout(() => {
+        flatListRef.current.scrollToEnd({ animated: true });
+      }, 200);
+    }
+  }, [messages]);
+  
+  // Salir del chat
+  const leaveChat = () => {
+    ChatService.leaveRoom();
+    navigation.goBack();
+  };
+  
+  // Ir a videollamada
+  const startVideoCall = () => {
+    if (!solicitud) return;
+    
+    // Navegar a la pantalla de videollamada y pasar datos
+    navigation.navigate('Videollamada', {
+      solicitudId,
+      roomId,
+      asistenteId: solicitud.asistente_id,
+      asistenteName: solicitud.asistente?.nombre || 'Asistente'
+    });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={salirDelChat}>
+        <TouchableOpacity style={styles.backButton} onPress={leaveChat}>
           <MaterialIcons name="arrow-back" size={24} color="#007BFF" />
         </TouchableOpacity>
+        
         <View style={styles.headerInfo}>
-          <Text style={styles.headerTitle}>{asistenteName || 'Asistente'}</Text>
-          <Text style={styles.headerSubtitle}>
-            {isTyping ? 'Escribiendo...' : 'En línea'}
+          <Text style={styles.headerTitle}>
+            {solicitud?.asistente?.nombre || 'Asistente'}
           </Text>
+          
+          {remoteUserIsTyping && (
+            <Text style={styles.typingText}>Escribiendo...</Text>
+          )}
         </View>
+        
+        <TouchableOpacity style={styles.videoCallButton} onPress={startVideoCall}>
+          <MaterialIcons name="videocam" size={24} color="#007BFF" />
+        </TouchableOpacity>
       </View>
       
-      {/* Chat Messages */}
-      {loading ? (
+      {/* Chat messages */}
+      {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007BFF" />
           <Text style={styles.loadingText}>Cargando mensajes...</Text>
@@ -295,45 +256,46 @@ const ChatScreen = ({ route, navigation }) => {
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={item => item.id.toString()}
-          contentContainerStyle={styles.messagesList}
-          onContentSizeChange={scrollToBottom}
-          onLayout={scrollToBottom}
+          keyExtractor={(item, index) => item.id?.toString() || index.toString()}
+          contentContainerStyle={styles.messagesContainer}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <MaterialIcons name="chat" size={60} color="#e0e0e0" />
+              <Text style={styles.emptyText}>No hay mensajes aún</Text>
+              <Text style={styles.emptySubtext}>
+                Escribe para comenzar la conversación
+              </Text>
+            </View>
+          }
         />
       )}
       
-      {/* Typing Indicator */}
-      {isTyping && (
-        <View style={styles.typingContainer}>
-          <Text style={styles.typingText}>
-            {asistenteName || 'Asistente'} está escribiendo...
-          </Text>
-        </View>
-      )}
-      
-      {/* Input Area */}
+      {/* Input area */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 70}
-        style={styles.inputContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        <TextInput
-          style={styles.input}
-          placeholder="Escribe un mensaje..."
-          value={inputMessage}
-          onChangeText={handleInputChange}
-          multiline
-        />
-        <TouchableOpacity
-          style={[
-            styles.sendButton,
-            !inputMessage.trim() && styles.sendButtonDisabled
-          ]}
-          onPress={sendMessage}
-          disabled={!inputMessage.trim()}
-        >
-          <MaterialIcons name="send" size={24} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder="Escribe un mensaje..."
+            value={inputText}
+            onChangeText={handleInputChange}
+            multiline
+            maxLength={500}
+          />
+          
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              !inputText.trim() && styles.sendButtonDisabled
+            ]}
+            onPress={sendMessage}
+            disabled={!inputText.trim()}
+          >
+            <MaterialIcons name="send" size={24} color="white" />
+          </TouchableOpacity>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -342,34 +304,35 @@ const ChatScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F7FB',
+    backgroundColor: '#F8F9FA',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 15,
-    backgroundColor: '#fff',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
   },
   backButton: {
     padding: 5,
   },
   headerInfo: {
-    marginLeft: 15,
     flex: 1,
+    marginLeft: 10,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
   },
-  headerSubtitle: {
-    fontSize: 14,
+  typingText: {
+    fontSize: 12,
     color: '#007BFF',
+    fontStyle: 'italic',
+  },
+  videoCallButton: {
+    padding: 5,
   },
   loadingContainer: {
     flex: 1,
@@ -379,14 +342,30 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     color: '#666',
-    fontSize: 16,
   },
-  messagesList: {
-    padding: 15,
-    paddingBottom: 20,
+  messagesContainer: {
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+    flexGrow: 1,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 10,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 5,
   },
   messageContainer: {
-    marginBottom: 10,
+    marginVertical: 5,
     maxWidth: '80%',
   },
   ownMessageContainer: {
@@ -396,87 +375,55 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   messageBubble: {
-    padding: 12,
-    borderRadius: 20,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 1,
+    padding: 10,
+    borderRadius: 18,
+    minWidth: 60,
   },
   ownMessageBubble: {
-    backgroundColor: '#007BFF',
-    borderBottomRightRadius: 5,
+    backgroundColor: '#E3F2FD',
   },
   otherMessageBubble: {
-    backgroundColor: '#fff',
-    borderBottomLeftRadius: 5,
-  },
-  senderName: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#555',
-    marginBottom: 2,
+    backgroundColor: 'white',
   },
   messageText: {
     fontSize: 16,
-    lineHeight: 22,
-  },
-  ownMessageText: {
-    color: '#fff',
-  },
-  otherMessageText: {
     color: '#333',
   },
   messageTime: {
-    fontSize: 10,
-    alignSelf: 'flex-end',
-    marginTop: 3,
-  },
-  ownMessageTime: {
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  otherMessageTime: {
-    color: '#999',
-  },
-  typingContainer: {
-    paddingHorizontal: 15,
-    paddingVertical: 5,
-  },
-  typingText: {
     fontSize: 12,
-    color: '#666',
-    fontStyle: 'italic',
+    color: '#999',
+    alignSelf: 'flex-end',
+    marginTop: 5,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 10,
-    backgroundColor: '#fff',
+    backgroundColor: 'white',
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: '#E0E0E0',
   },
   input: {
     flex: 1,
-    backgroundColor: '#F2F3F5',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
     borderRadius: 20,
     paddingHorizontal: 15,
     paddingVertical: 10,
     maxHeight: 100,
-    fontSize: 16,
+    backgroundColor: '#F8F9FA',
   },
   sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    marginLeft: 10,
+    padding: 10,
+    borderRadius: 25,
     backgroundColor: '#007BFF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 10,
   },
   sendButtonDisabled: {
-    backgroundColor: '#cccccc',
-  }
+    backgroundColor: '#BBDEFB',
+  },
 });
 
 export default ChatScreen;

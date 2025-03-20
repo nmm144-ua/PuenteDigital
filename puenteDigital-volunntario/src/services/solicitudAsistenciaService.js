@@ -65,6 +65,99 @@ export const solicitudesAsistenciaService = {
     return data;
   },
 
+  // Obtener solicitudes asignadas a un asistente
+  async getSolicitudesByAsistente(asistenteId) {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select('*, usuario:usuario_id(*)')
+        .eq('asistente_id', asistenteId)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      return data;
+    } catch (error) {
+      console.error('Error al obtener solicitudes del asistente:', error);
+      throw error;
+    }
+  },
+  
+  // Obtener solicitudes de un usuario
+  async getSolicitudesByUsuario(usuarioId) {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select('*, asistente:asistente_id(*)')
+        .eq('usuario_id', usuarioId)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      return data;
+    } catch (error) {
+      console.error('Error al obtener solicitudes del usuario:', error);
+      throw error;
+    }
+  },
+
+    // Obtener solicitudes pendientes
+    async getPendienteSolicitudes() {
+      try {
+        const { data, error } = await supabase
+          .from('solicitudes_asistencia')
+          .select('*, usuario:usuario_id(*)')
+          .eq('estado', 'pendiente')
+          .is('asistente_id', null)
+          .order('created_at', { ascending: true });
+        
+        if (error) throw error;
+        
+        return data;
+      } catch (error) {
+        console.error('Error al obtener solicitudes pendientes:', error);
+        throw error;
+      }
+    },
+
+    // Obtener solicitudes pendientes
+    async getVideoSolicitudes() {
+      try {
+        const { data, error } = await supabase
+          .from('solicitudes_asistencia')
+          .select('*, usuario:usuario_id(*)')
+          .eq('estado', 'pendiente')
+          .eq('tipo_asistencia', 'video')
+          .order('created_at', { ascending: true });
+        
+        if (error) throw error;
+        
+        return data;
+      } catch (error) {
+        console.error('Error al obtener solicitudes de video:', error);
+        throw error;
+      }
+    },
+
+    // Obtener solicitudes pendientes
+    async getChatSolicitudes() {
+      try {
+        const { data, error } = await supabase
+          .from('solicitudes_asistencia')
+          .select('*, usuario:usuario_id(*)')
+          .eq('estado', 'pendiente')
+          .eq('tipo_asistencia', 'chat')
+          .order('created_at', { ascending: true });
+        
+        if (error) throw error;
+        
+        return data;
+      } catch (error) {
+        console.error('Error al obtener solicitudes de video:', error);
+        throw error;
+      }
+    },
+
   // Finalizar una solicitud de asistencia
   async finalizarSolicitud(solicitudId) {
     const { data, error } = await supabase
@@ -96,29 +189,6 @@ export const solicitudesAsistenciaService = {
     return data;
   },
 
-  // Obtener solicitudes por usuario
-  async getSolicitudesByUsuario(usuarioId) {
-    const { data, error } = await supabase
-      .from('solicitudes_asistencia')
-      .select('*, asistente:asistente_id(*)')
-      .eq('usuario_id', usuarioId)
-      .order('created_at', { ascending: false }); // Usar created_at en lugar de timestamp
-    
-    if (error) throw error;
-    return data;
-  },
-
-  // Obtener solicitudes atendidas por un asistente
-  async getSolicitudesByAsistente(asistenteId) {
-    const { data, error } = await supabase
-      .from('solicitudes_asistencia')
-      .select('*, usuario:usuario_id(*)')
-      .eq('asistente_id', asistenteId)
-      .order('created_at', { ascending: false }); // Usar created_at en lugar de timestamp
-    
-    if (error) throw error;
-    return data;
-  },
 
   // Obtener estadísticas de solicitudes
   async getEstadisticas() {
@@ -146,5 +216,7 @@ export const solicitudesAsistenciaService = {
       enProceso: enProceso?.length || 0,
       finalizadas: finalizadas?.length || 0
     };
-  }
+  },
+
+
 };

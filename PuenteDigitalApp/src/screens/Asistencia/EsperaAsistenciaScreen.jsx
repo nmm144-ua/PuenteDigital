@@ -67,14 +67,24 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
       const data = await AsistenciaService.obtenerSolicitud(solicitudId);
       setSolicitud(data);
       
-      // Si la solicitud ya está en proceso o completada, navegar a la pantalla de videollamada
+      // Si la solicitud ya está en proceso o completada, determinar a qué pantalla navegar
       if (data.estado === 'en_proceso' && data.asistente_id) {
-        navigation.replace('Videollamada', { 
-          solicitudId: data.id,
-          roomId: data.room_id,
-          asistenteId: data.asistente_id,
-          asistenteName: data.asistente?.nombre || 'Asistente'
-        });
+        // Verificar el tipo de asistencia
+        if (data.tipo_asistencia === 'chat') {
+          // Si es de tipo chat, navegar al chat
+          navigation.replace('Chat', { 
+            solicitudId: data.id,
+            roomId: data.room_id
+          });
+        } else {
+          // Si es videollamada o no especifica, mantener el comportamiento original
+          navigation.replace('Videollamada', { 
+            solicitudId: data.id,
+            roomId: data.room_id,
+            asistenteId: data.asistente_id,
+            asistenteName: data.asistente?.nombre || 'Asistente'
+          });
+        }
       }
     } catch (error) {
       console.error('Error al cargar solicitud:', error);
@@ -96,15 +106,10 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
         // Unirse a la sala
         SocketService.joinRoom(roomId, userId, userName);
         
-        // Escuchar la llamada entrante cuando un asistente acepta
+        // Escuchar la llamada entrante o asignación de chat
         SocketService.onCallRequested((data) => {
-          // Cuando un asistente inicia una llamada, navegar a la pantalla de videollamada
-          navigation.replace('Videollamada', { 
-            solicitudId,
-            roomId,
-            asistenteId: data.from,
-            asistenteName: data.fromName
-          });
+          // Recargar la solicitud para obtener el tipo actualizado
+          cargarSolicitud();
         });
         
         socketConnectedRef.current = true;
@@ -131,7 +136,7 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
   };
   
   useEffect(() => {
-    // Inicializar la conexión con el servidor de WebRTC
+    // Inicializar la conexión con el servidor
     inicializarSocket();
     
     // Cargar la información de la solicitud
@@ -143,9 +148,9 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
     }, 1000);
     
     // Consultar cada 10 segundos si la solicitud fue aceptada
-    /*const checkInterval = setInterval(() => {
+    const checkInterval = setInterval(() => {
       cargarSolicitud();
-    }, 10000);*/
+    }, 10000);
     
     // Prevenir navegación hacia atrás sin cancelar la solicitud
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -155,13 +160,13 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
     
     return () => {
       clearInterval(timerRef.current);
-     // clearInterval(checkInterval);
+      clearInterval(checkInterval);
       backHandler.remove();
       
-     /* // Desconectar del socket si navegamos fuera sin aceptar
+      // Desconectar del socket si navegamos fuera sin aceptar
       if (socketConnectedRef.current && roomId) {
         SocketService.leaveRoom(roomId);
-      }*/
+      }
     };
   }, []);
   
@@ -178,7 +183,7 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
         
         <Text style={styles.cardText}>
           Estamos buscando un asistente disponible para ayudarte. En cuanto alguien acepte tu solicitud, 
-          comenzará la videollamada automáticamente.
+          comenzará la asistencia automáticamente.
         </Text>
         
         {isConnecting && (

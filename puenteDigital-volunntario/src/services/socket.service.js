@@ -218,6 +218,16 @@ class SocketService {
     });
   }
 
+  emit(event, data) {
+    if (!this.socket || !this.isConnected) {
+      console.error(`No se puede emitir ${event}: socket no conectado`);
+      return;
+    }
+
+    this.socket.emit(event, data);
+  }
+
+
   on(event, callback) {
     if (!this.socket) {
       this.connect().then(() => {
