@@ -1,0 +1,429 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  SafeAreaView,
+  Alert,
+  BackHandler
+} from 'react-native';
+import ChatService from '../../services/ChatService';
+import AsistenciaService from '../../services/AsistenciaService';
+import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+
+const ChatScreen = ({ route, navigation }) => {
+  const { solicitudId, roomId } = route.params;
+  
+  const [messages, setMessages] = useState([]);
+  const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isTyping, setIsTyping] = useState(false);
+  const [remoteUserIsTyping, setRemoteUserIsTyping] = useState(false);
+  const [solicitud, setSolicitud] = useState(null);
+  
+  const flatListRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  
+  // Cargar datos de la solicitud
+  const loadSolicitud = async () => {
+    try {
+      const data = await AsistenciaService.obtenerSolicitud(solicitudId);
+      setSolicitud(data);
+      return data;
+    } catch (error) {
+      console.error('Error al cargar datos de la solicitud:', error);
+      Alert.alert('Error', 'No se pudo cargar la información de la solicitud');
+      return null;
+    }
+  };
+  
+  // Inicializar chat
+  const initializeChat = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Cargar solicitud
+      const solicitudData = await loadSolicitud();
+      if (!solicitudData) {
+        navigation.goBack();
+        return;
+      }
+      
+      // Inicializar chat service
+      await ChatService.init();
+      
+      // Registrar callbacks
+      ChatService.registerCallbacks({
+        onMessageReceived: handleNewMessage,
+        onTypingStatus: handleTypingStatus
+      });
+      
+      // Unirse a la sala de chat
+      await ChatService.joinRoom(roomId);
+      
+      // Marcar mensajes como leídos
+      await ChatService.markMessagesAsRead(solicitudId);
+      
+      // Obtener mensajes
+      const historicalMessages = await ChatService.loadHistoricalMessages(roomId);
+      setMessages(historicalMessages);
+      
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Error al inicializar chat:', error);
+      Alert.alert(
+        'Error de conexión',
+        'No se pudo establecer conexión con el chat. Inténtalo de nuevo.',
+        [{ text: 'Volver', onPress: () => navigation.goBack() }]
+      );
+    }
+  };
+  
+  // Manejar nuevos mensajes
+  const handleNewMessage = (message) => {
+    setMessages((prevMessages) => [...prevMessages, message]);
+    setRemoteUserIsTyping(false); // Resetear estado de "está escribiendo"
+  };
+  
+  // Manejar estado de "está escribiendo"
+  const handleTypingStatus = (userId, isTyping) => {
+    // Actualizar solo si el evento no es del usuario actual
+    if (userId !== ChatService.userId) {
+      setRemoteUserIsTyping(isTyping);
+    }
+  };
+  
+  // Enviar mensaje
+  const sendMessage = async () => {
+    if (!inputText.trim()) return;
+    
+    try {
+      const message = await ChatService.sendMessage(inputText.trim(), solicitudId);
+      
+      // Limpiar input y estado de escritura
+      setInputText('');
+      setIsTyping(false);
+      clearTimeout(typingTimeoutRef.current);
+      ChatService.sendTypingStatus(false);
+      
+      // Hacer scroll al final
+      setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Error al enviar mensaje:', error);
+      Alert.alert('Error', 'No se pudo enviar el mensaje. Inténtalo de nuevo.');
+    }
+  };
+  
+  // Manejar cambios en el input (detectar escritura)
+  const handleInputChange = (text) => {
+    setInputText(text);
+    
+    // Si empezamos a escribir, enviar evento
+    if (text.trim().length > 0 && !isTyping) {
+      setIsTyping(true);
+      ChatService.sendTypingStatus(true);
+    }
+    
+    // Si dejamos de escribir, enviar evento después de 2 segundos
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      if (isTyping) {
+        setIsTyping(false);
+        ChatService.sendTypingStatus(false);
+      }
+    }, 2000);
+  };
+  
+  // Renderizar un mensaje
+  const renderMessage = ({ item }) => {
+    const isOwnMessage = item.isLocal;
+    
+    return (
+      <View style={[
+        styles.messageContainer,
+        isOwnMessage ? styles.ownMessageContainer : styles.otherMessageContainer
+      ]}>
+        <View style={[
+          styles.messageBubble,
+          isOwnMessage ? styles.ownMessageBubble : styles.otherMessageBubble
+        ]}>
+          <Text style={styles.messageText}>{item.message}</Text>
+          <Text style={styles.messageTime}>
+            {formatMessageTime(item.timestamp)}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+  
+  // Formatear hora del mensaje
+  const formatMessageTime = (timestamp) => {
+    if (!timestamp) return '';
+    
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+  
+  // Efecto para inicializar chat al montar
+  useEffect(() => {
+    initializeChat();
+    
+    // Manejar botón de retroceso
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      leaveChat();
+      return true;
+    });
+    
+    return () => {
+      // Limpiar al desmontar
+      backHandler.remove();
+      clearTimeout(typingTimeoutRef.current);
+      
+      // Salir de la sala de chat
+      ChatService.leaveRoom();
+    };
+  }, []);
+  
+  // Efecto para hacer scroll cuando hay nuevos mensajes
+  useEffect(() => {
+    if (messages.length > 0 && flatListRef.current) {
+      setTimeout(() => {
+        flatListRef.current.scrollToEnd({ animated: true });
+      }, 200);
+    }
+  }, [messages]);
+  
+  // Salir del chat
+  const leaveChat = () => {
+    ChatService.leaveRoom();
+    navigation.goBack();
+  };
+  
+  // Ir a videollamada
+  const startVideoCall = () => {
+    if (!solicitud) return;
+    
+    // Navegar a la pantalla de videollamada y pasar datos
+    navigation.navigate('Videollamada', {
+      solicitudId,
+      roomId,
+      asistenteId: solicitud.asistente_id,
+      asistenteName: solicitud.asistente?.nombre || 'Asistente'
+    });
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={leaveChat}>
+          <MaterialIcons name="arrow-back" size={24} color="#007BFF" />
+        </TouchableOpacity>
+        
+        <View style={styles.headerInfo}>
+          <Text style={styles.headerTitle}>
+            {solicitud?.asistente?.nombre || 'Asistente'}
+          </Text>
+          
+          {remoteUserIsTyping && (
+            <Text style={styles.typingText}>Escribiendo...</Text>
+          )}
+        </View>
+        
+        <TouchableOpacity style={styles.videoCallButton} onPress={startVideoCall}>
+          <MaterialIcons name="videocam" size={24} color="#007BFF" />
+        </TouchableOpacity>
+      </View>
+      
+      {/* Chat messages */}
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007BFF" />
+          <Text style={styles.loadingText}>Cargando mensajes...</Text>
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={(item, index) => item.id?.toString() || index.toString()}
+          contentContainerStyle={styles.messagesContainer}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <MaterialIcons name="chat" size={60} color="#e0e0e0" />
+              <Text style={styles.emptyText}>No hay mensajes aún</Text>
+              <Text style={styles.emptySubtext}>
+                Escribe para comenzar la conversación
+              </Text>
+            </View>
+          }
+        />
+      )}
+      
+      {/* Input area */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      >
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder="Escribe un mensaje..."
+            value={inputText}
+            onChangeText={handleInputChange}
+            multiline
+            maxLength={500}
+          />
+          
+          <TouchableOpacity
+            style={[
+              styles.sendButton,
+              !inputText.trim() && styles.sendButtonDisabled
+            ]}
+            onPress={sendMessage}
+            disabled={!inputText.trim()}
+          >
+            <MaterialIcons name="send" size={24} color="white" />
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  backButton: {
+    padding: 5,
+  },
+  headerInfo: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  typingText: {
+    fontSize: 12,
+    color: '#007BFF',
+    fontStyle: 'italic',
+  },
+  videoCallButton: {
+    padding: 5,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#666',
+  },
+  messagesContainer: {
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+    flexGrow: 1,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 10,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 5,
+  },
+  messageContainer: {
+    marginVertical: 5,
+    maxWidth: '80%',
+  },
+  ownMessageContainer: {
+    alignSelf: 'flex-end',
+  },
+  otherMessageContainer: {
+    alignSelf: 'flex-start',
+  },
+  messageBubble: {
+    padding: 10,
+    borderRadius: 18,
+    minWidth: 60,
+  },
+  ownMessageBubble: {
+    backgroundColor: '#E3F2FD',
+  },
+  otherMessageBubble: {
+    backgroundColor: 'white',
+  },
+  messageText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  messageTime: {
+    fontSize: 12,
+    color: '#999',
+    alignSelf: 'flex-end',
+    marginTop: 5,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: 'white',
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+  },
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    maxHeight: 100,
+    backgroundColor: '#F8F9FA',
+  },
+  sendButton: {
+    marginLeft: 10,
+    padding: 10,
+    borderRadius: 25,
+    backgroundColor: '#007BFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#BBDEFB',
+  },
+});
+
+export default ChatScreen;

@@ -13,10 +13,12 @@ import OpcionesInicioScreen from '../screens/OpcionesInicioScreen';
 import NoDisponibleScreen from '../screens/NoDisponibleScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 
-// Nuevas pantallas de videollamada
+// Pantallas de asistencia
 import AsistenciaScreen from '../screens/Asistencia/AsistenciaScreen';
 import EsperaAsistenciaScreen from '../screens/Asistencia/EsperaAsistenciaScreen';
 import VideollamadaScreen from '../screens/Asistencia/VideollamadaScreen';
+import ChatScreen from '../screens/Asistencia/ChatScreen'; 
+import MisSolicitudesScreen from '../screens/Asistencia/MisSolicitudesScreen';
 
 const Stack = createStackNavigator();
 
@@ -55,15 +57,26 @@ const MainNavigator = () => {
       <Stack.Screen name="Tutoriales" component={NoDisponibleScreen} />
       <Stack.Screen name="Mensajes" component={NoDisponibleScreen} />
       
-      {/* Nuevas pantallas de videollamada */}
+      {/* Pantallas de asistencia */}
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} />
+      <Stack.Screen name="MisSolicitudes" component={MisSolicitudesScreen} />
       <Stack.Screen name="EsperaAsistencia" component={EsperaAsistenciaScreen} />
       <Stack.Screen 
         name="Videollamada" 
         component={VideollamadaScreen}
         options={{
           headerShown: false,
-          gestureEnabled: false // Deshabilitar gesto de regreso
+          gestureEnabled: false
+        }}
+      />
+      
+      {/* Pantalla de chat */}
+      <Stack.Screen
+        name="Chat"
+        component={ChatScreen}
+        options={{
+          headerShown: false,
+          gestureEnabled: true
         }}
       />
     </Stack.Navigator>

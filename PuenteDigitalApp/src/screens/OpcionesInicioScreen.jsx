@@ -33,6 +33,14 @@ const OpcionesInicioScreen = ({ navigation }) => {
                     <Text style={styles.buttonText}>Ver mis Mensajes</Text>
                 </TouchableOpacity>
 
+                <TouchableOpacity 
+                    style={styles.button}
+                    onPress={() => navigation.navigate('MisSolicitudes')}
+                >
+                    <Text style={styles.buttonText}>Ver Mis Solicitudes</Text>
+                </TouchableOpacity>
+
+
                 <TouchableOpacity
                     style={styles.linkButton}
                     onPress={() => navigation.navigate('Inicio')}

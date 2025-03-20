@@ -10,14 +10,39 @@ import {
   ActivityIndicator
 } from 'react-native';
 import AsistenciaService from '../../services/AsistenciaService';
+import ChatService from '../../services/ChatService';
 
 const AsistenciaScreen = ({ navigation }) => {
   const [descripcion, setDescripcion] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Solicitar asistencia por chat de texto (no implementado aún)
+  // Solicitar asistencia por chat de texto
   const solicitarAsistenciaTexto = async () => {
-    Alert.alert('Información', 'Esta función estará disponible próximamente');
+    if (!descripcion.trim()) {
+      Alert.alert('Error', 'Por favor, describe brevemente el problema');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Crear la solicitud en la base de datos, especificando tipo_asistencia como 'chat'
+      const solicitud = await ChatService.createChatRequest(descripcion);
+      
+      if (solicitud && solicitud.id) {
+        // Navegar directamente a la pantalla de chat
+        navigation.navigate('Chat', { 
+          solicitudId: solicitud.id,
+          roomId: solicitud.room_id
+        });
+      } else {
+        throw new Error('No se pudo crear la solicitud de chat');
+      }
+    } catch (error) {
+      console.error('Error al solicitar asistencia por chat:', error);
+      Alert.alert('Error', 'No se pudo procesar tu solicitud de chat. Inténtalo de nuevo.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Solicitar asistencia por videollamada
@@ -74,7 +99,11 @@ const AsistenciaScreen = ({ navigation }) => {
         onPress={solicitarAsistenciaTexto}
         disabled={isLoading}
       >
-        <Text style={styles.buttonText}>Asistencia por chat de texto</Text>
+        {isLoading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.buttonText}>Asistencia por chat de texto</Text>
+        )}
       </TouchableOpacity>
 
       <TouchableOpacity 
