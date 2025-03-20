@@ -59,7 +59,8 @@ export const useAuthStore = defineStore('auth', {
         this.user = data.user;
         this.session = data.session;
         this.userRole = asistente?.rol || 'asistente'; // Default to 'asistente' if no role found
-
+        
+        return true;
 
       } catch (error) {
         this.error = error.message;
