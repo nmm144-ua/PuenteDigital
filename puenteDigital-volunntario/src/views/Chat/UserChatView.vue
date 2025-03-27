@@ -20,25 +20,52 @@
           </div>
         </div>
         
+        <!-- Pestañas de navegación -->
+        <div class="sidebar-tabs">
+          <button 
+            @click="activeTab = 'conversaciones'" 
+            class="tab-button" 
+            :class="{ 'active': activeTab === 'conversaciones' }"
+          >
+            <i class="fas fa-comments"></i> Mis Conversaciones
+          </button>
+          <button 
+            @click="activeTab = 'solicitudes'" 
+            class="tab-button" 
+            :class="{ 'active': activeTab === 'solicitudes' }"
+          >
+            <i class="fas fa-list-alt"></i> Ver Solicitudes
+          </button>
+        </div>
+        
         <!-- Estado de carga -->
         <div v-if="isLoading" class="solicitudes-loading">
           <div class="spinner"></div>
           <p>Cargando conversaciones...</p>
         </div>
         
-        <!-- Estado vacío -->
-        <div v-else-if="solicitudes.length === 0" class="solicitudes-empty">
+        <!-- Estado vacío (Mis Conversaciones) -->
+        <div v-else-if="activeTab === 'conversaciones' && misConversaciones.length === 0" class="solicitudes-empty">
           <div class="empty-icon-container">
             <i class="fas fa-comments"></i>
           </div>
           <h3>No hay conversaciones</h3>
-          <p class="solicitudes-empty-subtitle">Las consultas creadas desde la app móvil aparecerán aquí</p>
+          <p class="solicitudes-empty-subtitle">Las conversaciones en las que participas aparecerán aquí</p>
         </div>
         
-        <!-- Lista de conversaciones -->
-        <div v-else class="solicitudes-list">
+        <!-- Estado vacío (Ver Solicitudes) -->
+        <div v-else-if="activeTab === 'solicitudes' && solicitudesPendientes.length === 0" class="solicitudes-empty">
+          <div class="empty-icon-container">
+            <i class="fas fa-list-alt"></i>
+          </div>
+          <h3>No hay solicitudes pendientes</h3>
+          <p class="solicitudes-empty-subtitle">Las solicitudes pendientes de asignación aparecerán aquí</p>
+        </div>
+        
+        <!-- Lista de mis conversaciones -->
+        <div v-else-if="activeTab === 'conversaciones'" class="solicitudes-list">
           <div 
-            v-for="solicitud in solicitudes" 
+            v-for="solicitud in misConversaciones" 
             :key="solicitud.id" 
             @click="selectSolicitud(solicitud)" 
             class="solicitud-item"
@@ -46,15 +73,15 @@
           >
             <div 
               class="solicitud-avatar"
-              :class="{ 'avatar-asistente': solicitud.asistente }"
+              :class="{ 'avatar-asistente': solicitud.asistente, 'avatar-usuario': !solicitud.asistente }"
             >
-              {{ solicitud.asistente ? 
-                getInitials(solicitud.asistente.nombre || 'Asistente') : 
-                'S' }}
+              {{ solicitud.usuario ? 
+                getInitials(solicitud.usuario.nombre || 'Usuario') : 
+                'U' }}
             </div>
             <div class="solicitud-details">
               <div class="solicitud-name">
-                {{ solicitud.asistente ? solicitud.asistente.nombre : 'Sin asignar' }}
+                {{ solicitud.usuario ? solicitud.usuario.nombre : 'Usuario' }}
                 <span v-if="tieneNuevosMensajes(solicitud.id)" class="badge">Nuevo</span>
               </div>
               <div class="solicitud-preview">
@@ -72,6 +99,39 @@
             </div>
           </div>
         </div>
+        
+        <!-- Lista de solicitudes pendientes -->
+        <div v-else-if="activeTab === 'solicitudes'" class="solicitudes-list">
+          <div 
+            v-for="solicitud in solicitudesPendientes" 
+            :key="solicitud.id" 
+            @click="selectSolicitud(solicitud)" 
+            class="solicitud-item"
+            :class="{ 'solicitud-active': selectedSolicitudId === solicitud.id }"
+          >
+            <div class="solicitud-avatar solicitud-pendiente">
+              {{ solicitud.usuario ? getInitials(solicitud.usuario.nombre || 'Usuario') : 'U' }}
+            </div>
+            <div class="solicitud-details">
+              <div class="solicitud-name">
+                {{ solicitud.usuario ? solicitud.usuario.nombre : 'Usuario' }}
+                <span class="badge badge-new">Nueva</span>
+              </div>
+              <div class="solicitud-preview">
+                {{ getPreviewText(solicitud) }}
+              </div>
+            </div>
+            <div class="solicitud-meta">
+              <div class="solicitud-time">
+                {{ formatDate(solicitud.created_at) }}
+              </div>
+              <div class="solicitud-status status-pendiente">
+                <span class="status-dot"></span>
+                Pendiente
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       
       <!-- Área de chat principal -->
@@ -83,8 +143,13 @@
               <i class="fas fa-comments"></i>
             </div>
             <h3>Bienvenido al chat de asistencia</h3>
-            <p v-if="solicitudes.length > 0">Selecciona una conversación para continuar</p>
-            <p v-else>Las conversaciones iniciadas desde la app móvil aparecerán aquí</p>
+            <p v-if="activeTab === 'conversaciones' && misConversaciones.length > 0">
+              Selecciona una conversación para continuar
+            </p>
+            <p v-else-if="activeTab === 'solicitudes' && solicitudesPendientes.length > 0">
+              Selecciona una solicitud para atenderla
+            </p>
+            <p v-else>No hay conversaciones o solicitudes disponibles</p>
             <div class="empty-state-actions">
               <button 
                 @click="toggleSidebar" 
@@ -96,63 +161,173 @@
           </div>
         </div>
         
-        <!-- Componente de chat cuando hay una conversación seleccionada -->
-        <chat-component 
-          v-else
-          :solicitud-id="selectedSolicitudId"
-          :is-asistente="false"
-          @close="closeChatRoom"
-        />
+        <!-- Componente de chat modificado para visualización correcta -->
+        <div v-else class="chat-container">
+          <!-- Encabezado del chat -->
+          <div class="chat-header">
+            <div class="user-info">
+              <div v-if="selectedSolicitud && selectedSolicitud.usuario" class="avatar">
+                {{ getInitials(selectedSolicitud.usuario.nombre) }}
+              </div>
+              <div class="user-details">
+                <h3>{{ selectedSolicitud && selectedSolicitud.usuario ? selectedSolicitud.usuario.nombre : 'Usuario' }}</h3>
+                <div class="status-container">
+                  <span class="status" :class="{'status-active': isActive}">
+                    {{ isActive ? 'En línea' : 'Desconectado' }}
+                  </span>
+                  <span v-if="selectedSolicitud && selectedSolicitud.asistente_id" class="status-atendido">
+                    <i class="fas fa-check-circle"></i> Atendido
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="header-actions">
+              <button 
+                v-if="selectedSolicitud && !selectedSolicitud.asistente_id" 
+                @click="asignarSolicitud(selectedSolicitud)" 
+                class="assign-button"
+                title="Asignarme esta solicitud"
+              >
+                <i class="fas fa-user-check"></i>
+              </button>
+              <button 
+                @click="closeChatRoom" 
+                class="close-button"
+                title="Cerrar chat"
+              >
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Cuerpo del chat (mensajes) -->
+          <div class="chat-body" ref="chatBody">
+            <div v-if="cargandoMensajes" class="loading-messages">
+              <div class="spinner"></div>
+              <p>Cargando mensajes...</p>
+            </div>
+            
+            <div v-else-if="chatMessages.length === 0" class="empty-chat">
+              <i class="fas fa-comments"></i>
+              <p>No hay mensajes aún. Escribe para comenzar la conversación.</p>
+            </div>
+            
+            <template v-else>
+              <div 
+                v-for="mensaje in chatMessages" 
+                :key="mensaje.id" 
+                class="mensaje" 
+                :class="{'mensaje-propio': esMensajePropio(mensaje), 'mensaje-usuario': !esMensajePropio(mensaje)}"
+              >
+                <div class="mensaje-contenido">
+                  {{ mensaje.contenido || mensaje.message }}
+                </div>
+                <div class="mensaje-info">
+                  <span class="mensaje-hora">{{ formatTime(mensaje.created_at || mensaje.timestamp) }}</span>
+                  <span v-if="esMensajePropio(mensaje)" class="mensaje-estado">
+                    <i class="fas fa-check" :class="{'leido': mensaje.leido}"></i>
+                  </span>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Pie de página del chat (entrada de mensaje) -->
+          <div class="chat-footer">
+            <div class="message-input-container">
+              <textarea 
+                v-model="nuevoMensaje" 
+                class="message-input" 
+                placeholder="Escribe un mensaje..." 
+                @keydown.enter.prevent="enviarMensaje"
+                @input="handleTyping"
+                ref="messageInput"
+              ></textarea>
+              <button 
+                @click="enviarMensaje" 
+                class="send-button" 
+                :disabled="!nuevoMensaje.trim()"
+                title="Enviar mensaje"
+              >
+                <i class="fas fa-paper-plane"></i>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, onMounted, onUnmounted } from 'vue';
-import ChatComponent from '../../components/Chat/ChatComponent.vue';
+import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue';
 import { solicitudesAsistenciaService } from '../../services/solicitudAsistenciaService';
 import { mensajesService } from '../../services/mensajesService';
+import { asistenteService } from '../../services/asistenteService';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatStore } from '../../stores/chat.store';
 import { supabase } from '../../../supabase';
 
 export default {
   name: 'UserChatView',
-  components: {
-    ChatComponent
-  },
   setup() {
     const authStore = useAuthStore();
     const chatStore = useChatStore();
     const solicitudes = ref([]);
+    const solicitudesPendientes = ref([]);
     const selectedSolicitudId = ref(null);
+    const selectedSolicitud = ref(null);
     const isLoading = ref(true);
+    const cargandoMensajes = ref(false);
     const mensajesNoLeidos = ref([]);
     const unsubscribe = ref(null);
     const sidebarOpen = ref(false); // Para vista móvil
+    const activeTab = ref('conversaciones'); // Pestaña activa por defecto
+    const chatMessages = ref([]); // Mensajes del chat actual
+    const nuevoMensaje = ref(''); // Nuevo mensaje a enviar
+    const isActive = ref(false); // Estado de conexión del usuario
+    const chatBody = ref(null); // Referencia al cuerpo del chat para scroll
+    const messageInput = ref(null); // Referencia al input de mensaje
+    const typingTimeout = ref(null); // Timeout para evento de escritura
+    
+    // Filtrar solicitudes por estado para mis conversaciones (con asistente asignado)
+    const misConversaciones = computed(() => {
+      return solicitudes.value.filter(s => s.asistente_id || s.estado === 'en_proceso');
+    });
     
     // Inicializar chat store
     onMounted(() => {
       chatStore.initialize();
     });
     
-    // Cargar solicitudes del usuario (solo tipo chat)
+    // Cargar solicitudes del usuario y solicitudes pendientes
     const loadSolicitudes = async () => {
       isLoading.value = true;
       try {
         if (authStore.user) {
-          // Utilizamos el método específico para obtener solicitudes de chat
-          let chatSolicitudes = await solicitudesAsistenciaService.getChatSolicitudes();
-                    
-          // Ordenar por fecha
-          solicitudes.value = chatSolicitudes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          // Primero verificar si el usuario es asistente
+          const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
+          
+          if (asistente) {
+            // Cargar mis conversaciones (solicitudes asignadas al asistente actual)
+            let misSolicitudes = await mensajesService.getChatsAtendidosByAsistente(asistente.id);
+            solicitudes.value = misSolicitudes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            
+            // Cargar solicitudes pendientes sin asignar
+            let pendientes = await solicitudesAsistenciaService.getPendienteSolicitudes();
+            solicitudesPendientes.value = pendientes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          } else {
+            // Usuario no es asistente, mostrar mensaje o redirigir
+            console.warn('El usuario actual no es un asistente');
+            solicitudes.value = [];
+            solicitudesPendientes.value = [];
+          }
           
           // Cargar mensajes no leídos
           loadMensajesNoLeidos();
         }
       } catch (error) {
-        console.error('Error al cargar solicitudes de chat:', error);
+        console.error('Error al cargar solicitudes:', error);
       } finally {
         isLoading.value = false;
       }
@@ -175,8 +350,48 @@ export default {
       return mensajesNoLeidos.value.some(m => m.solicitud_id === solicitudId);
     };
     
+    // Cargar los datos de la solicitud seleccionada
+    const cargarSolicitud = async (solicitudId) => {
+      try {
+        const solicitudData = await solicitudesAsistenciaService.getSolicitudById(solicitudId);
+        selectedSolicitud.value = solicitudData;
+        
+        // Verificar estado de conexión basado en participantes
+        if (chatStore.participants) {
+          isActive.value = chatStore.participants.some(p => p.userRole === 'usuario');
+        }
+        
+        return solicitudData;
+      } catch (error) {
+        console.error('Error al cargar datos de la solicitud:', error);
+        return null;
+      }
+    };
+    
+    // Cargar mensajes de la solicitud seleccionada
+    const cargarMensajes = async (solicitudId) => {
+      cargandoMensajes.value = true;
+      try {
+        const mensajes = await mensajesService.getMensajesBySolicitud(solicitudId);
+        chatMessages.value = mensajes;
+        
+        // Marcar mensajes como leídos
+        await mensajesService.marcarComoLeidos(solicitudId);
+        
+        // Desplazar al final del chat
+        await scrollToBottom();
+        
+        return mensajes;
+      } catch (error) {
+        console.error('Error al cargar mensajes:', error);
+        return [];
+      } finally {
+        cargandoMensajes.value = false;
+      }
+    };
+    
     // Seleccionar una solicitud
-    const selectSolicitud = (solicitud) => {
+    const selectSolicitud = async (solicitud) => {
       // Si ya hay una sala activa, salir primero
       if (chatStore.isInRoom && chatStore.roomId !== solicitud.room_id) {
         chatStore.leaveRoom();
@@ -184,6 +399,28 @@ export default {
       
       // Establecer la solicitud seleccionada
       selectedSolicitudId.value = solicitud.id;
+      
+      // Cargar datos de la solicitud
+      await cargarSolicitud(solicitud.id);
+      
+      // Configurar chatStore
+      chatStore.setUserRole('asistente');
+      
+      // Unirse a la sala de chat
+      const userId = authStore.user.id;
+      const userName = authStore.user.nombre || 'Asistente';
+      
+      if (!chatStore.isInRoom || chatStore.roomId !== solicitud.room_id) {
+        await chatStore.joinRoom(
+          solicitud.room_id,
+          userName,
+          'asistente',
+          solicitud.id
+        );
+      }
+      
+      // Cargar mensajes de la solicitud
+      await cargarMensajes(solicitud.id);
       
       // Cerrar sidebar en modo móvil
       sidebarOpen.value = false;
@@ -195,6 +432,8 @@ export default {
         chatStore.leaveRoom();
       }
       selectedSolicitudId.value = null;
+      selectedSolicitud.value = null;
+      chatMessages.value = [];
     };
     
     // Alternar visibilidad del sidebar en móvil
@@ -202,16 +441,149 @@ export default {
       sidebarOpen.value = !sidebarOpen.value;
     };
     
-    // Obtener iniciales para avatar
-    const getInitials = (nombre) => {
-      if (!nombre) return '?';
+    // Enviar un mensaje
+    const enviarMensaje = async () => {
+      if (!nuevoMensaje.value.trim() || !selectedSolicitudId.value) return;
       
-      return nombre
-        .split(' ')
-        .map(word => word[0])
-        .join('')
-        .toUpperCase()
-        .substring(0, 2);
+      try {
+        // Obtener el asistente actual
+        const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
+        if (!asistente) {
+          console.error('No se pudo obtener información del asistente');
+          return;
+        }
+        
+        // Preparar datos del mensaje
+        const mensaje = {
+          solicitud_id: selectedSolicitudId.value,
+          contenido: nuevoMensaje.value.trim(),
+          tipo: 'asistente', // Tipo asistente para mensajes enviados desde la web
+          leido: false,
+          _esAsistente: true,
+          _asistenteId: asistente.id,
+          _usuarioId: null
+        };
+        
+        // Enviar mensaje usando el servicio
+        const mensajeGuardado = await mensajesService.enviarMensaje(mensaje);
+        
+        // Agregar el mensaje a la lista
+        if (mensajeGuardado) {
+          // Formatear el mensaje para mostrar
+          const mensajeFormateado = {
+            ...mensajeGuardado,
+            remitente: authStore.user.nombre || 'Asistente',
+            esDeAsistente: true,
+            isLocal: true
+          };
+          
+          chatMessages.value.push(mensajeFormateado);
+        }
+        
+        // Limpiar campo de entrada
+        nuevoMensaje.value = '';
+        
+        // Desplazar al final del chat
+        await scrollToBottom();
+        
+      } catch (error) {
+        console.error('Error al enviar mensaje:', error);
+        alert('No se pudo enviar el mensaje. Inténtalo de nuevo.');
+      }
+    };
+    
+    // Manejar eventos de escritura
+    const handleTyping = () => {
+      // Si hay texto, indicar que está escribiendo
+      const isTyping = nuevoMensaje.value.trim().length > 0;
+      
+      // Limpiar timeout previo
+      if (typingTimeout.value) {
+        clearTimeout(typingTimeout.value);
+      }
+      
+      // Establecer estado de escritura
+      if (selectedSolicitudId.value) {
+        mensajesService.enviarEscribiendo(
+          selectedSolicitudId.value,
+          authStore.user.id,
+          isTyping
+        );
+      }
+      
+      // Si está escribiendo, configurar timeout para desactivar después de 3 segundos
+      if (isTyping) {
+        typingTimeout.value = setTimeout(() => {
+          if (selectedSolicitudId.value) {
+            mensajesService.enviarEscribiendo(
+              selectedSolicitudId.value,
+              authStore.user.id,
+              false
+            );
+          }
+        }, 3000);
+      }
+    };
+    
+    // Desplazar al final del chat
+    const scrollToBottom = async () => {
+      await nextTick();
+      if (chatBody.value) {
+        chatBody.value.scrollTop = chatBody.value.scrollHeight;
+      }
+    };
+    
+    // Verificar si un mensaje es propio (del asistente)
+    const esMensajePropio = (mensaje) => {
+      // Si el mensaje tiene campo isLocal, usarlo
+      if (mensaje.isLocal !== undefined) {
+        return mensaje.isLocal;
+      }
+      
+      // Verificar si el mensaje es del asistente
+      return mensaje.tipo === 'asistente' || mensaje.esDeAsistente === true;
+    };
+    
+    // Asignar solicitud a sí mismo
+    const asignarSolicitud = async (solicitud) => {
+      if (!solicitud) return;
+      
+      try {
+        // Obtener ID del asistente
+        const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
+        
+        if (!asistente) {
+          console.error('No se encontró ID de asistente');
+          alert('No se pudo asignar: ID de asistente no disponible');
+          return;
+        }
+        
+        console.log('Asignando solicitud', solicitud.id, 'al asistente', asistente.id);
+        
+        // Llamar al servicio para asignar el asistente
+        const solicitudActualizada = await solicitudesAsistenciaService.asignarAsistente(
+          solicitud.id,
+          asistente.id
+        );
+        
+        // Actualizar el objeto de solicitud local
+        if (solicitudActualizada) {
+          console.log('Solicitud asignada correctamente', solicitudActualizada);
+          selectedSolicitud.value = solicitudActualizada;
+          
+          // Actualizar el estado en chatStore
+          chatStore.setCurrentRequest(solicitudActualizada);
+          
+          // Mostrar notificación de éxito
+          alert('Solicitud asignada correctamente');
+          
+          // Recargar la lista de solicitudes
+          await loadSolicitudes();
+        }
+      } catch (error) {
+        console.error('Error al asignar solicitud:', error);
+        alert('No se pudo asignar la solicitud: ' + error.message);
+      }
     };
     
     // Formatear fecha
@@ -234,6 +606,14 @@ export default {
         // Otro día: mostrar fecha
         return date.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' });
       }
+    };
+    
+    // Formatear hora del mensaje
+    const formatTime = (timestamp) => {
+      if (!timestamp) return '';
+      
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
     
     // Obtener texto de estado
@@ -259,6 +639,18 @@ export default {
       return 'Sin descripción';
     };
     
+    // Obtener iniciales para avatar
+    const getInitials = (nombre) => {
+      if (!nombre) return '?';
+      
+      return nombre
+        .split(' ')
+        .map(word => word[0])
+        .join('')
+        .toUpperCase()
+        .substring(0, 2);
+    };
+    
     // Configurar suscripción en tiempo real
     const setupRealtimeSubscription = () => {
       // Suscribirse a nuevos mensajes
@@ -269,10 +661,23 @@ export default {
           {
             event: 'INSERT',
             schema: 'public',
-            table: 'mensajes',
-            filter: `usuario_id=eq.${authStore.user.id}`
+            table: 'mensajes'
           },
           (payload) => {
+            // Si hay una solicitud seleccionada y el mensaje es para esta solicitud
+            if (selectedSolicitudId.value && payload.new && 
+                payload.new.solicitud_id === selectedSolicitudId.value) {
+              // Obtener los detalles del mensaje
+              mensajesService.getMensajesBySolicitud(selectedSolicitudId.value)
+                .then(mensajes => {
+                  // Actualizar solo si hay mensaje nuevo
+                  if (mensajes.length > chatMessages.value.length) {
+                    chatMessages.value = mensajes;
+                    scrollToBottom();
+                  }
+                });
+            }
+            
             // Actualizar lista de mensajes no leídos
             loadMensajesNoLeidos();
           }
@@ -287,12 +692,17 @@ export default {
           {
             event: '*', // INSERT, UPDATE o DELETE
             schema: 'public',
-            table: 'solicitudes_asistencia',
-            filter: `usuario_id=eq.${authStore.user.id}`
+            table: 'solicitudes_asistencia'
           },
           (payload) => {
             // Actualizar lista de solicitudes
             loadSolicitudes();
+            
+            // Si la solicitud actual cambió, actualizar los datos
+            if (selectedSolicitudId.value && payload.new && 
+                payload.new.id === selectedSolicitudId.value) {
+              cargarSolicitud(selectedSolicitudId.value);
+            }
           }
         )
         .subscribe();
@@ -303,6 +713,11 @@ export default {
         supabase.removeChannel(solicitudesChannel);
       };
     };
+    
+    // Observar cambios en los mensajes para desplazar al final
+    watch(chatMessages, async () => {
+      await scrollToBottom();
+    });
     
     // Eventos del ciclo de vida
     onMounted(async () => {
@@ -324,18 +739,38 @@ export default {
       if (chatStore.isInRoom) {
         chatStore.cleanup();
       }
+      
+      // Limpiar timeout de escritura
+      if (typingTimeout.value) {
+        clearTimeout(typingTimeout.value);
+      }
     });
     
     return {
       solicitudes,
+      solicitudesPendientes,
+      misConversaciones,
       selectedSolicitudId,
+      selectedSolicitud,
       isLoading,
+      cargandoMensajes,
       sidebarOpen,
+      activeTab,
+      chatMessages,
+      nuevoMensaje,
+      isActive,
+      chatBody,
+      messageInput,
       selectSolicitud,
       closeChatRoom,
       toggleSidebar,
+      enviarMensaje,
+      handleTyping,
+      esMensajePropio,
+      asignarSolicitud,
       getInitials,
       formatDate,
+      formatTime,
       getPreviewText,
       getStatusText,
       tieneNuevosMensajes,
@@ -361,6 +796,7 @@ export default {
   padding: 25px;
 }
 
+/* === SIDEBAR STYLES === */
 /* === SIDEBAR STYLES === */
 .sidebar {
   width: 350px;
@@ -426,6 +862,49 @@ export default {
   border-radius: 8px;
 }
 
+/* Pestañas de navegación */
+.sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid #eaedf3;
+}
+
+.tab-button {
+  flex: 1;
+  padding: 15px 10px;
+  text-align: center;
+  background: none;
+  border: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.tab-button.active {
+  color: #1976d2;
+  background-color: #f5f7fa;
+}
+
+.tab-button.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: #1976d2;
+}
+
+.tab-button:hover:not(.active) {
+  background-color: #f8f9fa;
+}
+
 /* Lista de solicitudes */
 .solicitudes-list {
   flex: 1;
@@ -473,6 +952,10 @@ export default {
 
 .avatar-asistente {
   background: linear-gradient(135deg, #2196f3, #1976d2);
+}
+
+.solicitud-pendiente {
+  background: linear-gradient(135deg, #ff9800, #f57c00);
 }
 
 .solicitud-details {
@@ -571,6 +1054,10 @@ export default {
   padding: 2px 8px;
   font-size: 0.7rem;
   font-weight: 500;
+}
+
+.badge-new {
+  background-color: #ff9800;
 }
 
 /* Estados de carga y vacío */
@@ -717,6 +1204,248 @@ export default {
   display: none;
 }
 
+/* Estilos para el componente de chat incorporado */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: #f8f9fa;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e0e0e0;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #1976d2;
+  color: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: bold;
+  margin-right: 10px;
+}
+
+.user-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.user-details h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #333;
+}
+
+.status {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.status-active {
+  color: #4caf50;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.assign-button, .close-button {
+  background: none;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.assign-button {
+  color: #4caf50;
+}
+
+.assign-button:hover {
+  background-color: #e8f5e9;
+}
+
+.close-button {
+  color: #757575;
+}
+
+.close-button:hover {
+  background-color: #f5f5f5;
+}
+
+.chat-body {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.mensaje {
+  max-width: 75%;
+  margin-bottom: 10px;
+  align-self: flex-start;
+}
+
+.mensaje-propio {
+  align-self: flex-end;
+}
+
+.mensaje-usuario {
+  align-self: flex-start;
+}
+
+.mensaje-contenido {
+  padding: 10px 15px;
+  border-radius: 18px;
+  background-color: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  word-break: break-word;
+}
+
+.mensaje-propio .mensaje-contenido {
+  background-color: #e3f2fd;
+  color: #0d47a1;
+}
+
+.mensaje-usuario .mensaje-contenido {
+  background-color: #f5f5f5;
+  color: #333333;
+}
+
+.mensaje-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  margin-top: 2px;
+  padding: 0 5px;
+  color: #757575;
+}
+
+.mensaje-hora {
+  margin-right: 5px;
+}
+
+.mensaje-estado i {
+  font-size: 0.8rem;
+  color: #bdbdbd;
+}
+
+.mensaje-estado i.leido {
+  color: #4caf50;
+}
+
+.chat-footer {
+  padding: 10px 15px;
+  background-color: #ffffff;
+  border-top: 1px solid #e0e0e0;
+}
+
+.message-input-container {
+  display: flex;
+  align-items: center;
+}
+
+.message-input {
+  flex: 1;
+  border: 1px solid #e0e0e0;
+  border-radius: 20px;
+  padding: 10px 15px;
+  resize: none;
+  font-family: inherit;
+  font-size: 0.9rem;
+  min-height: 20px;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.message-input:focus {
+  outline: none;
+  border-color: #1976d2;
+}
+
+.send-button {
+  margin-left: 10px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #1976d2;
+  color: white;
+  border: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.send-button:hover:not(:disabled) {
+  background-color: #0d47a1;
+}
+
+.send-button:disabled {
+  background-color: #bdbdbd;
+  cursor: not-allowed;
+}
+
+.loading-messages, .empty-chat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  color: #757575;
+  text-align: center;
+}
+
+.empty-chat i {
+  font-size: 2.5rem;
+  color: #bdbdbd;
+  margin-bottom: 15px;
+}
+
+.status-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-atendido {
+  font-size: 0.8rem;
+  color: #4caf50;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.status-atendido i {
+  font-size: 0.9rem;
+}
+
 /* Adaptación para dispositivos móviles */
 @media (max-width: 768px) {
   .container {
@@ -757,6 +1486,29 @@ export default {
   
   .select-chat-button {
     display: flex;
+  }
+  
+  .tab-button {
+    padding: 12px 8px;
+    font-size: 0.8rem;
+  }
+  
+  .mensaje {
+    max-width: 85%;
+  }
+  
+  .avatar {
+    width: 35px;
+    height: 35px;
+    font-size: 0.8rem;
+  }
+  
+  .user-details h3 {
+    font-size: 0.9rem;
+  }
+
+  .avatar-usuario {
+    background: linear-gradient(135deg, #ff9800, #f57c00);
   }
 }
 </style>
