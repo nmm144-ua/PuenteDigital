@@ -13,18 +13,17 @@ export const mensajesService = {
       
       // Establecer tipo por defecto si no se especifica
       if (!mensaje.tipo) {
-        mensaje.tipo = 'texto';
+        mensaje.tipo = 'asistente';
       }
       
       // Inicialmente no leído
       mensaje.leido = false;
       
       // Construir el objeto para insertar, usando solo campos que existen en la tabla
-      // Basado en la estructura: id, created_at, updated_at, solicitud_id, contenido, tipo, leido
       const mensajeData = {
         solicitud_id: mensaje.solicitud_id,
         contenido: mensaje.contenido,
-        tipo: mensaje.tipo,
+        tipo: mensaje.tipo, // Usar el tipo proporcionado
         leido: mensaje.leido
       };
       
@@ -38,7 +37,7 @@ export const mensajesService = {
         .single();
       
       if (error) throw error;
-      
+            
       console.log('Mensaje guardado correctamente:', data);
       
       // Si tenemos socket.io conectado y roomId, también enviar por socket

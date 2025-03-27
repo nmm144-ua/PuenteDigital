@@ -370,7 +370,7 @@ export const useChatStore = defineStore('chat', {
           const mensaje = {
             solicitud_id: this.currentSolicitudId,
             contenido: content,
-            tipo: this.userRole === 'asistente' ? 'asistente' : 'usuario', // Usar el tipo para identificar quién envió el mensaje
+            tipo: 'asistente', // Usar el tipo para identificar quién envió el mensaje
             leido: false,
             // Añadir información de metadatos para el servicio
             _esAsistente: this.userRole === 'asistente',
