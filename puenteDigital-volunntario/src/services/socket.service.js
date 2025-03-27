@@ -1,5 +1,9 @@
 // src/services/socket.service.js
 import { io } from 'socket.io-client';
+import loggerService from './logger.service';
+
+// Nombre del módulo para logging
+const LOG_MODULE = 'SocketService';
 
 // Detectar si estamos en React Native o en entorno web
 const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
@@ -13,8 +17,9 @@ if (isReactNative) {
   try {
     AsyncStorage = require('@react-native-async-storage/async-storage').default;
     Platform = require('react-native').Platform;
+    loggerService.debug(LOG_MODULE, 'Utilizando entorno React Native');
   } catch (error) {
-    console.warn('Módulos de React Native no disponibles');
+    loggerService.warn(LOG_MODULE, 'Módulos de React Native no disponibles', error);
     // Proporcionar objetos simulados
     AsyncStorage = {
       getItem: () => Promise.resolve(null),
@@ -33,6 +38,7 @@ if (isReactNative) {
   };
   // Plataforma simulada para web
   Platform = { OS: 'web' };
+  loggerService.debug(LOG_MODULE, 'Utilizando entorno web');
 }
 
 // Función para obtener la URL del servidor
@@ -43,11 +49,11 @@ const getServerUrl = () => {
   }
   
   // Para React Native y entorno móvil
-  return 'http://192.168.1.99:3001'; // Asegúrate que esta IP sea la correcta
+  return 'http://192.168.1.99:3001'; // URL del servidor
 };
 
 const SOCKET_SERVER = getServerUrl();
-console.log('Conectando a servidor de señalización:', SOCKET_SERVER);
+loggerService.info(LOG_MODULE, 'URL del servidor de señalización', { url: SOCKET_SERVER });
 
 class SocketService {
   constructor() {
@@ -59,181 +65,387 @@ class SocketService {
     this.connectionAttempts = 0;
     this.maxConnectionAttempts = 5;
     this.eventListeners = {};
+    this.serverUrl = SOCKET_SERVER;
+    this.connectPromise = null;
+    this.reconnectTimer = null;
+    this.pendingOperations = [];
   }
 
   async connect() {
-    if (this.isConnected && this.socket) return true;
+    // Si ya tenemos una conexión activa, devolver
+    if (this.isConnected && this.socket) {
+      loggerService.debug(LOG_MODULE, 'Conexión ya establecida, utilizando socket existente');
+      return true;
+    }
     
-    try {
-      // Verificar si hay una URL personalizada guardada
-      let serverUrl = SOCKET_SERVER;
-      
-      const savedUrl = await AsyncStorage.getItem('signaling_server_url');
-      if (savedUrl) {
-        serverUrl = savedUrl;
-      }
-      
-      console.log(`Intentando conectar a: ${serverUrl}`);
-      
-      this.socket = io(serverUrl, {
-        transports: ['websocket', 'polling'], // Intentar websocket primero, luego polling
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-        timeout: 10000 // 10s timeout
-      });
+    // Si hay una conexión en progreso, esperar a que termine
+    if (this.connectPromise) {
+      loggerService.debug(LOG_MODULE, 'Conexión en progreso, esperando...');
+      return this.connectPromise;
+    }
+    
+    loggerService.info(LOG_MODULE, 'Iniciando conexión al servidor socket', { 
+      serverUrl: this.serverUrl 
+    });
+    
+    // Crear nueva promesa de conexión
+    this.connectPromise = new Promise(async (resolve, reject) => {
+      try {
+        // Verificar si hay una URL personalizada guardada
+        let serverUrl = this.serverUrl;
+        
+        const savedUrl = await AsyncStorage.getItem('signaling_server_url');
+        if (savedUrl) {
+          serverUrl = savedUrl;
+          loggerService.debug(LOG_MODULE, 'Usando URL de servidor guardada', { url: savedUrl });
+        }
+        
+        loggerService.info(LOG_MODULE, `Intentando conectar a: ${serverUrl}`);
+        
+        // Limpiar socket previo si existe
+        if (this.socket) {
+          this.socket.removeAllListeners();
+          this.socket.disconnect();
+          this.socket = null;
+        }
+        
+        // Crear nueva conexión Socket.io
+        this.socket = io(serverUrl, {
+          transports: ['websocket', 'polling'], // Intentar websocket primero, luego polling
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+          timeout: 10000 // 10s timeout
+        });
 
-      this.setupListeners();
-      
-      // Devolver una promesa que se resuelve cuando la conexión está establecida
-      return new Promise((resolve, reject) => {
-        // Evento de conexión exitosa
-        this.socket.on('connect', () => {
-          console.log('✅ Conectado al servidor de señalización con ID:', this.socket.id);
-          this.isConnected = true;
-          this.connectionAttempts = 0;
-          resolve(true);
-        });
+        // Configurar escuchas
+        this.setupBaseListeners(resolve, reject);
         
-        // Evento de error de conexión
-        this.socket.on('connect_error', (error) => {
-          this.connectionAttempts++;
-          console.error(`❌ Error de conexión (intento ${this.connectionAttempts}/${this.maxConnectionAttempts}):`, error.message);
-          
-          if (this.connectionAttempts >= this.maxConnectionAttempts) {
-            console.error('Alcanzado número máximo de intentos de conexión');
-            reject(new Error('Tiempo de conexión agotado después de múltiples intentos'));
-          }
-        });
-        
-        // Establecer tiempo límite para la conexión
-        setTimeout(() => {
+        // Establecer un timeout para la conexión
+        const connectTimeout = setTimeout(() => {
           if (!this.isConnected) {
-            reject(new Error('Tiempo de conexión agotado'));
+            const error = new Error('Tiempo de conexión agotado');
+            loggerService.error(LOG_MODULE, 'Timeout de conexión alcanzado', error);
+            reject(error);
+            
+            // Limpiar la promesa de conexión
+            this.connectPromise = null;
           }
         }, 10000);
-      });
+        
+        // Limpiar timeout si la conexión tiene éxito
+        this.socket.on('connect', () => {
+          clearTimeout(connectTimeout);
+        });
+      } catch (error) {
+        loggerService.error(LOG_MODULE, 'Error al configurar socket', error);
+        this.connectPromise = null;
+        reject(error);
+      }
+    });
+    
+    try {
+      const result = await this.connectPromise;
+      this.connectPromise = null;
+      return result;
     } catch (error) {
-      console.error('Error al conectar con el servidor:', error);
+      this.connectPromise = null;
       throw error;
     }
   }
 
-  setupListeners() {
-    if (!this.socket) return;
+  setupBaseListeners(resolve, reject) {
+    if (!this.socket) {
+      loggerService.error(LOG_MODULE, 'No hay socket para configurar listeners');
+      reject(new Error('No hay socket disponible'));
+      return;
+    }
     
     this.socket.on('connect', () => {
-      console.log('✅ Conectado al servidor de señalización con ID:', this.socket.id);
+      loggerService.info(LOG_MODULE, 'Conectado al servidor de señalización', { 
+        socketId: this.socket.id 
+      });
+      
       this.isConnected = true;
       this.connectionAttempts = 0;
+      
+      // Procesar operaciones pendientes
+      this.processPendingOperations();
+      
+      // Resolver la promesa de conexión
+      resolve(true);
     });
 
     this.socket.on('connect_error', (error) => {
       this.connectionAttempts++;
-      console.error(`❌ Error de conexión (intento ${this.connectionAttempts}/${this.maxConnectionAttempts}):`, error.message);
+      loggerService.error(LOG_MODULE, `Error de conexión (intento ${this.connectionAttempts}/${this.maxConnectionAttempts})`, error);
+      
+      if (this.connectionAttempts >= this.maxConnectionAttempts) {
+        loggerService.error(LOG_MODULE, 'Alcanzado número máximo de intentos de conexión');
+        reject(new Error('Tiempo de conexión agotado después de múltiples intentos'));
+      }
     });
 
     this.socket.on('disconnect', (reason) => {
-      console.warn('⚠️ Desconectado del servidor de señalización:', reason);
+      loggerService.warn(LOG_MODULE, 'Desconectado del servidor de señalización', { reason });
       this.isConnected = false;
+      
+      // Programar reconexión manual si la reconexión automática de Socket.io no funciona
+      if (reason === 'io server disconnect' || reason === 'io client disconnect') {
+        this.scheduleReconnect();
+      }
     });
 
     this.socket.on('reconnect', (attemptNumber) => {
-      console.log(`🔄 Reconectado al servidor después de ${attemptNumber} intentos`);
+      loggerService.info(LOG_MODULE, `Reconectado al servidor después de ${attemptNumber} intentos`);
       this.isConnected = true;
       
       // Volver a unirse a la sala si estábamos en una
       if (this.roomId && this.userId && this.userName) {
-        this.joinRoom(this.roomId, this.userId, this.userName);
+        loggerService.debug(LOG_MODULE, 'Volviendo a unirse a sala después de reconexión', {
+          roomId: this.roomId,
+          userName: this.userName
+        });
+        
+        // Agregar a operaciones pendientes
+        this.addPendingOperation(() => this.joinRoom(this.roomId, this.userId, this.userName));
+        
+        // Procesar operaciones pendientes
+        this.processPendingOperations();
+      }
+    });
+    
+    // Configurar otros listeners base según sea necesario
+  }
+  
+  // Programar una reconexión manual
+  scheduleReconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
+    
+    const delay = Math.min(1000 * (this.connectionAttempts + 1), 10000); // Espera incremental, max 10s
+    
+    loggerService.info(LOG_MODULE, `Programando reconexión manual en ${delay}ms`);
+    
+    this.reconnectTimer = setTimeout(async () => {
+      if (!this.isConnected) {
+        loggerService.debug(LOG_MODULE, 'Intentando reconexión manual');
+        try {
+          await this.connect();
+        } catch (error) {
+          loggerService.error(LOG_MODULE, 'Error en reconexión manual', error);
+          // Volver a programar
+          this.connectionAttempts++;
+          this.scheduleReconnect();
+        }
+      }
+    }, delay);
+  }
+  
+  // Agregar operación pendiente
+  addPendingOperation(operation) {
+    if (typeof operation === 'function') {
+      this.pendingOperations.push(operation);
+    }
+  }
+  
+  // Procesar operaciones pendientes
+  processPendingOperations() {
+    if (!this.isConnected || this.pendingOperations.length === 0) return;
+    
+    loggerService.debug(LOG_MODULE, `Procesando ${this.pendingOperations.length} operaciones pendientes`);
+    
+    // Copiar las operaciones y limpiar la cola original
+    const operations = [...this.pendingOperations];
+    this.pendingOperations = [];
+    
+    // Ejecutar cada operación
+    operations.forEach(operation => {
+      try {
+        operation();
+      } catch (error) {
+        loggerService.error(LOG_MODULE, 'Error al procesar operación pendiente', error);
       }
     });
   }
 
+  // Unirse a una sala de chat
   joinRoom(roomId, userId, userName) {
-    if (!this.socket || !this.isConnected) {
-      throw new Error('No hay conexión con el servidor');
+    if (!this.isConnected) {
+      loggerService.warn(LOG_MODULE, 'Intentando unirse a sala sin conexión activa', {
+        roomId,
+        userName
+      });
+      
+      // Agregar a operaciones pendientes
+      this.addPendingOperation(() => this.joinRoom(roomId, userId, userName));
+      
+      // Intentar conectar
+      this.connect().catch(error => {
+        loggerService.error(LOG_MODULE, 'Error al conectar para unirse a sala', error);
+      });
+      
+      return false;
     }
     
     this.roomId = roomId;
     this.userId = userId;
     this.userName = userName;
     
-    console.log(`Uniéndose a sala ${roomId} como ${userName} (${userId})`);
+    loggerService.info(LOG_MODULE, `Uniéndose a sala ${roomId}`, {
+      userName,
+      userId
+    });
+    
     this.socket.emit('join-room', { roomId, userId, userName });
+    return true;
   }
 
+  // Salir de una sala de chat
   leaveRoom() {
-    if (!this.socket || !this.isConnected || !this.roomId) return;
+    if (!this.isConnected || !this.roomId) return false;
     
-    console.log(`Dejando sala ${this.roomId}`);
+    loggerService.info(LOG_MODULE, `Dejando sala ${this.roomId}`);
     // Usar evento personalizado en lugar de 'disconnect' (que es reservado)
     this.socket.emit('leave-room', { roomId: this.roomId });
     this.roomId = null;
+    return true;
   }
 
+  // Enviar oferta de WebRTC
   sendOffer(offer, to) {
-    if (!this.socket || !this.isConnected) return;
-    console.log(`Enviando oferta a ${to}`);
+    if (!this.isConnected) {
+      loggerService.warn(LOG_MODULE, 'Intentando enviar oferta sin conexión', { to });
+      return false;
+    }
+    
+    loggerService.debug(LOG_MODULE, `Enviando oferta a ${to}`);
     this.socket.emit('offer', { offer, to, from: this.userId });
+    return true;
   }
 
+  // Enviar respuesta de WebRTC
   sendAnswer(answer, to) {
-    if (!this.socket || !this.isConnected) return;
-    console.log(`Enviando respuesta a ${to}`);
+    if (!this.isConnected) {
+      loggerService.warn(LOG_MODULE, 'Intentando enviar respuesta sin conexión', { to });
+      return false;
+    }
+    
+    loggerService.debug(LOG_MODULE, `Enviando respuesta a ${to}`);
     this.socket.emit('answer', { answer, to, from: this.userId });
+    return true;
   }
 
+  // Enviar candidato ICE para WebRTC
   sendIceCandidate(candidate, to) {
-    if (!this.socket || !this.isConnected) return;
+    if (!this.isConnected) {
+      loggerService.warn(LOG_MODULE, 'Intentando enviar ICE candidate sin conexión', { to });
+      return false;
+    }
+    
     this.socket.emit('ice-candidate', { candidate, to, from: this.userId });
+    return true;
   }
 
+  // Llamar a un usuario
   callUser(to) {
-    if (!this.socket || !this.isConnected || !this.roomId) return;
-    console.log(`Solicitando llamada a ${to}`);
+    if (!this.isConnected || !this.roomId) {
+      loggerService.warn(LOG_MODULE, 'Intentando llamar sin conexión', { to });
+      return false;
+    }
+    
+    loggerService.info(LOG_MODULE, `Solicitando llamada a ${to}`);
     this.socket.emit('call-user', {
       roomId: this.roomId,
       to,
       from: this.userId,
       fromName: this.userName
     });
+    
+    return true;
   }
 
+  // Finalizar llamada
   endCall(to = null) {
-    if (!this.socket || !this.isConnected || !this.roomId) return;
-    console.log(`Finalizando llamada con ${to || 'todos'}`);
+    if (!this.isConnected || !this.roomId) {
+      loggerService.warn(LOG_MODULE, 'Intentando finalizar llamada sin conexión');
+      return false;
+    }
+    
+    loggerService.info(LOG_MODULE, `Finalizando llamada con ${to || 'todos'}`);
     this.socket.emit('end-call', {
       roomId: this.roomId,
       to,
       from: this.userId
     });
+    
+    return true;
   }
 
-  sendMessage(message) {
-    if (!this.socket || !this.isConnected || !this.roomId) return;
-    this.socket.emit('send-message', {
-      roomId: this.roomId,
-      message,
-      sender: this.userName
+  // Enviar mensaje de chat
+  sendMessage(roomId, message, sender) {
+    if (!this.isConnected) {
+      loggerService.warn(LOG_MODULE, 'Intentando enviar mensaje sin conexión', {
+        roomId,
+        sender
+      });
+      
+      // Agregar a operaciones pendientes
+      this.addPendingOperation(() => this.sendMessage(roomId, message, sender));
+      
+      // Intentar conectar
+      this.connect().catch(error => {
+        loggerService.error(LOG_MODULE, 'Error al conectar para enviar mensaje', error);
+      });
+      
+      return false;
+    }
+    
+    loggerService.debug(LOG_MODULE, 'Enviando mensaje por socket', {
+      roomId,
+      sender,
+      length: message?.length || 0
     });
+    
+    this.socket.emit('send-message', {
+      roomId,
+      message,
+      sender
+    });
+    
+    return true;
   }
 
+  // Emitir un evento genérico
   emit(event, data) {
-    if (!this.socket || !this.isConnected) {
-      console.error(`No se puede emitir ${event}: socket no conectado`);
-      return;
+    if (!this.isConnected) {
+      loggerService.warn(LOG_MODULE, `No se puede emitir ${event}: socket no conectado`);
+      
+      // Agregar a operaciones pendientes
+      this.addPendingOperation(() => this.emit(event, data));
+      
+      return false;
     }
 
+    loggerService.debug(LOG_MODULE, `Emitiendo evento: ${event}`);
     this.socket.emit(event, data);
+    return true;
   }
 
-
+  // Escuchar eventos
   on(event, callback) {
     if (!this.socket) {
+      loggerService.debug(LOG_MODULE, `Configurando listener para ${event} (socket pendiente)`);
+      
       this.connect().then(() => {
         this.socket.on(event, callback);
+        loggerService.debug(LOG_MODULE, `Listener configurado para ${event} después de conexión`);
+      }).catch(error => {
+        loggerService.error(LOG_MODULE, `Error al configurar listener para ${event}`, error);
       });
     } else {
+      loggerService.debug(LOG_MODULE, `Configurando listener para ${event}`);
       this.socket.on(event, callback);
     }
     
@@ -244,13 +456,27 @@ class SocketService {
     this.eventListeners[event].push(callback);
   }
 
+  // Dejar de escuchar eventos
   off(event, callback) {
-    if (!this.socket) return;
+    if (!this.socket) {
+      loggerService.warn(LOG_MODULE, `Intentando quitar listener de ${event} sin socket`);
+      return;
+    }
     
     if (callback) {
+      loggerService.debug(LOG_MODULE, `Quitando listener específico para ${event}`);
       this.socket.off(event, callback);
+      
+      // Actualizar lista de listeners
+      if (this.eventListeners[event]) {
+        const index = this.eventListeners[event].indexOf(callback);
+        if (index !== -1) {
+          this.eventListeners[event].splice(index, 1);
+        }
+      }
     } else {
       // Si no se proporciona callback, eliminar todos los listeners para ese evento
+      loggerService.debug(LOG_MODULE, `Quitando todos los listeners para ${event}`);
       const listeners = this.eventListeners[event] || [];
       listeners.forEach(listener => this.socket.off(event, listener));
       this.eventListeners[event] = [];
@@ -290,23 +516,40 @@ class SocketService {
     this.on('user-left', callback);
   }
 
+  // Desconectar
   disconnect() {
+    loggerService.info(LOG_MODULE, 'Desconectando socket');
+    
+    // Cancelar reconexión programada
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
     if (this.socket) {
       // Primero salir de la sala si estamos en una
       if (this.roomId) {
         this.leaveRoom();
       }
       
-      // Luego desconectar
+      // Limpiar todos los listeners
+      for (const event in this.eventListeners) {
+        this.eventListeners[event].forEach(listener => {
+          this.socket.off(event, listener);
+        });
+      }
+      
+      // Limpiar variables de estado
+      this.eventListeners = {};
+      
+      // Desconectar socket
       this.socket.disconnect();
       this.socket = null;
       this.isConnected = false;
       this.roomId = null;
       this.userId = null;
       this.userName = null;
-      
-      // Limpiar todos los event listeners
-      this.eventListeners = {};
+      this.connectionAttempts = 0;
     }
   }
 
@@ -314,6 +557,12 @@ class SocketService {
   async setServerUrl(url) {
     if (!url) return;
     
+    loggerService.info(LOG_MODULE, 'Cambiando URL del servidor', { 
+      oldUrl: this.serverUrl,
+      newUrl: url
+    });
+    
+    this.serverUrl = url;
     await AsyncStorage.setItem('signaling_server_url', url);
     
     // Si ya hay una conexión, reconectar
@@ -322,6 +571,21 @@ class SocketService {
       await this.connect();
     }
   }
+  
+  // Obtener información de estado
+  getStatus() {
+    return {
+      isConnected: this.isConnected,
+      roomId: this.roomId,
+      userId: this.userId,
+      userName: this.userName,
+      pendingOperations: this.pendingOperations.length,
+      connectionAttempts: this.connectionAttempts
+    };
+  }
 }
 
-export default new SocketService();
+// Crear una única instancia del servicio
+const socketService = new SocketService();
+
+export default socketService;

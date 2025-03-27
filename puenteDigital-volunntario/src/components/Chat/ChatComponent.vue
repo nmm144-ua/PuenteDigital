@@ -9,12 +9,25 @@
         </div>
         <div class="user-details">
           <h3>{{ solicitud && solicitud.usuario ? solicitud.usuario.nombre : 'Usuario' }}</h3>
-          <span class="status" :class="{'status-active': isActive}">
-            {{ isActive ? 'En línea' : 'Desconectado' }}
-          </span>
+          <div class="status-container">
+            <span class="status" :class="{'status-active': isActive}">
+              {{ isActive ? 'En línea' : 'Desconectado' }}
+            </span>
+            <span v-if="solicitud && solicitud.asistente_id" class="status-atendido">
+              <i class="fas fa-check-circle"></i> Atendido
+            </span>
+          </div>
         </div>
       </div>
       <div class="header-actions">
+        <button 
+        v-if="solicitud && !solicitud.asistente_id" 
+        @click="asignarSolicitud" 
+        class="assign-button"
+        title="Asignarme esta solicitud"
+        >
+        <i class="fas fa-user-check"></i>
+      </button>
         <button 
           v-if="!chatStore.isInCall && solicitud" 
           @click="iniciarLlamada" 
@@ -96,6 +109,7 @@ import { solicitudesAsistenciaService } from '../../services/solicitudAsistencia
 import { useAuthStore } from '../../stores/authStore';
 import { useCallStore } from '../../stores/call.store';
 import { useChatStore } from '../../stores/chat.store';
+import { asistenteService } from '@/services/asistenteService';
 
 export default {
   name: 'ChatComponent',
@@ -106,7 +120,7 @@ export default {
     },
     isAsistente: {
       type: Boolean,
-      default: false
+      default: true
     }
   },
   emits: ['close'],
@@ -144,6 +158,9 @@ export default {
           
           // Establecer la solicitud actual en el chat store
           chatStore.setCurrentRequest(solicitud.value);
+
+
+          //AQUI DEBERIA PONER ALGO DE ACTUALIZAR ESTADO Y ASIGNAR
         }
       } catch (error) {
         console.error('Error al cargar la solicitud:', error);
@@ -167,7 +184,7 @@ export default {
           // Inicializar el store
           chatStore.initialize();
           
-          // Si no estamos en la sala, unirnos
+          // Si no estamos en la sala, unirnos ACTUALIZAR COSAS AQUÍ
           if (!chatStore.isInRoom || chatStore.roomId !== solicitud.value.room_id) {
             await chatStore.joinRoom(
               solicitud.value.room_id,
@@ -176,10 +193,7 @@ export default {
               props.solicitudId
             );
           }
-          
-          // Marcar mensajes como leídos
-          await chatStore.markMessagesAsRead();
-          
+                    
           // Desplazar al final del chat
           await scrollToBottom();
         }
@@ -189,7 +203,53 @@ export default {
         cargando.value = false;
       }
     };
-    
+
+    // Añadir después de iniciarLlamada() o donde prefieras en el setup
+    const asignarSolicitud = async () => {
+      if (!solicitud.value) return;
+      
+      try {
+        // Obtener ID del asistente
+        const asistenteId = authStore.user.id;        
+        
+        if (!asistenteId) {
+          console.error('No se encontró ID de asistente');
+          alert('No se pudo asignar: ID de asistente no disponible');
+          return;
+        }
+        const asistente = await asistenteService.getAsistenteByUserId(asistenteId);
+
+        if (!asistente) {
+          console.error('No se encontró ID de asistente');
+          alert('No se pudo asignar: ID de asistente no disponible');
+          return;
+        }
+        
+        console.log('Asignando solicitud', solicitud.value.id, 'al asistente', asistente.id);
+        
+        // Llamar al servicio para asignar el asistente
+        const solicitudActualizada = await solicitudesAsistenciaService.asignarAsistente(
+          solicitud.value.id,
+          asistente.id
+        );
+        
+        // Actualizar el objeto de solicitud local
+        if (solicitudActualizada) {
+          console.log('Solicitud asignada correctamente', solicitudActualizada);
+          solicitud.value = solicitudActualizada;
+          
+          // Actualizar el estado en chatStore
+          chatStore.setCurrentRequest(solicitudActualizada);
+          
+          // Mostrar notificación de éxito
+          alert('Solicitud asignada correctamente');
+        }
+      } catch (error) {
+        console.error('Error al asignar solicitud:', error);
+        alert('No se pudo asignar la solicitud: ' + error.message);
+      }
+    };
+        
     // Enviar un mensaje
     const enviarMensaje = async () => {
       if (!nuevoMensaje.value.trim()) return;
@@ -335,13 +395,31 @@ export default {
       esMensajePropio,
       getInitials,
       handleTyping,
-      iniciarLlamada
+      iniciarLlamada,
+      asignarSolicitud
     };
   }
 };
 </script>
 
 <style scoped>
+.assign-button {
+  background: none;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  color: #4caf50; /* Color verde para asignación */
+}
+
+.assign-button:hover {
+  background-color: #e8f5e9; /* Fondo verde claro al hover */
+}
 .chat-container {
   display: flex;
   flex-direction: column;
@@ -589,6 +667,24 @@ export default {
   }
   
   .user-details h3 {
+    font-size: 0.9rem;
+  }
+
+  .status-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .status-atendido {
+    font-size: 0.8rem;
+    color: #4caf50;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .status-atendido i {
     font-size: 0.9rem;
   }
 }

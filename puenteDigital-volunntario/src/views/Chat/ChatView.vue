@@ -141,7 +141,6 @@ export default {
     const solicitudes = ref([]);
     const selectedSolicitudId = ref(null);
     const isLoading = ref(true);
-    const mensajesNoLeidos = ref([]);
     const asistenteInfo = ref(null);
     const unsubscribe = ref(null);
     const sidebarOpen = ref(false); // Para vista móvil
@@ -180,25 +179,23 @@ export default {
           await loadAsistenteInfo();
         }
         
-        // Obtener todas las solicitudes de chat usando el método específico
-        let chatSolicitudes = await solicitudesAsistenciaService.getChatSolicitudes();
-        
         if (asistenteInfo.value) {
-          // Si hay asistente, incluir sus solicitudes asignadas (de tipo chat)
-          const asignadas = chatSolicitudes.filter(s => s.asistente_id === asistenteInfo.value.id);
+          // Obtener las solicitudes pendientes de chat
+          const pendientes = await solicitudesAsistenciaService.getChatSolicitudes();
           
-          // Incluir las pendientes sin asignar
-          const pendientes = chatSolicitudes.filter(s => s.estado === 'pendiente' && !s.asistente_id);
+          // Obtener chats atendidos por este asistente
+          const atendidos = await solicitudesAsistenciaService.getChatsAtendidosByAsistente(asistenteInfo.value.id);
+          
+          // Filtrar pendientes sin asignar
+          const pendientesSinAsignar = pendientes.filter(s => s.estado === 'pendiente' && !s.asistente_id);
           
           // Combinar sin duplicados
-          solicitudes.value = [...asignadas, ...pendientes]
+          solicitudes.value = [...atendidos, ...pendientesSinAsignar]
             .filter((item, index, self) => 
               index === self.findIndex((t) => t.id === item.id)
             )
             .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
           
-          // Cargar mensajes no leídos
-          loadMensajesNoLeidos();
         }
       } catch (error) {
         console.error('Error al cargar solicitudes de chat:', error);
@@ -206,23 +203,7 @@ export default {
         isLoading.value = false;
       }
     };
-    
-    // Cargar mensajes no leídos
-    const loadMensajesNoLeidos = async () => {
-      try {
-        if (asistenteInfo.value) {
-          const data = await mensajesService.getMensajesNoLeidosAsistente(asistenteInfo.value.id);
-          mensajesNoLeidos.value = data || [];
-        }
-      } catch (error) {
-        console.error('Error al cargar mensajes no leídos:', error);
-      }
-    };
-    
-    // Verificar si una solicitud tiene mensajes no leídos
-    const tieneNuevosMensajes = (solicitudId) => {
-      return mensajesNoLeidos.value.some(m => m.solicitud_id === solicitudId);
-    };
+     
     
     // Asignar una solicitud al asistente actual
     const asignarSolicitud = async (solicitud) => {
@@ -339,8 +320,7 @@ export default {
             table: 'mensajes'
           },
           (payload) => {
-            // Actualizar lista de mensajes no leídos
-            loadMensajesNoLeidos();
+            
           }
         )
         .subscribe();

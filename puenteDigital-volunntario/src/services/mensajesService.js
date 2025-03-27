@@ -139,40 +139,66 @@ export const mensajesService = {
   },
   
   // Obtener mensajes no leídos para un usuario
-  async getMensajesNoLeidos(usuarioId) {
-    try {
-      const { data, error } = await supabase
-        .from('mensajes')
-        .select('*, solicitud:solicitud_id(*)')
-        .eq('leido', false)
-        .not('asistente_id', 'is', null) // Mensajes enviados por asistentes (no nulos)
-        .in('solicitud_id', function(query) {
-          query.select('id')
-            .from('solicitudes_asistencia')
-            .eq('usuario_id', usuarioId);
-        });
-      
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error al obtener mensajes no leídos:', error);
-      throw error;
-    }
-  },
+    async getMensajesNoLeidos(usuarioId) {
+      try {
+        // Primero, obtenemos los IDs de las solicitudes del usuario
+        const { data: solicitudes, error: solicitudesError } = await supabase
+          .from('solicitudes_asistencia')
+          .select('id')
+          .eq('usuario_id', usuarioId);
+        
+        if (solicitudesError) throw solicitudesError;
+        
+        // Si no hay solicitudes, devolvemos un array vacío
+        if (!solicitudes || solicitudes.length === 0) {
+          return [];
+        }
+        
+        // Extraemos los IDs de las solicitudes
+        const solicitudIds = solicitudes.map(sol => sol.id);
+        
+        // Luego, usamos esos IDs para obtener los mensajes no leídos
+        const { data, error } = await supabase
+          .from('mensajes')
+          .select('*, solicitud:solicitud_id(*)')
+          .eq('leido', false)
+          .not('asistente_id', 'is', null)
+          .in('solicitud_id', solicitudIds);
+        
+        if (error) throw error;
+        return data;
+      } catch (error) {
+        console.error('Error al obtener mensajes no leídos:', error);
+        throw error;
+      }
+    },
   
   // Obtener mensajes no leídos para un asistente
   async getMensajesNoLeidosAsistente(asistenteId) {
     try {
+      // Primero, obtenemos los IDs de las solicitudes asignadas al asistente
+      const { data: solicitudes, error: solicitudesError } = await supabase
+        .from('solicitudes_asistencia')
+        .select('id')
+        .eq('asistente_id', asistenteId);
+      
+      if (solicitudesError) throw solicitudesError;
+      
+      // Si no hay solicitudes, devolvemos un array vacío
+      if (!solicitudes || solicitudes.length === 0) {
+        return [];
+      }
+      
+      // Extraemos los IDs de las solicitudes
+      const solicitudIds = solicitudes.map(sol => sol.id);
+      
+      // Luego, usamos esos IDs para obtener los mensajes no leídos
       const { data, error } = await supabase
         .from('mensajes')
         .select('*, solicitud:solicitud_id(*)')
         .eq('leido', false)
-        .not('usuario_id', 'is', null) // Mensajes enviados por usuarios (no nulos)
-        .in('solicitud_id', function(query) {
-          query.select('id')
-            .from('solicitudes_asistencia')
-            .eq('asistente_id', asistenteId);
-        });
+        .not('usuario_id', 'is', null)
+        .in('solicitud_id', solicitudIds);
       
       if (error) throw error;
       return data;
@@ -248,5 +274,23 @@ export const mensajesService = {
       console.error('Error en enviarEscribiendo:', error);
       return false;
     }
+  },
+  
+  async getChatsAtendidosByAsistente(asistenteId) {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select('*, usuario:usuario_id(*)')
+        .eq('asistente_id', asistenteId)
+        .eq('tipo_asistencia', 'chat')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error al obtener chats atendidos por asistente:', error);
+      throw error;
+    }
   }
+
 };

@@ -5,6 +5,7 @@ import { usuarioAppService } from '@/services/usuarioAppService';
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null, // Usuario autenticado
+    asistenteID: null,
     session: null, // Sesión de Supabase
     isLoading: false, // Estado de carga
     error: null, // Mensaje de error
@@ -57,6 +58,7 @@ export const useAuthStore = defineStore('auth', {
 
         // Actualizar el usuario con el rol
         this.user = data.user;
+        this.asistenteID = data.id;
         this.session = data.session;
         this.userRole = asistente?.rol || 'asistente'; // Default to 'asistente' if no role found
         
@@ -80,6 +82,8 @@ export const useAuthStore = defineStore('auth', {
         if (error) throw error;
         // Limpiar el estado
         this.user = null;
+        this.asistenteID = null;
+
         this.session = null;
         this.userRole = null;
       } catch (error) {
@@ -107,6 +111,8 @@ export const useAuthStore = defineStore('auth', {
         }
         
         this.user = data.session?.user || null;
+        this.asistenteID = data.session.id || null;
+
         this.session = data.session || null;
       } catch (error) {
         this.error = error.message;
