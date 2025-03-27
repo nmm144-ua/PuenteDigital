@@ -1305,6 +1305,73 @@ onUnmounted(() => {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+
+asignar-button {
+  background: linear-gradient(135deg, #4caf50, #2e7d32);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.3s ease;
+  box-shadow: 0 3px 6px rgba(76, 175, 80, 0.25);
+  width: auto;
+  margin: 0 auto;
+}
+
+.asignar-button i {
+  font-size: 1.1rem;
+  transition: transform 0.3s ease;
+}
+
+.asignar-button:hover {
+  background: linear-gradient(135deg, #43a047, #2e7d32);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 12px rgba(76, 175, 80, 0.35);
+}
+
+.asignar-button:hover i {
+  transform: scale(1.1);
+}
+
+.asignar-button:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(76, 175, 80, 0.3);
+}
+
+.asignacion-requerida {
+  background-color: #f8fcf8;
+  padding: 15px;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.asignacion-mensaje {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #555;
+  font-size: 0.9rem;
+  background-color: #f1f8e9;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border-left: 3px solid #4caf50;
+}
+
+.asignacion-mensaje i {
+  color: #4caf50;
+  font-size: 1.1rem;
+}
+
+
 /* MODIFICADO: Asegurar que el contenedor tenga altura completa */
 .container {
   max-width: 170;
