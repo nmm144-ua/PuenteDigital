@@ -1,8 +1,7 @@
-// src/services/socketService.js - Versión optimizada
+// src/services/socketService.js - Versión optimizada y corregida
 import { io } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import WebRTCService from './WebRTCService';
 
 class SocketService {
   constructor() {
@@ -16,8 +15,8 @@ class SocketService {
     // Server URL - cambiar a la URL real de tu servidor
     this.serverUrl = 'http://192.168.1.99:3001';
     
-    // Registrar manejadores para eventos específicos
-    this.specificEventHandlers = {};
+    // Evitar duplicación de listeners
+    this.registeredEvents = new Set();
   }
   
   // Conectar al servidor de señalización
@@ -25,6 +24,7 @@ class SocketService {
     try {
       // Si ya estamos conectados y la conexión es válida, no hacer nada
       if (this.isConnected && this.socket && this.socket.connected) {
+        console.log('Ya hay una conexión socket activa, reutilizando');
         return true;
       }
       
@@ -37,9 +37,13 @@ class SocketService {
       }
       
       // Leer la URL del servidor de AsyncStorage si existe
-      const serverUrl = await AsyncStorage.getItem('signaling_server_url');
-      if (serverUrl) {
-        this.serverUrl = serverUrl;
+      try {
+        const serverUrl = await AsyncStorage.getItem('signaling_server_url');
+        if (serverUrl) {
+          this.serverUrl = serverUrl;
+        }
+      } catch (storageError) {
+        console.warn('Error al leer URL del servidor desde AsyncStorage:', storageError);
       }
       
       console.log(`Conectando a servidor Socket.IO: ${this.serverUrl}`);
@@ -105,6 +109,15 @@ class SocketService {
   setupBaseListeners() {
     if (!this.socket) return;
     
+    // Asegurarnos de no registrar los eventos básicos más de una vez
+    const baseEvents = ['connect', 'disconnect', 'error', 'reconnect', 
+                        'reconnect_error', 'reconnect_failed'];
+                        
+    baseEvents.forEach(event => {
+      // Remover listener previo si existe
+      this.socket.off(event);
+    });
+    
     this.socket.on('connect', () => {
       console.log('Socket conectado:', this.socket.id);
       this.isConnected = true;
@@ -168,6 +181,7 @@ class SocketService {
       this.isConnected = false;
       this.currentRoom = null;
       this.eventListeners = {};
+      this.registeredEvents.clear();
       console.log('Socket desconectado correctamente');
     }
   }
@@ -203,106 +217,50 @@ class SocketService {
     
     // Registrar listeners para eventos de sala
     this.setupRoomListeners();
+    
+    return true;
   }
   
   // Configurar listeners específicos de sala
   setupRoomListeners() {
-    // Eliminar listeners anteriores para evitar duplicados
-    this.off('user-joined');
-    this.off('room-users');
-    this.off('offer');
-    this.off('answer');
-    this.off('ice-candidate');
-    this.off('call-requested');
-    this.off('call-ended');
+    // Lista de eventos específicos de sala
+    const roomEvents = [
+      'user-joined', 'room-users', 'offer', 'answer', 
+      'ice-candidate', 'call-requested', 'call-ended'
+    ];
     
-    // Configurar evento para usuarios que se unen
+    // Limpiar listeners anteriores para estos eventos
+    roomEvents.forEach(event => {
+      // Verificar si ya tenemos handlers para este evento
+      if (this.eventListeners[event]) {
+        // Remover los handlers existentes
+        this.eventListeners[event].forEach(handler => {
+          if (this.socket) {
+            this.socket.off(event, handler);
+          }
+        });
+        // Limpiar la lista de handlers
+        this.eventListeners[event] = [];
+      }
+    });
+    
+    // Configurar nuevos listeners
     this.on('user-joined', (participant) => {
       console.log('Usuario unido a la sala:', participant);
-      // Ejecutar manejador específico si existe
-      if (this.specificEventHandlers['user-joined']) {
-        this.specificEventHandlers['user-joined'](participant);
-      }
     });
     
-    // Configurar evento para recibir lista de usuarios en la sala
     this.on('room-users', (users) => {
       console.log('Usuarios en la sala:', users);
-      // Ejecutar manejador específico si existe
-      if (this.specificEventHandlers['room-users']) {
-        this.specificEventHandlers['room-users'](users);
-      }
     });
     
-    // Configurar manejo de ofertas
-    this.on('offer', async (data) => {
-      console.log('Oferta recibida de:', data.from);
-      try {
-        // Establecer remoteUserId en WebRTCService
-        WebRTCService.setUserIds(this.userId, data.from);
-        
-        // Procesar la oferta y generar respuesta
-        const answer = await WebRTCService.handleIncomingOffer(data.offer, data.from);
-        
-        // Enviar respuesta si se generó correctamente
-        if (answer) {
-          this.sendAnswer(answer, data.from, this.userId);
-        } else {
-          console.warn('No se pudo generar respuesta para la oferta');
-        }
-      } catch (error) {
-        console.error('Error al manejar oferta:', error);
-      }
-    });
-    
-    // Configurar manejo de respuestas
-    this.on('answer', (data) => {
-      console.log('Respuesta recibida de:', data.from);
-      
-      // Establecer remoteUserId en WebRTCService si no está establecido
-      if (!WebRTCService.remoteUserId) {
-        WebRTCService.setUserIds(this.userId, data.from);
-      }
-      
-      WebRTCService.handleAnswer(data.answer)
-        .catch(error => console.error('Error al manejar respuesta:', error));
-    });
-    
-    // Configurar manejo de candidatos ICE
-    this.on('ice-candidate', (data) => {
-      console.log('Candidato ICE recibido de:', data.from);
-      
-      // Establecer remoteUserId en WebRTCService si no está establecido
-      if (!WebRTCService.remoteUserId) {
-        WebRTCService.setUserIds(this.userId, data.from);
-      }
-      
-      WebRTCService.addIceCandidate(data.candidate)
-        .catch(error => console.error('Error al agregar candidato ICE:', error));
-    });
-    
-    // Configurar manejo de solicitudes de llamada
-    this.on('call-requested', (data) => {
-      console.log('Solicitud de llamada recibida de:', data.from);
-      // Ejecutar manejador específico si existe
-      if (this.specificEventHandlers['call-requested']) {
-        this.specificEventHandlers['call-requested'](data);
-      }
-    });
-    
-    // Configurar manejo de finalización de llamada
-    this.on('call-ended', (data) => {
-      console.log('Llamada finalizada por:', data.from);
-      WebRTCService.cleanup();
-      // Ejecutar manejador específico si existe
-      if (this.specificEventHandlers['call-ended']) {
-        this.specificEventHandlers['call-ended'](data);
-      }
-    });
+    // Los demás listeners se configurarán a través del método 'on'
+    // según sea necesario por otros servicios
   }
   
   // Abandonar la sala actual
-  leaveRoom(roomId) {
+  leaveRoom() {
+    const roomId = this.currentRoom;
+    
     if (this.socket && this.isConnected && roomId) {
       console.log(`Abandonando sala: ${roomId}`);
       
@@ -311,28 +269,32 @@ class SocketService {
       this.currentRoom = null;
       
       // Limpiar listeners específicos de sala
-      this.off('user-joined');
-      this.off('room-users');
-      this.off('offer');
-      this.off('answer');
-      this.off('ice-candidate');
-      this.off('call-requested');
-      this.off('call-ended');
+      const roomEvents = [
+        'user-joined', 'room-users', 'offer', 'answer', 
+        'ice-candidate', 'call-requested', 'call-ended'
+      ];
+      
+      roomEvents.forEach(event => {
+        this.off(event);
+      });
       
       console.log('Sala abandonada correctamente');
+      return true;
     }
+    
+    return false;
   }
   
   // Enviar oferta WebRTC
   sendOffer(offer, toUserId, fromUserId) {
     if (!this.socket || !this.isConnected) {
       console.error('No hay conexión con el servidor al enviar oferta');
-      return Promise.reject(new Error('No hay conexión al servidor'));
+      return false;
     }
     
     if (!toUserId) {
       console.error('ID de destino no especificado al enviar oferta');
-      return Promise.reject(new Error('ID de destino no especificado'));
+      return false;
     }
     
     // Usar fromUserId proporcionado o fallback a this.userId
@@ -340,28 +302,33 @@ class SocketService {
     
     console.log(`Enviando oferta a ${toUserId} desde ${senderId}`);
     
-    // Asegurar que la oferta es serializable y no contiene funciones circulares
-    const safeOffer = this.sanitizeObject(offer);
-    
-    this.socket.emit('offer', {
-      offer: safeOffer,
-      to: toUserId,
-      from: senderId
-    });
-    
-    return Promise.resolve();
+    try {
+      // Asegurar que la oferta es serializable
+      const safeOffer = JSON.parse(JSON.stringify(offer));
+      
+      this.socket.emit('offer', {
+        offer: safeOffer,
+        to: toUserId,
+        from: senderId
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Error al enviar oferta:', error);
+      return false;
+    }
   }
   
   // Enviar respuesta WebRTC
   sendAnswer(answer, toUserId, fromUserId) {
     if (!this.socket || !this.isConnected) {
       console.error('No hay conexión con el servidor al enviar respuesta');
-      return Promise.reject(new Error('No hay conexión al servidor'));
+      return false;
     }
     
     if (!toUserId) {
       console.error('ID de destino no especificado al enviar respuesta');
-      return Promise.reject(new Error('ID de destino no especificado'));
+      return false;
     }
     
     // Usar fromUserId proporcionado o fallback a this.userId
@@ -369,36 +336,20 @@ class SocketService {
     
     console.log(`Enviando respuesta a ${toUserId} desde ${senderId}`);
     
-    // Asegurar que la respuesta es serializable y no contiene funciones circulares
-    const safeAnswer = this.sanitizeObject(answer);
-    
-    this.socket.emit('answer', {
-      answer: safeAnswer,
-      to: toUserId,
-      from: senderId
-    });
-    
-    return Promise.resolve();
-  }
-  
-  // Sanitizar objetos para asegurar que son serializables
-  sanitizeObject(obj) {
-    if (!obj) return obj;
-    
-    // Convertir a string y luego a objeto para eliminar propiedades circulares
     try {
-      return JSON.parse(JSON.stringify(obj));
-    } catch (error) {
-      console.warn('Error al sanitizar objeto:', error);
-      // Si falla, intentar una copia más básica eliminando propiedades problemáticas
-      const copyWithoutCircular = { ...obj };
-      delete copyWithoutCircular.sdp;
-      delete copyWithoutCircular.type;
+      // Asegurar que la respuesta es serializable
+      const safeAnswer = JSON.parse(JSON.stringify(answer));
       
-      return {
-        type: obj.type,
-        sdp: obj.sdp
-      };
+      this.socket.emit('answer', {
+        answer: safeAnswer,
+        to: toUserId,
+        from: senderId
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Error al enviar respuesta:', error);
+      return false;
     }
   }
   
@@ -406,131 +357,152 @@ class SocketService {
   sendIceCandidate(candidate, toUserId, fromUserId) {
     if (!this.socket || !this.isConnected) {
       console.warn('No se puede enviar candidato ICE: no hay conexión');
-      return;
+      return false;
     }
     
     if (!toUserId) {
       console.warn('No se puede enviar candidato ICE: falta ID de destino');
-      return;
+      return false;
     }
     
     // Usar fromUserId proporcionado o fallback a this.userId
     const senderId = fromUserId || this.userId || 'unknown';
     
-    // Asegurar que el candidato es serializable
-    const safeCandidate = this.sanitizeObject(candidate);
-    
-    // Verificar que el candidato tiene la propiedad necesaria
-    if (!safeCandidate || !safeCandidate.candidate) {
-      console.warn('Candidato ICE inválido, no se enviará:', safeCandidate);
-      return;
-    }
-    
-    this.socket.emit('ice-candidate', {
-      candidate: safeCandidate,
-      to: toUserId,
-      from: senderId
-    });
-  }
-  
-  // Iniciar llamada a otro usuario
-  callUser(roomId, toUserId, fromUserId, fromName) {
-    if (!this.socket || !this.isConnected) {
-      throw new Error('No hay conexión con el servidor');
-    }
-    
-    // Usar fromUserId proporcionado o fallback a this.userId
-    const senderId = fromUserId || this.userId || 'unknown';
-    const senderName = fromName || 'Usuario';
-    
-    console.log(`Solicitando llamada a ${toUserId} desde ${senderId}`);
-    this.socket.emit('call-user', {
-      roomId: roomId,
-      to: toUserId,
-      from: senderId,
-      fromName: senderName
-    });
-  }
-  
-  // Responder a una solicitud de llamada
-  respondToCall(toUserId, fromUserId, accepted) {
-    if (!this.socket || !this.isConnected) {
-      throw new Error('No hay conexión con el servidor');
-    }
-    
-    // Usar fromUserId proporcionado o fallback a this.userId
-    const senderId = fromUserId || this.userId || 'unknown';
-    
-    console.log(`Respondiendo a llamada: ${accepted ? 'aceptada' : 'rechazada'}`);
-    this.socket.emit('call-response', {
-      to: toUserId,
-      from: senderId,
-      accepted: accepted
-    });
-  }
-  
-  // Finalizar llamada
-  endCall(roomId, toUserId) {
-    if (!this.socket || !this.isConnected) {
-      console.warn('No se puede finalizar llamada: no hay conexión');
-      return;
-    }
-    
-    console.log(`Finalizando llamada con ${toUserId || 'todos los usuarios'}`);
-    
-    // Usar this.userId como remitente
-    const fromUserId = this.userId || 'anonymous';
-    
-    if (toUserId) {
-      // Finalizar con un usuario específico
-      this.socket.emit('end-call', {
-        roomId: roomId,
+    try {
+      // Asegurar que el candidato es serializable
+      const safeCandidate = JSON.parse(JSON.stringify(candidate));
+      
+      this.socket.emit('ice-candidate', {
+        candidate: safeCandidate,
         to: toUserId,
-        from: fromUserId
+        from: senderId
       });
-    } else {
-      // Finalizar con todos en la sala
-      this.socket.emit('end-call', {
-        roomId: roomId,
-        from: fromUserId
-      });
+      
+      return true;
+    } catch (error) {
+      console.error('Error al enviar candidato ICE:', error);
+      return false;
     }
   }
   
   // Enviar mensaje de chat
+ // Modificar en socketService.js para evitar envío de mensajes duplicados
+
+// Dentro de la clase SocketService, modificar el método sendMessage:
+
   sendMessage(roomId, message, senderName) {
     if (!this.socket || !this.isConnected) {
-      throw new Error('No hay conexión con el servidor');
+      console.error('No hay conexión con el servidor al enviar mensaje');
+      return false;
     }
     
     console.log(`Enviando mensaje en sala ${roomId}`);
-    this.socket.emit('send-message', {
-      roomId: roomId,
-      message: message,
-      sender: senderName || 'Usuario'
-    });
+    
+    try {
+      // Crear una copia del mensaje para asegurar un solo timestamp
+      const messageData = {
+        roomId: roomId,
+        message: message,
+        sender: senderName || 'Usuario',
+        timestamp: new Date().toISOString()
+      };
+      
+      // Guardar el último mensaje enviado para detectar duplicados
+      if (!this._lastSentMessages) {
+        this._lastSentMessages = new Map();
+      }
+      
+      // Generar una clave única para este mensaje
+      const messageKey = `${messageData.message}_${messageData.sender}`;
+      
+      // Verificar si enviamos un mensaje igual recientemente
+      const lastSent = this._lastSentMessages.get(messageKey);
+      if (lastSent) {
+        const timeDiff = Date.now() - lastSent.time;
+        if (timeDiff < 2000) { // Si fue hace menos de 2 segundos
+          console.log('Evitando envío duplicado:', messageData.message);
+          return true; // Simulamos éxito pero no enviamos realmente
+        }
+      }
+      
+      // Guardar este mensaje para control de duplicados
+      this._lastSentMessages.set(messageKey, {
+        time: Date.now(),
+        data: messageData
+      });
+      
+      // Limitar tamaño de caché
+      if (this._lastSentMessages.size > 50) {
+        // Eliminar el más antiguo
+        const oldestKey = Array.from(this._lastSentMessages.keys())[0];
+        this._lastSentMessages.delete(oldestKey);
+      }
+      
+      // Ahora sí, enviar el mensaje
+      this.socket.emit('send-message', messageData);
+      
+      return true;
+    } catch (error) {
+      console.error('Error al enviar mensaje:', error);
+      return false;
+    }
   }
   
-  // Registrar un manejador específico para un evento
-  setSpecificEventHandler(event, callback) {
-    this.specificEventHandlers[event] = callback;
+  // Emitir un evento genérico
+  emit(event, data) {
+    if (!this.socket || !this.isConnected) {
+      console.warn(`No se puede emitir ${event}: socket no conectado`);
+      return false;
+    }
+    
+    try {
+      console.log(`Emitiendo evento: ${event}`);
+      this.socket.emit(event, data);
+      return true;
+    } catch (error) {
+      console.error(`Error al emitir evento ${event}:`, error);
+      return false;
+    }
   }
   
   // Registrar un event listener
   on(event, callback) {
     if (!this.socket) {
       console.warn(`No se puede registrar listener para '${event}': no hay socket`);
+      // Intentar conectar y luego registrar
+      this.connect().then(() => {
+        this._registerListener(event, callback);
+      }).catch(error => {
+        console.error(`Error al conectar para registrar listener ${event}:`, error);
+      });
       return;
     }
     
+    this._registerListener(event, callback);
+  }
+  
+  // Método interno para registrar un listener
+  _registerListener(event, callback) {
     console.log(`Registrando listener para evento: ${event}`);
-    this.socket.on(event, callback);
+    
+    // Crear un wrapper único para este callback
+    const wrappedCallback = (...args) => {
+      try {
+        callback(...args);
+      } catch (error) {
+        console.error(`Error en listener de ${event}:`, error);
+      }
+    };
+    
+    // Registrar el callback en el socket
+    this.socket.on(event, wrappedCallback);
     
     // Guardar referencia para poder eliminar después
     if (!this.eventListeners[event]) {
       this.eventListeners[event] = [];
     }
-    this.eventListeners[event].push(callback);
+    
+    this.eventListeners[event].push(wrappedCallback);
   }
   
   // Eliminar un event listener
@@ -556,44 +528,36 @@ class SocketService {
     }
   }
   
-  // Métodos de conveniencia para escuchar eventos específicos
+  // Métodos de conveniencia (alias)
   
-  // Escuchar ofertas WebRTC entrantes
   onOffer(callback) {
     this.on('offer', callback);
   }
   
-  // Escuchar respuestas WebRTC entrantes
   onAnswer(callback) {
     this.on('answer', callback);
   }
   
-  // Escuchar candidatos ICE entrantes
   onIceCandidate(callback) {
     this.on('ice-candidate', callback);
   }
   
-  // Escuchar solicitudes de llamada entrantes
   onCallRequested(callback) {
     this.on('call-requested', callback);
   }
   
-  // Escuchar respuestas a solicitudes de llamada
   onCallResponse(callback) {
     this.on('call-response', callback);
   }
   
-  // Escuchar finalización de llamada
   onCallEnded(callback) {
     this.on('call-ended', callback);
   }
   
-  // Escuchar mensajes de chat entrantes
   onNewMessage(callback) {
     this.on('new-message', callback);
   }
   
-  // Escuchar cuando otro usuario abandona la sala
   onUserLeft(callback) {
     this.on('user-left', callback);
   }
@@ -613,6 +577,18 @@ class SocketService {
       await this.connect();
     }
   }
+  
+  // Obtener estado actual
+  getStatus() {
+    return {
+      connected: this.isConnected,
+      roomId: this.currentRoom,
+      userId: this.userId,
+      socketId: this.socket?.id
+    };
+  }
 }
 
-export default new SocketService();
+// Exportar una instancia única
+const socketServiceInstance = new SocketService();
+export default socketServiceInstance;

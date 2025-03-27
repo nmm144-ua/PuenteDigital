@@ -81,11 +81,15 @@ const createAuthService = () => {
               .select();
               
             if (!error) {
-              // Guardar en AsyncStorage para acceso fácil
+              // Guardar en AsyncStorage para acceso fácil con la estructura correcta
               const userData = {
-                id: data[0]?.id || existingData.id,
+                id: null,
+                userDbId: data[0]?.id || existingData.id,
                 id_dispositivo: deviceInfo.deviceId,
-                tipo_usuario: 'anonimo'
+                tipo_usuario: 'anonimo',
+                isAnonymous: true,
+                isAsistente: false,
+                userRole: 'usuario'
               };
               
               await AsyncStorage.setItem('userData', JSON.stringify(userData));
@@ -107,12 +111,16 @@ const createAuthService = () => {
 
           if (error) throw error;
           
-          // Guardar en AsyncStorage para acceso fácil
+          // Guardar en AsyncStorage para acceso fácil con la estructura correcta
           if (data && data.length > 0) {
             const userData = {
-              id: data[0].id,
+              id: null,
+              userDbId: data[0].id,
               id_dispositivo: deviceInfo.deviceId,
-              tipo_usuario: 'anonimo'
+              tipo_usuario: 'anonimo',
+              isAnonymous: true,
+              isAsistente: false,
+              userRole: 'usuario'
             };
             
             await AsyncStorage.setItem('userData', JSON.stringify(userData));
@@ -134,12 +142,16 @@ const createAuthService = () => {
               .select();
               
             if (!error && data) {
-              // Guardar en AsyncStorage para acceso fácil
+              // Guardar en AsyncStorage para acceso fácil con la estructura correcta
               if (data && data.length > 0) {
                 const userData = {
-                  id: data[0].id,
+                  id: null,
+                  userDbId: data[0].id,
                   id_dispositivo: deviceInfo.deviceId,
-                  tipo_usuario: 'anonimo'
+                  tipo_usuario: 'anonimo',
+                  isAnonymous: true,
+                  isAsistente: false,
+                  userRole: 'usuario'
                 };
                 
                 await AsyncStorage.setItem('userData', JSON.stringify(userData));
@@ -188,14 +200,17 @@ const createAuthService = () => {
 
         if (error) throw error;
         
-        // Guardar información de usuario en AsyncStorage
+        // Guardar información de usuario en AsyncStorage con la estructura correcta
         if (data && data.length > 0) {
           const userData = {
-            id: data[0].id,
+            id: authData.user.id,
+            userDbId: data[0].id,
             user_id: authData.user.id,
             nombre: fullName,
             email,
-            tipo_usuario: 'registrado'
+            tipo_usuario: 'registrado',
+            isAsistente: false,
+            userRole: 'usuario'
           };
           
           await AsyncStorage.setItem('userData', JSON.stringify(userData));
@@ -238,14 +253,34 @@ const createAuthService = () => {
             })
             .eq('id', userData.id);
           
-          // 4. Guardar en AsyncStorage
+          // 4. Guardar en AsyncStorage con la estructura correcta
           const userDataStorage = {
-            id: userData.id,
+            id: authData.user.id,
+            userDbId: userData.id,
             user_id: authData.user.id,
             nombre: userData.nombre,
             email: userData.email,
-            tipo_usuario: userData.tipo_usuario
+            tipo_usuario: userData.tipo_usuario,
+            isAsistente: false,
+            userRole: 'usuario'
           };
+          
+          // 5. Verificar si el usuario también es asistente
+          try {
+            const { data: asistenteData, error: asistenteError } = await supabase
+              .from('asistentes')
+              .select('id, rol')
+              .eq('user_id', authData.user.id)
+              .single();
+            
+            if (asistenteData && !asistenteError) {
+              userDataStorage.isAsistente = true;
+              userDataStorage.asistenteId = asistenteData.id;
+              userDataStorage.userRole = asistenteData.rol || 'asistente';
+            }
+          } catch (asistenteError) {
+            // No es asistente, no hay problema
+          }
           
           await AsyncStorage.setItem('userData', JSON.stringify(userDataStorage));
         }

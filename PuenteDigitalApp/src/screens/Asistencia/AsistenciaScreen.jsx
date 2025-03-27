@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -11,10 +11,41 @@ import {
 } from 'react-native';
 import AsistenciaService from '../../services/AsistenciaService';
 import ChatService from '../../services/ChatService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AsistenciaScreen = ({ navigation }) => {
   const [descripcion, setDescripcion] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isServiceInitialized, setIsServiceInitialized] = useState(false);
+
+  // Inicializar los servicios cuando se carga la pantalla
+  useEffect(() => {
+    const initServices = async () => {
+      try {
+        // Obtener datos de usuario desde AsyncStorage
+        const userDataString = await AsyncStorage.getItem('userData');
+        if (!userDataString) {
+          console.warn('No hay datos de usuario en AsyncStorage');
+          return;
+        }
+
+        const userData = JSON.parse(userDataString);
+        console.log('Datos de usuario cargados:', userData);
+
+        // Inicializar ChatService con los datos de usuario
+        await ChatService.init();
+        setIsServiceInitialized(true);
+      } catch (error) {
+        console.error('Error al inicializar servicios:', error);
+        Alert.alert(
+          'Error',
+          'No se pudieron inicializar los servicios. Por favor, reinicia la aplicación.'
+        );
+      }
+    };
+
+    initServices();
+  }, []);
 
   // Solicitar asistencia por chat de texto
   const solicitarAsistenciaTexto = async () => {
@@ -23,9 +54,41 @@ const AsistenciaScreen = ({ navigation }) => {
       return;
     }
 
+    // Verificar que se hayan inicializado los servicios
+    if (!isServiceInitialized) {
+      try {
+        // Intentar inicializar de nuevo si es necesario
+        await initializeServices();
+      } catch (error) {
+        Alert.alert('Error', 'No se pudieron inicializar los servicios necesarios');
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
-      // Crear la solicitud en la base de datos, especificando tipo_asistencia como 'chat'
+      // Verificar que tengamos datos de usuario
+      const userDataString = await AsyncStorage.getItem('userData');
+      if (!userDataString) {
+        throw new Error('No hay datos de usuario para crear solicitud');
+      }
+
+      const userData = JSON.parse(userDataString);
+      console.log('Creando solicitud con datos de usuario:', userData);
+
+
+      const solicitudesActivas = await AsistenciaService.verificarSolicitudPendiente();
+      if (solicitudesActivas) {
+        // Usar la solicitud existente en lugar de crear una nueva
+        navigation.navigate('Chat', { 
+          solicitudId: solicitudesActivas.id,
+          roomId: solicitudesActivas.room_id 
+        });
+        return;
+      }
+
+
+      // Crear la solicitud en la base de datos
       const solicitud = await ChatService.createChatRequest(descripcion);
       
       if (solicitud && solicitud.id) {
@@ -45,6 +108,19 @@ const AsistenciaScreen = ({ navigation }) => {
     }
   };
 
+  // Función auxiliar para inicializar servicios
+  const initializeServices = async () => {
+    const userDataString = await AsyncStorage.getItem('userData');
+    if (!userDataString) {
+      throw new Error('No hay datos de usuario');
+    }
+
+    const userData = JSON.parse(userDataString);
+    await ChatService.init();
+    setIsServiceInitialized(true);
+    return true;
+  };
+
   // Solicitar asistencia por videollamada
   const solicitarAsistenciaVideo = async () => {
     if (!descripcion.trim()) {
@@ -54,6 +130,11 @@ const AsistenciaScreen = ({ navigation }) => {
 
     setIsLoading(true);
     try {
+      // Inicializar AsistenciaService si es necesario
+      if (!AsistenciaService.userId) {
+        await AsistenciaService.init();
+      }
+      
       // Crear la solicitud en la base de datos
       const solicitud = await AsistenciaService.crearSolicitud(descripcion);
       

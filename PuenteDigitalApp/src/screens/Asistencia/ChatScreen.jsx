@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+// ChatScreen.jsx - Con prevención reforzada de duplicados
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,6 +17,8 @@ import {
 import ChatService from '../../services/ChatService';
 import AsistenciaService from '../../services/AsistenciaService';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import MensajesService from '../../services/MensajesService';
 
 const ChatScreen = ({ route, navigation }) => {
   const { solicitudId, roomId } = route.params;
@@ -27,6 +30,8 @@ const ChatScreen = ({ route, navigation }) => {
   const [remoteUserIsTyping, setRemoteUserIsTyping] = useState(false);
   const [solicitud, setSolicitud] = useState(null);
   
+  // Agregar un set para rastrear mensajes procesados
+  const processedMessagesRef = useRef(new Set());
   const flatListRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   
@@ -43,81 +48,136 @@ const ChatScreen = ({ route, navigation }) => {
     }
   };
   
-  // Inicializar chat
-  const initializeChat = async () => {
-    try {
-      setIsLoading(true);
-      
-      // Cargar solicitud
-      const solicitudData = await loadSolicitud();
-      if (!solicitudData) {
-        navigation.goBack();
-        return;
+  const handleNewMessage = useCallback((message) => {
+    console.log('Nuevo mensaje recibido en handleNewMessage:', message);
+    
+    // Generar una clave única para este mensaje sin el timestamp
+    // Esto ayuda a identificar mensajes duplicados incluso si tienen timestamps ligeramente diferentes
+    const messageContentKey = `${message.sender}_${message.message}`;
+    
+    // Verificar si ya hemos procesado un mensaje con el mismo contenido recientemente
+    // Esto se comprobará además de las verificaciones existentes por clave exacta
+    const recentlySeen = Array.from(processedMessagesRef.current).some(key => {
+      // Si la clave contiene el mismo remitente y mensaje
+      if (key.includes(messageContentKey)) {
+        // Extraer timestamp de la clave (formato: timestamp_sender_message)
+        const keyParts = key.split('_');
+        if (keyParts.length > 0) {
+          const keyTimestamp = new Date(keyParts[0]).getTime();
+          const messageTimestamp = new Date(message.timestamp).getTime();
+          
+          // Considerar como duplicado si está dentro de una ventana de 5 segundos
+          const timeDifference = Math.abs(keyTimestamp - messageTimestamp);
+          if (timeDifference < 5000) { // 5 segundos de tolerancia
+            console.log('Mensaje similar detectado dentro de la ventana de tiempo, ignorando');
+            return true;
+          }
+        }
       }
-      
-      // Inicializar chat service
-      await ChatService.init();
-      
-      // Registrar callbacks
-      ChatService.registerCallbacks({
-        onMessageReceived: handleNewMessage,
-        onTypingStatus: handleTypingStatus
+      return false;
+    });
+    
+    if (recentlySeen) {
+      return; // Ignorar este mensaje por ser similar a uno reciente
+    }
+    
+    // Generar la clave única normal que incluye el timestamp
+    const messageKey = message.id 
+      ? `id_${message.id}` 
+      : `${message.timestamp}_${message.sender}_${message.message}`;
+    
+    // Verificar si ya hemos procesado este mensaje exacto
+    if (processedMessagesRef.current.has(messageKey)) {
+      console.log('Mensaje duplicado ignorado en handleNewMessage (por clave única)');
+      return;
+    }
+    
+    // Marcar como procesado
+    processedMessagesRef.current.add(messageKey);
+    
+    setMessages((prevMessages) => {
+      // Verificar duplicados en el estado actual
+      const isDuplicate = prevMessages.some(m => {
+        // Coincidencia exacta por ID si existe
+        if (m.id && m.id === message.id) {
+          return true;
+        }
+        
+        // Coincidencia exacta por timestamp y contenido
+        if (m.timestamp === message.timestamp && 
+            m.message === message.message &&
+            m.sender === message.sender) {
+          return true;
+        }
+        
+        // Coincidencia aproximada (mismo contenido, timestamps cercanos)
+        if (m.message === message.message && 
+            m.sender === message.sender) {
+          const timeDiff = Math.abs(
+            new Date(m.timestamp).getTime() - 
+            new Date(message.timestamp).getTime()
+          );
+          return timeDiff < 5000; // 5 segundos de tolerancia
+        }
+        
+        return false;
       });
       
-      // Unirse a la sala de chat
-      await ChatService.joinRoom(roomId);
+      if (isDuplicate) {
+        console.log('Mensaje duplicado ignorado (ya existe en el estado o es muy similar)');
+        return prevMessages;
+      }
       
-      // Marcar mensajes como leídos
-      await ChatService.markMessagesAsRead(solicitudId);
+      console.log('Añadiendo nuevo mensaje a la lista:', message);
       
-      // Obtener mensajes
-      const historicalMessages = await ChatService.loadHistoricalMessages(roomId);
-      setMessages(historicalMessages);
-      
-      setIsLoading(false);
-    } catch (error) {
-      console.error('Error al inicializar chat:', error);
-      Alert.alert(
-        'Error de conexión',
-        'No se pudo establecer conexión con el chat. Inténtalo de nuevo.',
-        [{ text: 'Volver', onPress: () => navigation.goBack() }]
+      // Ordenar mensajes por timestamp
+      return [...prevMessages, message].sort((a, b) => 
+        new Date(a.timestamp) - new Date(b.timestamp)
       );
-    }
-  };
-  
-  // Manejar nuevos mensajes
-  const handleNewMessage = (message) => {
-    setMessages((prevMessages) => [...prevMessages, message]);
-    setRemoteUserIsTyping(false); // Resetear estado de "está escribiendo"
-  };
+    });
+    
+    setRemoteUserIsTyping(false);
+    
+    // Scroll al final
+    setTimeout(() => {
+      if (flatListRef.current) {
+        flatListRef.current.scrollToEnd({ animated: true });
+      }
+    }, 100);
+  }, []);
   
   // Manejar estado de "está escribiendo"
-  const handleTypingStatus = (userId, isTyping) => {
+  const handleTypingStatus = useCallback((userId, isTyping) => {
     // Actualizar solo si el evento no es del usuario actual
     if (userId !== ChatService.userId) {
       setRemoteUserIsTyping(isTyping);
     }
-  };
+  }, []);
   
   // Enviar mensaje
   const sendMessage = async () => {
     if (!inputText.trim()) return;
     
     try {
-      const message = await ChatService.sendMessage(inputText.trim(), solicitudId);
+      // Obtener datos de solicitud
+      if (!solicitud) {
+        console.error('No hay solicitud activa');
+        return;
+      }
       
-      // Limpiar input y estado de escritura
+      console.log('Enviando mensaje:', inputText);
+      
+      // Limpiar input antes para mejor UX
+      const messageText = inputText.trim();
       setInputText('');
+      
+      // Enviar mensaje
+      await ChatService.sendMessage(messageText, solicitudId);
+      
+      // Limpiar estado de escritura
       setIsTyping(false);
       clearTimeout(typingTimeoutRef.current);
       ChatService.sendTypingStatus(false);
-      
-      // Hacer scroll al final
-      setTimeout(() => {
-        if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
-        }
-      }, 100);
     } catch (error) {
       console.error('Error al enviar mensaje:', error);
       Alert.alert('Error', 'No se pudo enviar el mensaje. Inténtalo de nuevo.');
@@ -174,10 +234,107 @@ const ChatScreen = ({ route, navigation }) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
   
+  // Filtrar mensajes duplicados
+  const filterDuplicateMessages = useCallback((messages) => {
+    const uniqueMap = new Map();
+    
+    // Usar un mapa para filtrar duplicados basados en ID o contenido+timestamp
+    messages.forEach(message => {
+      const key = message.id ? 
+        `id_${message.id}` : 
+        `${message.timestamp}_${message.sender}_${message.message}`;
+      
+      // Añadir a nuestro registro de mensajes procesados
+      processedMessagesRef.current.add(key);
+      
+      // Guardar solo el primer mensaje con esta clave
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, message);
+      }
+    });
+    
+    // Convertir de vuelta a array y ordenar por timestamp
+    return Array.from(uniqueMap.values())
+      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  }, []);
+  
   // Efecto para inicializar chat al montar
   useEffect(() => {
-    initializeChat();
+    // Limpiar conjunto de mensajes procesados al iniciar
+    processedMessagesRef.current.clear();
     
+    const initializeChat = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Cargar solicitud
+        const solicitudData = await loadSolicitud();
+        if (!solicitudData) {
+          navigation.goBack();
+          return;
+        }
+        
+        // Obtener datos de usuario almacenados
+        const userDataString = await AsyncStorage.getItem('userData');
+        const userData = userDataString ? JSON.parse(userDataString) : null;
+        
+        if (!userData) {
+          Alert.alert('Error', 'No se pudo obtener información del usuario');
+          navigation.goBack();
+          return;
+        }
+        
+        console.log('Inicializando chat con datos de usuario:', {
+          userId: userData.id,
+          isAsistente: userData.isAsistente || false,
+          userRole: userData.userRole || 'usuario'
+        });
+        
+        // Inicializar servicios necesarios
+        await MensajesService.init(userData.id, userData.isAsistente || false);
+        
+        // Inicializar chat service
+        await ChatService.init();
+        
+        // IMPORTANTE: Desregistrar callbacks existentes para evitar duplicación
+        ChatService.registerCallbacks({
+          onMessageReceived: null,
+          onTypingStatus: null
+        });
+        
+        // Registrar callbacks
+        ChatService.registerCallbacks({
+          onMessageReceived: handleNewMessage,
+          onTypingStatus: handleTypingStatus
+        });
+        
+        // Unirse a la sala de chat
+        await ChatService.joinRoom(roomId);
+        
+        // Marcar mensajes como leídos
+        await ChatService.markMessagesAsRead(solicitudId);
+        
+        // Obtener mensajes
+        const historicalMessages = await ChatService.loadHistoricalMessages(roomId);
+        
+        // Filtrar mensajes duplicados
+        const uniqueMessages = filterDuplicateMessages(historicalMessages);
+        
+        setMessages(uniqueMessages);
+        
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error al inicializar chat:', error);
+        Alert.alert(
+          'Error de conexión',
+          'No se pudo establecer conexión con el chat. Inténtalo de nuevo.',
+          [{ text: 'Volver', onPress: () => navigation.goBack() }]
+        );
+      }
+    };
+    
+    initializeChat();
+  
     // Manejar botón de retroceso
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       leaveChat();
@@ -189,22 +346,25 @@ const ChatScreen = ({ route, navigation }) => {
       backHandler.remove();
       clearTimeout(typingTimeoutRef.current);
       
+      // Desregistrar callbacks primero para evitar llamadas durante la limpieza
+      ChatService.registerCallbacks({
+        onMessageReceived: null,
+        onTypingStatus: null
+      });
+      
       // Salir de la sala de chat
       ChatService.leaveRoom();
     };
-  }, []);
-  
-  // Efecto para hacer scroll cuando hay nuevos mensajes
-  useEffect(() => {
-    if (messages.length > 0 && flatListRef.current) {
-      setTimeout(() => {
-        flatListRef.current.scrollToEnd({ animated: true });
-      }, 200);
-    }
-  }, [messages]);
+  }, [handleNewMessage, handleTypingStatus, filterDuplicateMessages]);
   
   // Salir del chat
   const leaveChat = () => {
+    // Desregistrar callbacks primero
+    ChatService.registerCallbacks({
+      onMessageReceived: null,
+      onTypingStatus: null
+    });
+    
     ChatService.leaveRoom();
     navigation.goBack();
   };
@@ -256,7 +416,7 @@ const ChatScreen = ({ route, navigation }) => {
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={(item, index) => item.id?.toString() || index.toString()}
+          keyExtractor={(item, index) => item.id?.toString() || `${item.timestamp}_${index}`}
           contentContainerStyle={styles.messagesContainer}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>

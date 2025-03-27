@@ -7,7 +7,7 @@ class MensajesService {
   constructor() {
     this.tableName = 'mensajes';
     this.userId = null;     // ID del usuario autenticado (auth.users)
-    this.userDbId = null;   // ID en la tabla usuario
+    this.userDbId = null;   // ID en la tabla usuario o asistentes
     this.isAsistente = false; // Indica si el usuario es asistente
     this.asistenteId = null; // ID del asistente (si aplica)
   }
@@ -15,6 +15,8 @@ class MensajesService {
   // Inicializar el servicio con el ID del usuario actual
   async init(userId, isAsistente = false) {
     try {
+      console.log('Inicializando MensajesService con userId:', userId, 'isAsistente:', isAsistente);
+      
       if (userId) {
         this.userId = userId;
         this.isAsistente = isAsistente;
@@ -27,11 +29,16 @@ class MensajesService {
             .eq('user_id', userId)
             .single();
           
-          if (asistenteError) throw asistenteError;
+          if (asistenteError) {
+            console.error('Error al buscar asistente:', asistenteError);
+          }
           
           if (asistente) {
             this.userDbId = asistente.id;
             this.asistenteId = asistente.id;
+            console.log('ID de asistente encontrado:', this.userDbId);
+          } else {
+            console.warn('No se encontró asistente para user_id:', userId);
           }
         } else {
           const { data: usuario, error: usuarioError } = await supabase
@@ -40,10 +47,15 @@ class MensajesService {
             .eq('user_id', userId)
             .single();
           
-          if (usuarioError) throw usuarioError;
+          if (usuarioError) {
+            console.error('Error al buscar usuario:', usuarioError);
+          }
           
           if (usuario) {
             this.userDbId = usuario.id;
+            console.log('ID de usuario encontrado:', this.userDbId);
+          } else {
+            console.warn('No se encontró usuario para user_id:', userId);
           }
         }
         
@@ -51,16 +63,26 @@ class MensajesService {
       }
       
       // Intentar obtener el usuario desde AsyncStorage
-      const userJson = await AsyncStorage.getItem('user');
-      if (userJson) {
-        const user = JSON.parse(userJson);
-        this.userId = user.id;
-        this.isAsistente = user.isAsistente || false;
-        this.userDbId = user.userDbId || null;
-        this.asistenteId = user.asistenteId || null;
-        return true;
+      try {
+        const userJson = await AsyncStorage.getItem('user');
+        if (userJson) {
+          const user = JSON.parse(userJson);
+          this.userId = user.id;
+          this.isAsistente = user.isAsistente || false;
+          this.userDbId = user.userDbId || null;
+          this.asistenteId = user.asistenteId || null;
+          console.log('Datos cargados desde AsyncStorage:', { 
+            userId: this.userId, 
+            isAsistente: this.isAsistente,
+            userDbId: this.userDbId
+          });
+          return true;
+        }
+      } catch (storageError) {
+        console.error('Error al leer AsyncStorage:', storageError);
       }
       
+      console.warn('No se pudo inicializar el servicio de mensajes');
       return false;
     } catch (error) {
       console.error('Error al inicializar MensajesService:', error);
@@ -71,23 +93,52 @@ class MensajesService {
   // Obtener mensajes de una conversación específica
   async getMensajes(solicitudId) {
     try {
-      // Incluir información de usuario y asistente en la consulta
+      console.log('Obteniendo mensajes para solicitud:', solicitudId);
+      
+      // Verificar estructura de la tabla
+      const { data: sampleData, error: sampleError } = await supabase
+        .from(this.tableName)
+        .select('*')
+        .limit(1);
+      
+      if (sampleError) {
+        console.error('Error al obtener muestra de mensajes:', sampleError);
+      } else {
+        console.log('Estructura de tabla mensajes:', sampleData && sampleData.length > 0 ? Object.keys(sampleData[0]) : []);
+      }
+      
+      // Consultar mensajes para esta solicitud
       const { data, error } = await supabase
         .from(this.tableName)
-        .select(`
-          *,
-          usuario:usuario_id(*),
-          asistente:asistente_id(*)
-        `)
+        .select('*')
         .eq('solicitud_id', solicitudId)
         .order('created_at', { ascending: true });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error al obtener mensajes:', error);
+        throw error;
+      }
       
-      // Marcar todos los mensajes como leídos (los que el usuario actual debe leer)
+      console.log(`Se encontraron ${data?.length || 0} mensajes`);
+      
+      // Marcar mensajes como leídos
       await this.marcarTodosComoLeidos(solicitudId);
       
-      return data || [];
+      // Procesar mensajes para añadir información del remitente
+      // Nota: Como no tenemos usuario_id ni asistente_id en la tabla,
+      // usamos el campo tipo para determinar el remitente
+      const mensajesProcesados = data?.map(mensaje => {
+        const esDeAsistente = mensaje.tipo === 'asistente';
+        const esPropio = this.isAsistente ? esDeAsistente : !esDeAsistente;
+        
+        return {
+          ...mensaje,
+          nombreRemitente: esDeAsistente ? 'Asistente' : 'Usuario',
+          isFromCurrentUser: esPropio
+        };
+      }) || [];
+      
+      return mensajesProcesados;
     } catch (error) {
       console.error('Error al obtener mensajes:', error);
       return [];
@@ -97,31 +148,32 @@ class MensajesService {
   // Enviar un nuevo mensaje
   async enviarMensaje(solicitudId, mensaje, asistenteId = null) {
     try {
-      if (!this.userDbId) {
-        throw new Error('Usuario no inicializado correctamente');
-      }
+      console.log('Enviando mensaje para solicitud:', solicitudId);
+      
+      // El userDbId es opcional, el usuario puede no estar inicializado
+      // en la versión móvil
       
       const nuevoMensaje = {
         solicitud_id: solicitudId,
         contenido: mensaje,
-        tipo: 'texto',
+        tipo: this.isAsistente ? 'asistente' : 'usuario',
         leido: false
       };
       
-      // Establecer usuario_id o asistente_id según corresponda
-      if (this.isAsistente) {
-        nuevoMensaje.asistente_id = this.userDbId; // Id del asistente en la tabla asistentes
-      } else {
-        nuevoMensaje.usuario_id = this.userDbId; // Id del usuario en la tabla usuario
-      }
+      console.log('Datos del mensaje a insertar:', nuevoMensaje);
       
       const { data, error } = await supabase
         .from(this.tableName)
-        .insert(nuevoMensaje)
+        .insert([nuevoMensaje])
         .select()
         .single();
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error al insertar mensaje:', error);
+        throw error;
+      }
+      
+      console.log('Mensaje guardado con éxito, ID:', data?.id);
       
       return data;
     } catch (error) {
@@ -133,6 +185,8 @@ class MensajesService {
   // Marcar mensaje como leído
   async marcarComoLeido(mensajeId) {
     try {
+      console.log('Marcando mensaje como leído:', mensajeId);
+      
       const { data, error } = await supabase
         .from(this.tableName)
         .update({ 
@@ -141,7 +195,10 @@ class MensajesService {
         })
         .eq('id', mensajeId);
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error al marcar mensaje como leído:', error);
+        throw error;
+      }
       
       return true;
     } catch (error) {
@@ -153,33 +210,30 @@ class MensajesService {
   // Marcar todos los mensajes de una conversación como leídos
   async marcarTodosComoLeidos(solicitudId) {
     try {
-      if (!this.userDbId) return false;
+      console.log('Marcando todos los mensajes como leídos para solicitud:', solicitudId);
       
-      let query = supabase
+      // Si soy asistente, quiero marcar como leídos los mensajes de tipo "usuario"
+      // Si soy usuario, quiero marcar como leídos los mensajes de tipo "asistente"
+      const tipoAMarcar = this.isAsistente ? 'usuario' : 'asistente';
+      
+      const { data, error } = await supabase
         .from(this.tableName)
         .update({ 
           leido: true, 
           updated_at: new Date().toISOString() 
         })
         .eq('solicitud_id', solicitudId)
+        .eq('tipo', tipoAMarcar)
         .eq('leido', false);
       
-      // Si es usuario, marcar mensajes de asistentes como leídos
-      if (!this.isAsistente) {
-        query = query.not('asistente_id', 'is', null);
-      } 
-      // Si es asistente, marcar mensajes de usuarios como leídos
-      else {
-        query = query.not('usuario_id', 'is', null);
+      if (error) {
+        console.error('Error al marcar todos los mensajes como leídos:', error);
+        throw error;
       }
-      
-      const { data, error } = await query;
-      
-      if (error) throw error;
       
       return true;
     } catch (error) {
-      console.error('Error al marcar mensajes como leídos:', error);
+      console.error('Error al marcar todos los mensajes como leídos:', error);
       return false;
     }
   }
@@ -187,6 +241,8 @@ class MensajesService {
   // Suscribirse a nuevos mensajes (usando Supabase Realtime)
   suscribirseAMensajes(solicitudId, callback) {
     try {
+      console.log('Suscribiéndose a mensajes para solicitud:', solicitudId);
+      
       const subscription = supabase
         .channel(`mensajes-${solicitudId}`)
         .on('postgres_changes', {
@@ -195,6 +251,7 @@ class MensajesService {
           table: this.tableName,
           filter: `solicitud_id=eq.${solicitudId}`
         }, payload => {
+          console.log('Nuevo mensaje recibido via Realtime:', payload.new);
           // Procesar el mensaje recibido
           this.procesarMensajeRecibido(payload.new, callback);
         })
@@ -210,14 +267,12 @@ class MensajesService {
   // Procesar un mensaje recibido para completar información faltante
   async procesarMensajeRecibido(mensaje, callback) {
     try {
-      // Si el mensaje es del usuario actual, no hacer nada adicional
-      let isFromCurrentUser = false;
+      console.log('Procesando mensaje recibido:', mensaje);
       
-      if (this.isAsistente && mensaje.asistente_id === this.userDbId) {
-        isFromCurrentUser = true;
-      } else if (!this.isAsistente && mensaje.usuario_id === this.userDbId) {
-        isFromCurrentUser = true;
-      }
+      // Determinar si el mensaje es del usuario actual
+      // Como no tenemos usuario_id o asistente_id, usamos el tipo
+      const esDeAsistente = mensaje.tipo === 'asistente';
+      const isFromCurrentUser = this.isAsistente ? esDeAsistente : !esDeAsistente;
       
       // Si no es nuestro mensaje, marcarlo como leído
       if (!isFromCurrentUser) {
@@ -225,32 +280,9 @@ class MensajesService {
         this.marcarComoLeido(mensaje.id);
       }
       
-      // Si falta información del remitente, completarla
-      let nombreRemitente = 'Usuario';
-      
-      if (!isFromCurrentUser) {
-        if (mensaje.asistente_id) {
-          // Buscar nombre del asistente
-          const { data: asistente } = await supabase
-            .from('asistentes')
-            .select('nombre')
-            .eq('id', mensaje.asistente_id)
-            .single();
-          
-          if (asistente) nombreRemitente = asistente.nombre;
-        } else if (mensaje.usuario_id) {
-          // Buscar nombre del usuario
-          const { data: usuario } = await supabase
-            .from('usuario')
-            .select('nombre')
-            .eq('id', mensaje.usuario_id)
-            .single();
-          
-          if (usuario) nombreRemitente = usuario.nombre;
-        }
-      } else {
-        nombreRemitente = 'Tú'; // Si es mensaje propio
-      }
+      // Determinar nombre del remitente
+      const nombreRemitente = isFromCurrentUser ? 'Tú' : 
+                             (esDeAsistente ? 'Asistente' : 'Usuario');
       
       // Añadir información procesada al mensaje
       const mensajeCompleto = {
@@ -271,6 +303,7 @@ class MensajesService {
   // Cancelar suscripción a mensajes
   cancelarSuscripcion(subscription) {
     if (subscription) {
+      console.log('Cancelando suscripción a mensajes');
       supabase.removeChannel(subscription);
     }
   }
@@ -278,27 +311,25 @@ class MensajesService {
   // Obtener mensajes no leídos de una solicitud específica
   async getMensajesNoLeidos(solicitudId) {
     try {
-      if (!this.userDbId) return [];
+      console.log('Obteniendo mensajes no leídos para solicitud:', solicitudId);
       
-      let query = supabase
+      // Si soy asistente, busco mensajes de tipo "usuario" no leídos
+      // Si soy usuario, busco mensajes de tipo "asistente" no leídos
+      const tipoABuscar = this.isAsistente ? 'usuario' : 'asistente';
+      
+      const { data, error } = await supabase
         .from(this.tableName)
         .select('*')
         .eq('solicitud_id', solicitudId)
+        .eq('tipo', tipoABuscar)
         .eq('leido', false);
       
-      // Si es usuario, buscar mensajes no leídos de asistentes
-      if (!this.isAsistente) {
-        query = query.not('asistente_id', 'is', null);
-      } 
-      // Si es asistente, buscar mensajes no leídos de usuarios
-      else {
-        query = query.not('usuario_id', 'is', null);
+      if (error) {
+        console.error('Error al obtener mensajes no leídos:', error);
+        throw error;
       }
       
-      const { data, error } = await query;
-      
-      if (error) throw error;
-      
+      console.log(`Se encontraron ${data?.length || 0} mensajes no leídos`);
       return data || [];
     } catch (error) {
       console.error('Error al obtener mensajes no leídos:', error);
@@ -309,60 +340,67 @@ class MensajesService {
   // Obtener cantidad de mensajes no leídos en todas las solicitudes
   async getCantidadMensajesNoLeidos() {
     try {
-      if (!this.userDbId) return 0;
+      console.log('Obteniendo cantidad de mensajes no leídos');
       
-      // Para usuarios normales
-      if (!this.isAsistente) {
-        // Primero obtener las solicitudes del usuario
-        const { data: solicitudes, error: errorSolicitudes } = await supabase
-          .from('solicitudes_asistencia')
-          .select('id')
-          .eq('usuario_id', this.userDbId);
-        
-        if (errorSolicitudes) throw errorSolicitudes;
-        
-        if (!solicitudes || solicitudes.length === 0) return 0;
-        
-        // Luego contar mensajes no leídos en esas solicitudes
-        const solicitudIds = solicitudes.map(s => s.id);
-        
-        const { count, error } = await supabase
-          .from(this.tableName)
-          .select('*', { count: 'exact', head: true })
-          .in('solicitud_id', solicitudIds)
-          .not('asistente_id', 'is', null)
-          .eq('leido', false);
-        
-        if (error) throw error;
-        
-        return count || 0;
-      } 
-      // Para asistentes
-      else {
-        // Primero obtener las solicitudes asignadas al asistente
-        const { data: solicitudes, error: errorSolicitudes } = await supabase
+      // Si soy asistente, busco mensajes de tipo "usuario" no leídos
+      // Si soy usuario, busco mensajes de tipo "asistente" no leídos
+      const tipoABuscar = this.isAsistente ? 'usuario' : 'asistente';
+      
+      // Primero obtener las solicitudes del usuario o asistente
+      let solicitudes = [];
+      
+      if (this.isAsistente && this.asistenteId) {
+        // Obtener solicitudes asignadas al asistente
+        const { data: solicitudesAsistente, error: errorSolicitudes } = await supabase
           .from('solicitudes_asistencia')
           .select('id')
           .eq('asistente_id', this.asistenteId);
         
-        if (errorSolicitudes) throw errorSolicitudes;
+        if (errorSolicitudes) {
+          console.error('Error al obtener solicitudes del asistente:', errorSolicitudes);
+          return 0;
+        }
         
-        if (!solicitudes || solicitudes.length === 0) return 0;
+        solicitudes = solicitudesAsistente || [];
+      } else if (this.userDbId) {
+        // Obtener solicitudes del usuario
+        const { data: solicitudesUsuario, error: errorSolicitudes } = await supabase
+          .from('solicitudes_asistencia')
+          .select('id')
+          .eq('usuario_id', this.userDbId);
         
-        // Luego contar mensajes no leídos en esas solicitudes
-        const solicitudIds = solicitudes.map(s => s.id);
+        if (errorSolicitudes) {
+          console.error('Error al obtener solicitudes del usuario:', errorSolicitudes);
+          return 0;
+        }
         
-        const { count, error } = await supabase
-          .from(this.tableName)
-          .select('*', { count: 'exact', head: true })
-          .in('solicitud_id', solicitudIds)
-          .not('usuario_id', 'is', null)
-          .eq('leido', false);
-        
-        if (error) throw error;
-        
-        return count || 0;
+        solicitudes = solicitudesUsuario || [];
+      } else {
+        console.warn('No se puede obtener mensajes no leídos sin ID de usuario/asistente');
+        return 0;
       }
+      
+      if (solicitudes.length === 0) {
+        return 0;
+      }
+      
+      // Obtener IDs de solicitudes
+      const solicitudIds = solicitudes.map(s => s.id);
+      
+      // Contar mensajes no leídos
+      const { count, error } = await supabase
+        .from(this.tableName)
+        .select('*', { count: 'exact', head: true })
+        .in('solicitud_id', solicitudIds)
+        .eq('tipo', tipoABuscar)
+        .eq('leido', false);
+      
+      if (error) {
+        console.error('Error al contar mensajes no leídos:', error);
+        return 0;
+      }
+      
+      return count || 0;
     } catch (error) {
       console.error('Error al obtener cantidad de mensajes no leídos:', error);
       return 0;
@@ -372,59 +410,87 @@ class MensajesService {
   // Obtener todas las solicitudes con mensajes no leídos
   async getSolicitudesConMensajesNoLeidos() {
     try {
-      if (!this.userDbId) return [];
+      console.log('Obteniendo solicitudes con mensajes no leídos');
       
-      if (!this.isAsistente) {
-        // Para usuarios: obtener solicitudes propias
-        const { data: solicitudes, error: errorSolicitudes } = await supabase
-          .from('solicitudes_asistencia')
-          .select('id')
-          .eq('usuario_id', this.userDbId);
-        
-        if (errorSolicitudes) throw errorSolicitudes;
-        
-        if (!solicitudes || solicitudes.length === 0) return [];
-        
-        // Obtener mensajes no leídos agrupados por solicitud
-        const solicitudIds = solicitudes.map(s => s.id);
-        
-        const { data, error } = await supabase
-          .from(this.tableName)
-          .select('solicitud_id, count(*)')
-          .in('solicitud_id', solicitudIds)
-          .not('asistente_id', 'is', null)
-          .eq('leido', false)
-          .group('solicitud_id');
-        
-        if (error) throw error;
-        
-        return data || [];
-      } else {
+      // Si soy asistente, busco mensajes de tipo "usuario" no leídos
+      // Si soy usuario, busco mensajes de tipo "asistente" no leídos
+      const tipoABuscar = this.isAsistente ? 'usuario' : 'asistente';
+      
+      let solicitudes = [];
+      
+      if (this.isAsistente && this.asistenteId) {
         // Para asistentes: obtener solicitudes asignadas
-        const { data: solicitudes, error: errorSolicitudes } = await supabase
+        const { data: solicitudesAsistente, error: errorSolicitudes } = await supabase
           .from('solicitudes_asistencia')
           .select('id')
           .eq('asistente_id', this.asistenteId);
         
-        if (errorSolicitudes) throw errorSolicitudes;
+        if (errorSolicitudes) {
+          console.error('Error al obtener solicitudes del asistente:', errorSolicitudes);
+          return [];
+        }
         
-        if (!solicitudes || solicitudes.length === 0) return [];
+        solicitudes = solicitudesAsistente || [];
+      } else if (this.userDbId) {
+        // Para usuarios: obtener solicitudes propias
+        const { data: solicitudesUsuario, error: errorSolicitudes } = await supabase
+          .from('solicitudes_asistencia')
+          .select('id')
+          .eq('usuario_id', this.userDbId);
         
-        // Obtener mensajes no leídos agrupados por solicitud
-        const solicitudIds = solicitudes.map(s => s.id);
+        if (errorSolicitudes) {
+          console.error('Error al obtener solicitudes del usuario:', errorSolicitudes);
+          return [];
+        }
         
-        const { data, error } = await supabase
-          .from(this.tableName)
-          .select('solicitud_id, count(*)')
-          .in('solicitud_id', solicitudIds)
-          .not('usuario_id', 'is', null)
-          .eq('leido', false)
-          .group('solicitud_id');
-        
-        if (error) throw error;
-        
-        return data || [];
+        solicitudes = solicitudesUsuario || [];
+      } else {
+        console.warn('No se puede obtener solicitudes sin ID de usuario/asistente');
+        return [];
       }
+      
+      if (solicitudes.length === 0) {
+        return [];
+      }
+      
+      // Obtener IDs de solicitudes
+      const solicitudIds = solicitudes.map(s => s.id);
+      
+      // Consulta SQL nativa para agrupar por solicitud_id
+      // No usamos group por simplicidad en la implementación móvil
+      
+      // Obtenemos todos los mensajes no leídos
+      const { data, error } = await supabase
+        .from(this.tableName)
+        .select('solicitud_id')
+        .in('solicitud_id', solicitudIds)
+        .eq('tipo', tipoABuscar)
+        .eq('leido', false);
+      
+      if (error) {
+        console.error('Error al obtener solicitudes con mensajes no leídos:', error);
+        return [];
+      }
+      
+      // Agrupamos manualmente
+      const resultado = [];
+      const contadorPorSolicitud = {};
+      
+      // Contar mensajes por solicitud_id
+      (data || []).forEach(mensaje => {
+        const solicitudId = mensaje.solicitud_id;
+        contadorPorSolicitud[solicitudId] = (contadorPorSolicitud[solicitudId] || 0) + 1;
+      });
+      
+      // Convertir a formato array
+      Object.keys(contadorPorSolicitud).forEach(solicitudId => {
+        resultado.push({
+          solicitud_id: solicitudId,
+          count: contadorPorSolicitud[solicitudId]
+        });
+      });
+      
+      return resultado;
     } catch (error) {
       console.error('Error al obtener solicitudes con mensajes no leídos:', error);
       return [];
