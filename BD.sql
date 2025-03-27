@@ -49,15 +49,11 @@ create table public.mensajes (
   created_at timestamp with time zone not null default now(),
   updated_at timestamp without time zone null default now(),
   solicitud_id bigint null,
-  asistente_id bigint null,
-  usuario_id bigint null,
   contenido text not null,
   tipo text null default 'texto'::text,
   leido boolean null default false,
   constraint mensajes_pkey primary key (id),
-  constraint mensajes_asistente_id_fkey foreign KEY (asistente_id) references asistentes (id),
-  constraint mensajes_solicitud_id_fkey foreign KEY (solicitud_id) references solicitudes_asistencia (id),
-  constraint mensajes_usuario_id_fkey foreign KEY (usuario_id) references usuario (id)
+  constraint mensajes_solicitud_id_fkey foreign KEY (solicitud_id) references solicitudes_asistencia (id)
 ) TABLESPACE pg_default;
 
 

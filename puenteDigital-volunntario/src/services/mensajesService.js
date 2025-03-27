@@ -19,46 +19,74 @@ export const mensajesService = {
       // Inicialmente no leído
       mensaje.leido = false;
       
+      // Construir el objeto para insertar, usando solo campos que existen en la tabla
+      // Basado en la estructura: id, created_at, updated_at, solicitud_id, contenido, tipo, leido
+      const mensajeData = {
+        solicitud_id: mensaje.solicitud_id,
+        contenido: mensaje.contenido,
+        tipo: mensaje.tipo,
+        leido: mensaje.leido
+      };
+      
+      console.log('Insertando mensaje con datos:', mensajeData);
+      
       // Guardar mensaje en base de datos
       const { data, error } = await supabase
         .from('mensajes')
-        .insert([mensaje])
+        .insert([mensajeData])
         .select()
         .single();
       
       if (error) throw error;
       
+      console.log('Mensaje guardado correctamente:', data);
+      
       // Si tenemos socket.io conectado y roomId, también enviar por socket
       if (data.solicitud_id) {
         const solicitud = await this.getSolicitudForMensaje(data.solicitud_id);
         if (solicitud && solicitud.room_id) {
-          // Obtener nombre del remitente
+          // Obtener nombre del remitente según rol (asistente o usuario)
           let nombreRemitente = 'Usuario';
-          if (mensaje.asistente_id) {
+          let idRemitente = null;
+          
+          // Para identificar al remitente, necesitamos información adicional
+          // ya que la tabla mensajes no contiene usuario_id ni asistente_id
+          if (mensaje._esAsistente && mensaje._asistenteId) {
+            // Si el mensaje es de un asistente
             const { data: asistente } = await supabase
               .from('asistentes')
-              .select('nombre')
-              .eq('id', mensaje.asistente_id)
+              .select('id, nombre')
+              .eq('id', mensaje._asistenteId)
               .single();
             
-            if (asistente) nombreRemitente = asistente.nombre;
-          } else if (mensaje.usuario_id) {
+            if (asistente) {
+              nombreRemitente = asistente.nombre;
+              idRemitente = asistente.id;
+            }
+          } else if (mensaje._usuarioId) {
+            // Si el mensaje es de un usuario
             const { data: usuario } = await supabase
-              .from('usuario') // Corregido: 'usuario' en singular según tu esquema
-              .select('nombre')
-              .eq('id', mensaje.usuario_id)
+              .from('usuario')
+              .select('id, nombre')
+              .eq('id', mensaje._usuarioId)
               .single();
             
-            if (usuario) nombreRemitente = usuario.nombre;
+            if (usuario) {
+              nombreRemitente = usuario.nombre;
+              idRemitente = usuario.id;
+            }
           }
           
           // Emitir mensaje a través de socket
           try {
             await socketService.connect();
-            socketService.joinRoom(solicitud.room_id, 
-              mensaje.usuario_id || mensaje.asistente_id, nombreRemitente);
+            socketService.joinRoom(
+              solicitud.room_id, 
+              idRemitente || 'unknown', 
+              nombreRemitente
+            );
             
-            socketService.sendMessage({
+            socketService.emit('send-message', {
               roomId: solicitud.room_id,
               message: mensaje.contenido,
               sender: nombreRemitente,
@@ -98,14 +126,61 @@ export const mensajesService = {
   // Obtener mensajes por solicitud
   async getMensajesBySolicitud(solicitudId) {
     try {
-      const { data, error } = await supabase
+      // Obtener los mensajes
+      const { data: mensajes, error } = await supabase
         .from('mensajes')
-        .select('*, usuario:usuario_id(*), asistente:asistente_id(*)')
+        .select('*')
         .eq('solicitud_id', solicitudId)
         .order('created_at', { ascending: true });
       
       if (error) throw error;
-      return data;
+      
+      if (!mensajes || mensajes.length === 0) {
+        return [];
+      }
+      
+      // También necesitamos obtener la información de la solicitud para determinar
+      // quién envió cada mensaje (ya que no tenemos usuario_id o asistente_id en la tabla mensajes)
+      const { data: solicitud, error: solicitudError } = await supabase
+        .from('solicitudes_asistencia')
+        .select(`
+          *,
+          usuario:usuario_id(*),
+          asistente:asistente_id(*)
+        `)
+        .eq('id', solicitudId)
+        .single();
+      
+      if (solicitudError) {
+        console.error('Error al obtener información de solicitud:', solicitudError);
+        // Devolver los mensajes sin información adicional
+        return mensajes;
+      }
+      
+      // Enriquecer los mensajes con información del remitente
+      // Esto es una simulación basada en metadata que podríamos almacenar
+      // Por ejemplo, podríamos almacenar el rol del remitente en el campo "tipo"
+      // o usar alguna convención en el contenido
+      const mensajesEnriquecidos = mensajes.map(m => {
+        // Aquí normalmente determinaríamos el remitente basado en usuario_id o asistente_id
+        // Como no tenemos esos campos, tendremos que hacer una suposición o usar metadatos
+        // Esta es una implementación de ejemplo que deberías adaptar a tu lógica
+        
+        // Por ejemplo, si los mensajes de los asistentes tienen un formato especial
+        // o si guardas metadatos en el campo "tipo"
+        const esDeAsistente = m.tipo === 'asistente' || 
+                              (solicitud.asistente && m.contenido.includes('[Asistente]'));
+        
+        return {
+          ...m,
+          remitente: esDeAsistente ? 
+                    (solicitud.asistente ? solicitud.asistente.nombre : 'Asistente') : 
+                    (solicitud.usuario ? solicitud.usuario.nombre : 'Usuario'),
+          esDeAsistente: esDeAsistente
+        };
+      });
+      
+      return mensajesEnriquecidos;
     } catch (error) {
       console.error('Error al obtener mensajes por solicitud:', error);
       throw error;
@@ -113,97 +188,21 @@ export const mensajesService = {
   },
   
   // Marcar mensajes como leídos
-  async marcarComoLeidos(solicitudId, usuarioId = null) {
+  async marcarComoLeidos(solicitudId) {
     try {
-      let query = supabase
+      const { data, error } = await supabase
         .from('mensajes')
-        .update({ leido: true, updated_at: new Date().toISOString() })
-        .eq('solicitud_id', solicitudId);
-      
-      // Si se proporciona ID de usuario (el usuario está leyendo mensajes del asistente)
-      if (usuarioId) {
-        query = query.not('asistente_id', 'is', null); // Marcar como leídos los mensajes de asistentes
-      } else {
-        // El asistente está leyendo mensajes del usuario
-        query = query.not('usuario_id', 'is', null); // Marcar como leídos los mensajes de usuarios
-      }
-      
-      const { data, error } = await query;
+        .update({ 
+          leido: true,
+          updated_at: new Date().toISOString()
+        })
+        .eq('solicitud_id', solicitudId)
+        .eq('leido', false);
       
       if (error) throw error;
       return data;
     } catch (error) {
       console.error('Error al marcar mensajes como leídos:', error);
-      throw error;
-    }
-  },
-  
-  // Obtener mensajes no leídos para un usuario
-    async getMensajesNoLeidos(usuarioId) {
-      try {
-        // Primero, obtenemos los IDs de las solicitudes del usuario
-        const { data: solicitudes, error: solicitudesError } = await supabase
-          .from('solicitudes_asistencia')
-          .select('id')
-          .eq('usuario_id', usuarioId);
-        
-        if (solicitudesError) throw solicitudesError;
-        
-        // Si no hay solicitudes, devolvemos un array vacío
-        if (!solicitudes || solicitudes.length === 0) {
-          return [];
-        }
-        
-        // Extraemos los IDs de las solicitudes
-        const solicitudIds = solicitudes.map(sol => sol.id);
-        
-        // Luego, usamos esos IDs para obtener los mensajes no leídos
-        const { data, error } = await supabase
-          .from('mensajes')
-          .select('*, solicitud:solicitud_id(*)')
-          .eq('leido', false)
-          .not('asistente_id', 'is', null)
-          .in('solicitud_id', solicitudIds);
-        
-        if (error) throw error;
-        return data;
-      } catch (error) {
-        console.error('Error al obtener mensajes no leídos:', error);
-        throw error;
-      }
-    },
-  
-  // Obtener mensajes no leídos para un asistente
-  async getMensajesNoLeidosAsistente(asistenteId) {
-    try {
-      // Primero, obtenemos los IDs de las solicitudes asignadas al asistente
-      const { data: solicitudes, error: solicitudesError } = await supabase
-        .from('solicitudes_asistencia')
-        .select('id')
-        .eq('asistente_id', asistenteId);
-      
-      if (solicitudesError) throw solicitudesError;
-      
-      // Si no hay solicitudes, devolvemos un array vacío
-      if (!solicitudes || solicitudes.length === 0) {
-        return [];
-      }
-      
-      // Extraemos los IDs de las solicitudes
-      const solicitudIds = solicitudes.map(sol => sol.id);
-      
-      // Luego, usamos esos IDs para obtener los mensajes no leídos
-      const { data, error } = await supabase
-        .from('mensajes')
-        .select('*, solicitud:solicitud_id(*)')
-        .eq('leido', false)
-        .not('usuario_id', 'is', null)
-        .in('solicitud_id', solicitudIds);
-      
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Error al obtener mensajes no leídos para asistente:', error);
       throw error;
     }
   },
@@ -276,11 +275,15 @@ export const mensajesService = {
     }
   },
   
+  // Obtener chats atendidos por un asistente
   async getChatsAtendidosByAsistente(asistenteId) {
     try {
       const { data, error } = await supabase
         .from('solicitudes_asistencia')
-        .select('*, usuario:usuario_id(*)')
+        .select(`
+          *,
+          usuario:usuario_id(*)
+        `)
         .eq('asistente_id', asistenteId)
         .eq('tipo_asistencia', 'chat')
         .order('created_at', { ascending: false });
@@ -292,5 +295,4 @@ export const mensajesService = {
       throw error;
     }
   }
-
 };

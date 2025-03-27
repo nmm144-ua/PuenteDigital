@@ -1,17 +1,17 @@
-// src/services/solicitudesAsistenciaService.js
+// src/services/solicitudAsistenciaService.js
 import { supabase } from '../../supabase';
 
 export const solicitudesAsistenciaService = {
   // Crear una nueva solicitud de asistencia
   async createSolicitud(solicitudData) {
-    const { usuario_id, descripcion, room_id } = solicitudData;
+    const { usuario_id, descripcion, room_id, tipo_asistencia = 'chat' } = solicitudData;
     
     const datos = {
       usuario_id,
       descripcion,
       room_id,
+      tipo_asistencia,
       estado: 'pendiente'
-      // created_at se genera automáticamente con el default now()
     };
 
     const { data, error } = await supabase
@@ -26,43 +26,52 @@ export const solicitudesAsistenciaService = {
 
   // Obtener una solicitud por ID
   async getSolicitudById(solicitudId) {
-    const { data, error } = await supabase
-      .from('solicitudes_asistencia')
-      .select('*, usuario:usuario_id(*), asistente:asistente_id(*)')
-      .eq('id', solicitudId)
-      .single();
-    
-    if (error) throw error;
-    return data;
-  },
-
-  // Obtener todas las solicitudes pendientes
-  async getPendienteSolicitudes() {
-    const { data, error } = await supabase
-      .from('solicitudes_asistencia')
-      .select('*, usuario:usuario_id(*)')
-      .eq('estado', 'pendiente')
-      .order('created_at', { ascending: true }); // Usar created_at en lugar de timestamp
-    
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select(`
+          *,
+          usuario:usuario_id(*),
+          asistente:asistente_id(*)
+        `)
+        .eq('id', solicitudId)
+        .single();
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error al obtener solicitud por ID:', error);
+      throw error;
+    }
   },
 
   // Asignar un asistente a una solicitud
   async asignarAsistente(solicitudId, asistenteId) {
-    const { data, error } = await supabase
-      .from('solicitudes_asistencia')
-      .update({
-        asistente_id: asistenteId,
-        estado: 'en_proceso',
-        atendido_timestamp: new Date().toISOString()
-      })
-      .eq('id', solicitudId)
-      .select()
-      .single();
-    
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .update({
+          asistente_id: asistenteId,
+          estado: 'en_proceso',
+          atendido_timestamp: new Date().toISOString()
+        })
+        .eq('id', solicitudId)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      // Incluir información del asistente
+      if (data) {
+        const solicitudConDetalles = await this.getSolicitudById(solicitudId);
+        return solicitudConDetalles;
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('Error al asignar asistente:', error);
+      throw error;
+    }
   },
 
   // Obtener solicitudes asignadas a un asistente
@@ -70,12 +79,14 @@ export const solicitudesAsistenciaService = {
     try {
       const { data, error } = await supabase
         .from('solicitudes_asistencia')
-        .select('*, usuario:usuario_id(*)')
+        .select(`
+          *,
+          usuario:usuario_id(*)
+        `)
         .eq('asistente_id', asistenteId)
         .order('created_at', { ascending: false });
       
       if (error) throw error;
-      
       return data;
     } catch (error) {
       console.error('Error al obtener solicitudes del asistente:', error);
@@ -88,12 +99,14 @@ export const solicitudesAsistenciaService = {
     try {
       const { data, error } = await supabase
         .from('solicitudes_asistencia')
-        .select('*, asistente:asistente_id(*)')
+        .select(`
+          *,
+          asistente:asistente_id(*)
+        `)
         .eq('usuario_id', usuarioId)
         .order('created_at', { ascending: false });
       
       if (error) throw error;
-      
       return data;
     } catch (error) {
       console.error('Error al obtener solicitudes del usuario:', error);
@@ -101,62 +114,68 @@ export const solicitudesAsistenciaService = {
     }
   },
 
-    // Obtener solicitudes pendientes
-    async getPendienteSolicitudes() {
-      try {
-        const { data, error } = await supabase
-          .from('solicitudes_asistencia')
-          .select('*, usuario:usuario_id(*)')
-          .eq('estado', 'pendiente')
-          .is('asistente_id', null)
-          .order('created_at', { ascending: true });
-        
-        if (error) throw error;
-        
-        return data;
-      } catch (error) {
-        console.error('Error al obtener solicitudes pendientes:', error);
-        throw error;
-      }
-    },
+  // Obtener solicitudes pendientes
+  async getPendienteSolicitudes() {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select(`
+          *,
+          usuario:usuario_id(*)
+        `)
+        .eq('estado', 'pendiente')
+        .is('asistente_id', null)
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error al obtener solicitudes pendientes:', error);
+      throw error;
+    }
+  },
 
-    // Obtener solicitudes pendientes
-    async getVideoSolicitudes() {
-      try {
-        const { data, error } = await supabase
-          .from('solicitudes_asistencia')
-          .select('*, usuario:usuario_id(*)')
-          .eq('estado', 'pendiente')
-          .eq('tipo_asistencia', 'video')
-          .order('created_at', { ascending: true });
-        
-        if (error) throw error;
-        
-        return data;
-      } catch (error) {
-        console.error('Error al obtener solicitudes de video:', error);
-        throw error;
-      }
-    },
+  // Obtener solicitudes de videollamada pendientes
+  async getVideoSolicitudes() {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select(`
+          *,
+          usuario:usuario_id(*)
+        `)
+        .eq('estado', 'pendiente')
+        .eq('tipo_asistencia', 'video')
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error al obtener solicitudes de video:', error);
+      throw error;
+    }
+  },
 
-    // Obtener solicitudes pendientes
-    async getChatSolicitudes() {
-      try {
-        const { data, error } = await supabase
-          .from('solicitudes_asistencia')
-          .select('*, usuario:usuario_id(*)')
-          .eq('estado', 'pendiente')
-          .eq('tipo_asistencia', 'chat')
-          .order('created_at', { ascending: true });
-        
-        if (error) throw error;
-        
-        return data;
-      } catch (error) {
-        console.error('Error al obtener solicitudes de video:', error);
-        throw error;
-      }
-    },
+  // Obtener solicitudes de chat pendientes
+  async getChatSolicitudes() {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select(`
+          *,
+          usuario:usuario_id(*)
+        `)
+        .eq('estado', 'pendiente')
+        .eq('tipo_asistencia', 'chat')
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error al obtener solicitudes de chat:', error);
+      throw error;
+    }
+  },
 
   // Finalizar una solicitud de asistencia
   async finalizarSolicitud(solicitudId) {
@@ -189,34 +208,38 @@ export const solicitudesAsistenciaService = {
     return data;
   },
 
-
   // Obtener estadísticas de solicitudes
   async getEstadisticas() {
-    const { data: pendientes, error: errorPendientes } = await supabase
-      .from('solicitudes_asistencia')
-      .select('id', { count: 'exact', head: true })
-      .eq('estado', 'pendiente');
-    
-    const { data: enProceso, error: errorEnProceso } = await supabase
-      .from('solicitudes_asistencia')
-      .select('id', { count: 'exact', head: true })
-      .eq('estado', 'en_proceso');
-    
-    const { data: finalizadas, error: errorFinalizadas } = await supabase
-      .from('solicitudes_asistencia')
-      .select('id', { count: 'exact', head: true })
-      .eq('estado', 'finalizada');
-    
-    if (errorPendientes || errorEnProceso || errorFinalizadas) {
-      throw new Error('Error al obtener estadísticas');
+    try {
+      // Obtener conteo de solicitudes por estado
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select('estado', { count: 'exact' })
+        .in('estado', ['pendiente', 'en_proceso', 'finalizada', 'cancelada'])
+        .eq('tipo_asistencia', 'chat');
+      
+      if (error) throw error;
+      
+      // Procesar los resultados para obtener conteos por estado
+      const conteo = {
+        pendientes: 0,
+        enProceso: 0,
+        finalizadas: 0,
+        canceladas: 0
+      };
+      
+      // Contar manualmente para mayor precisión
+      data.forEach(item => {
+        if (item.estado === 'pendiente') conteo.pendientes++;
+        else if (item.estado === 'en_proceso') conteo.enProceso++;
+        else if (item.estado === 'finalizada') conteo.finalizadas++;
+        else if (item.estado === 'cancelada') conteo.canceladas++;
+      });
+      
+      return conteo;
+    } catch (error) {
+      console.error('Error al obtener estadísticas:', error);
+      throw new Error('Error al obtener estadísticas: ' + error.message);
     }
-    
-    return {
-      pendientes: pendientes?.length || 0,
-      enProceso: enProceso?.length || 0,
-      finalizadas: finalizadas?.length || 0
-    };
-  },
-
-
+  }
 };

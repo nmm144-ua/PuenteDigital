@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import socketService from '../services/socket.service';
 import { solicitudesAsistenciaService } from '../services/solicitudAsistenciaService';
 import { mensajesService } from '../services/mensajesService';
+import { asistenteService } from '../services/asistenteService';
 import loggerService from '../services/logger.service';
 
 // Nombre del módulo para logging
@@ -12,8 +13,9 @@ const LOG_MODULE = 'ChatStore';
 export const useChatStore = defineStore('chat', {
   state: () => ({
     // Usuario
-    userId: null,
-    userName: '',
+    userId: null,      // ID del usuario actual (puede ser user_id de auth o id de asistente/usuario)
+    userName: '',      // Nombre del usuario actual
+    userDbId: null,    // ID en la tabla (usuario o asistentes)
     
     // Rol del usuario (asistente o usuario)
     userRole: 'usuario',
@@ -65,6 +67,12 @@ export const useChatStore = defineStore('chat', {
     setUserRole(role) {
       this.userRole = role;
       loggerService.debug(LOG_MODULE, `Rol de usuario establecido a: ${role}`);
+    },
+    
+    // Establecer ID de usuario en la base de datos
+    setUserDbId(id) {
+      this.userDbId = id;
+      loggerService.debug(LOG_MODULE, `ID de usuario en BD establecido a: ${id}`);
     },
     
     // Establecer solicitud actual
@@ -170,7 +178,7 @@ export const useChatStore = defineStore('chat', {
         // Solo manejar si el evento no es del usuario actual
         if (data.userId !== this.userId) {
           loggerService.debug(LOG_MODULE, 'Usuario está escribiendo', data);
-          // Aquí podrías actualizar un estado para mostrar un indicador de "escribiendo..."
+          // Aquí puedes actualizar un estado para mostrar un indicador de "escribiendo..."
         }
       });
     },
@@ -263,14 +271,25 @@ export const useChatStore = defineStore('chat', {
         
         if (messages && messages.length) {
           // Formatear mensajes para que coincidan con el formato esperado
-          this.messages = messages.map(m => ({
-            id: m.id,
-            message: m.contenido,
-            sender: m.usuario_id ? (m.usuario?.nombre || 'Usuario') : (m.asistente?.nombre || 'Asistente'),
-            timestamp: m.created_at,
-            isLocal: this.isMessageFromCurrentUser(m),
-            leido: m.leido
-          }));
+          this.messages = messages.map(m => {
+            let senderName = 'Desconocido';
+            
+            // Determinar nombre del remitente
+            if (m.asistente_id && m.asistente) {
+              senderName = m.asistente.nombre || 'Asistente';
+            } else if (m.usuario_id && m.usuario) {
+              senderName = m.usuario.nombre || 'Usuario';
+            }
+            
+            return {
+              id: m.id,
+              message: m.contenido,
+              sender: senderName,
+              timestamp: m.created_at,
+              isLocal: this.isMessageFromCurrentUser(m),
+              leido: m.leido
+            };
+          });
         } else {
           // Inicializar con array vacío
           this.messages = [];
@@ -282,7 +301,7 @@ export const useChatStore = defineStore('chat', {
           // Si somos asistente, marcar como leídos los mensajes del usuario
           try {
             if (this.userRole === 'usuario') {
-              await mensajesService.marcarComoLeidos(solicitudId, this.userId);
+              await mensajesService.marcarComoLeidos(solicitudId, this.userDbId);
             } else {
               await mensajesService.marcarComoLeidos(solicitudId);
             }
@@ -303,9 +322,9 @@ export const useChatStore = defineStore('chat', {
     // Determinar si un mensaje es del usuario actual
     isMessageFromCurrentUser(message) {
       if (this.userRole === 'asistente') {
-        return message.asistente_id !== null;
+        return message.asistente_id && (message.asistente_id === this.userDbId);
       } else {
-        return message.usuario_id === this.userId;
+        return message.usuario_id && (message.usuario_id === this.userDbId);
       }
     },
     
@@ -336,7 +355,12 @@ export const useChatStore = defineStore('chat', {
         // Enviar a través de socket para usuarios en la sala
         if (socketService.isConnected) {
           loggerService.debug(LOG_MODULE, 'Enviando mensaje por socket');
-          socketService.sendMessage(this.roomId, content, this.userName);
+          socketService.emit('send-message', {
+            roomId: this.roomId,
+            message: content,
+            sender: this.userName,
+            timestamp: new Date().toISOString()
+          });
         } else {
           loggerService.warn(LOG_MODULE, 'Socket no conectado al enviar mensaje');
         }
@@ -346,16 +370,13 @@ export const useChatStore = defineStore('chat', {
           const mensaje = {
             solicitud_id: this.currentSolicitudId,
             contenido: content,
-            tipo: 'texto',
-            leido: false
+            tipo: this.userRole === 'asistente' ? 'asistente' : 'usuario', // Usar el tipo para identificar quién envió el mensaje
+            leido: false,
+            // Añadir información de metadatos para el servicio
+            _esAsistente: this.userRole === 'asistente',
+            _asistenteId: this.userRole === 'asistente' ? this.userDbId : null,
+            _usuarioId: this.userRole !== 'asistente' ? this.userDbId : null
           };
-          
-          // Añadir ID según el rol
-          if (this.userRole === 'asistente') {
-            mensaje.asistente_id = this.userId;
-          } else {
-            mensaje.usuario_id = this.userId;
-          }
           
           try {
             const mensajeGuardado = await mensajesService.enviarMensaje(mensaje);
@@ -438,6 +459,37 @@ export const useChatStore = defineStore('chat', {
       this.isTyping = false;
       this.error = null;
       this.socketConnected = false;
+    },
+    
+    // Cargar mensajes no leídos
+    async loadUnreadMessages() {
+      if (!this.userDbId) {
+        loggerService.warn(LOG_MODULE, 'No hay ID de usuario para cargar mensajes no leídos');
+        return [];
+      }
+      
+      try {
+        let messages = [];
+        
+        if (this.userRole === 'asistente') {
+          messages = await mensajesService.getMensajesNoLeidosAsistente(this.userDbId);
+        } else {
+          messages = await mensajesService.getMensajesNoLeidos(this.userDbId);
+        }
+        
+        this.unreadMessages = messages;
+        loggerService.debug(LOG_MODULE, 'Mensajes no leídos cargados', { count: messages.length });
+        
+        return messages;
+      } catch (error) {
+        loggerService.error(LOG_MODULE, 'Error al cargar mensajes no leídos', error);
+        return [];
+      }
+    },
+    
+    // Obtener total de mensajes no leídos
+    getUnreadMessagesCount() {
+      return this.unreadMessages?.length || 0;
     }
   }
 });
