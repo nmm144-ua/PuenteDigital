@@ -61,9 +61,9 @@
       <template v-else>
         <div 
           v-for="mensaje in mensajes" 
-          :key="mensaje.id" 
+          :key="mensaje.id || `${mensaje.created_at}_${mensaje.contenido}`" 
           class="mensaje" 
-          :class="{'mensaje-propio': esMensajePropio(mensaje)}"
+          :class="{'mensaje-propio': esMensajePropio(mensaje), 'mensaje-usuario': !esMensajePropio(mensaje)}"
         >
           <div class="mensaje-contenido">
             {{ mensaje.contenido || mensaje.message }}
@@ -139,10 +139,8 @@ export default {
     const typingTimeout = ref(null);
     
     // Computar mensajes del chat store
-    const mensajes = computed(() => {
-      return chatStore.messages;
-    });
-    
+    const mensajes = ref([]);
+
     // Verificar si estamos en una llamada activa
     const isInCall = computed(() => callStore.isInCall);
     
@@ -166,7 +164,54 @@ export default {
         console.error('Error al cargar la solicitud:', error);
       }
     };
-    
+
+    // Dentro de ChatComponent.vue, reemplaza esta función:
+    const actualizarMensajesDesdeStore = () => {
+      const storeMessages = chatStore.messages;
+      
+      // Verificar si hay nuevos mensajes
+      if (storeMessages.length > 0) {
+        console.log('ChatComponent: Mensajes desde store detectados', storeMessages);
+        
+        // Procesar todos los mensajes para asegurar consistencia
+        for (const message of storeMessages) {
+          // Verificar si este mensaje ya existe usando una clave única
+          const messageKey = message.id || 
+                          `${message.timestamp || message.created_at}_${message.sender || message.tipo}_${message.message || message.contenido}`;
+          
+          // Verificar si ya tenemos este mensaje exacto en la lista
+          const exists = mensajes.value.some(m => {
+            if (m.id && m.id === message.id) return true;
+            
+            const mKey = `${m.created_at || m.timestamp}_${m.sender || m.tipo}_${m.contenido || m.message}`;
+            return messageKey === mKey;
+          });
+          
+          if (!exists) {
+            // Generar un ID si no existe
+            const generatedId = message.id || Date.now() + Math.floor(Math.random() * 1000);
+            
+            // Formatear el mensaje para la vista de manera uniforme
+            const formattedMessage = {
+              id: generatedId,
+              contenido: message.message || message.contenido,
+              created_at: message.timestamp || message.created_at || new Date().toISOString(),
+              tipo: message.sender === authStore.user.nombre ? 'asistente' : 'usuario',
+              leido: message.leido || false,
+              // Conservar isLocal para determinar si es mensaje propio
+              isLocal: message.isLocal
+            };
+            
+            console.log('Añadiendo mensaje a ChatComponent:', formattedMessage);
+            mensajes.value.push(formattedMessage);
+          }
+        }
+        
+        // Desplazar al final del chat
+        nextTick(() => scrollToBottom());
+      }
+    };
+
     // Inicializar chat
     const inicializarChat = async () => {
       cargando.value = true;
@@ -306,16 +351,32 @@ export default {
       return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
     
-    // Verificar si un mensaje es propio
+  // Mejora de la función esMensajePropio en ambos componentes
     const esMensajePropio = (mensaje) => {
+      // Si el mensaje tiene campo isLocal, usarlo
       if (mensaje.isLocal !== undefined) {
         return mensaje.isLocal;
       }
       
+      // Si el mensaje tiene sender y coincide con el nombre del usuario
+      if (mensaje.sender && authStore.user && authStore.user.nombre) {
+        return mensaje.sender === authStore.user.nombre;
+      }
+      
+      // Verificar si el mensaje es del asistente basado en tipo
+      if (mensaje.tipo) {
+        if (props.isAsistente) {
+          return mensaje.tipo === 'asistente';
+        } else {
+          return mensaje.tipo === 'usuario';
+        }
+      }
+      
+      // Verificar por IDs si están disponibles
       if (props.isAsistente) {
         return mensaje.asistente_id && 
           (mensaje.asistente_id === authStore.user.asistente_id || 
-           mensaje.asistente_id === authStore.user.id);
+          mensaje.asistente_id === authStore.user.id);
       } else {
         return mensaje.usuario_id === authStore.user.id;
       }
@@ -355,30 +416,41 @@ export default {
       });
     };
     
-    // Lifecycle hooks
     onMounted(async () => {
       await inicializarChat();
+      
+      // Inicializar mensajes desde el store
+      actualizarMensajesDesdeStore();
       
       // Enfocar el campo de entrada
       if (messageInput.value) {
         messageInput.value.focus();
       }
     });
-    
+
+    // Añade esto en onUnmounted para limpieza
     onUnmounted(() => {
       // Limpiar timeout de escritura
       if (typingTimeout.value) {
         clearTimeout(typingTimeout.value);
       }
       
-      // No desconectar del chat al desmontar, solo si se cierra explícitamente
-      // Para mantener consistencia con la lógica de videollamada
+      // Limpiar canal de Supabase
+      if (supabaseChannel.value) {
+        supabase.removeChannel(supabaseChannel.value);
+      }
     });
-    
+        
     // Observar cambios en los mensajes para desplazar al final
     watch(mensajes, async () => {
       await scrollToBottom();
     });
+
+    watch(() => chatStore.messages, (newMessages) => {
+      console.log('ChatComponent: Cambio detectado en chatStore.messages', newMessages);
+      actualizarMensajesDesdeStore();
+    }, { deep: true });
+
     
     return {
       mensajes,
@@ -420,6 +492,7 @@ export default {
 .assign-button:hover {
   background-color: #e8f5e9; /* Fondo verde claro al hover */
 }
+
 .chat-container {
   display: flex;
   flex-direction: column;
@@ -438,6 +511,8 @@ export default {
   padding: 15px;
   background-color: #ffffff;
   border-bottom: 1px solid #e0e0e0;
+  height: 70px; /* Altura fija para el encabezado */
+  flex-shrink: 0; /* Evita que se encoja */
 }
 
 .user-info {
@@ -513,11 +588,13 @@ export default {
 }
 
 .chat-body {
-  flex: 1;
-  padding: 15px;
+  /* Aplicar tamaño fijo al cuerpo del chat */
+  height: 500px; /* Altura fija, ajusta según necesites */
   overflow-y: auto;
+  padding: 15px;
   display: flex;
   flex-direction: column;
+  flex: 0 0 auto; /* Evitar que crezca o se encoja */
 }
 
 .mensaje {
@@ -569,11 +646,14 @@ export default {
   padding: 10px 15px;
   background-color: #ffffff;
   border-top: 1px solid #e0e0e0;
+  flex-shrink: 0; /* Evita que se encoja */
+  height: 70px; /* Altura fija para el pie de página */
 }
 
 .message-input-container {
   display: flex;
   align-items: center;
+  height: 100%;
 }
 
 .message-input {
@@ -585,7 +665,7 @@ export default {
   font-family: inherit;
   font-size: 0.9rem;
   min-height: 20px;
-  max-height: 100px;
+  max-height: 50px; /* Limitar altura del input */
   overflow-y: auto;
 }
 
@@ -623,7 +703,7 @@ export default {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  height: 200px;
+  height: 100%;
   color: #757575;
   text-align: center;
 }
@@ -686,6 +766,11 @@ export default {
 
   .status-atendido i {
     font-size: 0.9rem;
+  }
+  
+  /* Ajustar altura para móviles */
+  .chat-body {
+    height: calc(100vh - 180px); /* Altura dinámica en móviles */
   }
 }
 </style>

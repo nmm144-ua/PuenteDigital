@@ -145,6 +145,7 @@ export const useChatStore = defineStore('chat', {
            m.message === messageData.message)
         );
         
+        
         if (!isDuplicate) {
           this.messages.push(messageData);
         } else {
@@ -472,7 +473,7 @@ export const useChatStore = defineStore('chat', {
         let messages = [];
         
         if (this.userRole === 'asistente') {
-          messages = await mensajesService.getMensajesNoLeidosAsistente(this.userDbId);
+          messages = await mensajesService.getMensajesNoLeidos(this.userDbId);
         } else {
           messages = await mensajesService.getMensajesNoLeidos(this.userDbId);
         }

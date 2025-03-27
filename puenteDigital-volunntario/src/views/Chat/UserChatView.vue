@@ -215,7 +215,7 @@
             <template v-else>
               <div 
                 v-for="mensaje in chatMessages" 
-                :key="mensaje.id" 
+                :key="mensaje.id || `${mensaje.created_at}_${mensaje.contenido}`" 
                 class="mensaje" 
                 :class="{'mensaje-propio': esMensajePropio(mensaje), 'mensaje-usuario': !esMensajePropio(mensaje)}"
               >
@@ -234,7 +234,19 @@
 
           <!-- Pie de página del chat (entrada de mensaje) -->
           <div class="chat-footer">
-            <div class="message-input-container">
+            <div v-if="selectedSolicitud && !selectedSolicitud.asistente_id" class="asignacion-requerida">
+              <div class="asignacion-mensaje">
+                <i class="fas fa-info-circle"></i>
+                Debes asignar esta solicitud antes de iniciar la conversación
+              </div>
+              <button 
+                @click="asignarSolicitud(selectedSolicitud)" 
+                class="asignar-button"
+              >
+                <i class="fas fa-user-check"></i> Asignarme esta solicitud
+              </button>
+            </div>
+            <div v-else class="message-input-container">
               <textarea 
                 v-model="nuevoMensaje" 
                 class="message-input" 
@@ -289,6 +301,7 @@ export default {
     const chatBody = ref(null); // Referencia al cuerpo del chat para scroll
     const messageInput = ref(null); // Referencia al input de mensaje
     const typingTimeout = ref(null); // Timeout para evento de escritura
+    const processedMessages = ref(new Set()); // Set para rastrear mensajes procesados
     
     // Filtrar solicitudes por estado para mis conversaciones (con asistente asignado)
     const misConversaciones = computed(() => {
@@ -298,7 +311,85 @@ export default {
     // Inicializar chat store
     onMounted(() => {
       chatStore.initialize();
+      // Limpiar el set de mensajes procesados al iniciar
+      processedMessages.value.clear();
     });
+    
+    // Verificar si un mensaje es duplicado (basado en la implementación de React Native)
+    const isMessageDuplicate = (message) => {
+      // Generar una clave única basada en el contenido
+      const messageKey = message.id 
+        ? `id_${message.id}` 
+        : `${message.timestamp || message.created_at}_${message.sender || message.tipo}_${message.message || message.contenido}`;
+      
+      // Si ya tenemos exactamente este mensaje, es duplicado
+      if (processedMessages.value.has(messageKey)) {
+        console.log('Mensaje ya procesado, ignorando duplicado exacto', messageKey);
+        return true;
+      }
+      
+      // Buscar contenido similar dentro de una ventana de tiempo
+      const messageContent = message.message || message.contenido;
+      const messageTime = new Date(message.timestamp || message.created_at).getTime();
+      
+      // Verificar similitud con mensajes recientes
+      for (const existingKey of processedMessages.value.values()) {
+        // Si la clave incluye el mismo contenido, verificar ventana de tiempo
+        if (existingKey.includes(messageContent)) {
+          // Extraer timestamp aproximado
+          const keyParts = existingKey.split('_');
+          if (keyParts.length > 0) {
+            try {
+              const existingTime = new Date(keyParts[0]).getTime();
+              const timeDiff = Math.abs(existingTime - messageTime);
+              
+              if (timeDiff < 5000) { // 5 segundos de tolerancia
+                console.log('Mensaje similar detectado dentro de ventana de tiempo', messageContent);
+                return true;
+              }
+            } catch (error) {
+              // Continuar si hay error en el parsing
+            }
+          }
+        }
+      }
+      
+      // Verificar si ya existe en el arreglo actual de mensajes
+      const duplicateInMessages = chatMessages.value.some(m => {
+        // Coincidencia por ID
+        if (m.id && m.id === message.id) {
+          return true;
+        }
+        
+        // Coincidencia por contenido
+        const mContent = m.contenido || m.message;
+        if (mContent === messageContent) {
+          // Verificar proximidad temporal
+          const mTime = new Date(m.created_at || m.timestamp).getTime();
+          const timeDiff = Math.abs(mTime - messageTime);
+          return timeDiff < 5000; // 5 segundos
+        }
+        
+        return false;
+      });
+      
+      if (duplicateInMessages) {
+        console.log('Mensaje ya existe en la lista actual', messageContent);
+        return true;
+      }
+      
+      // No es duplicado, registrarlo como procesado
+      processedMessages.value.add(messageKey);
+      
+      // Limitar tamaño del conjunto para evitar crecimiento excesivo
+      if (processedMessages.value.size > 100) {
+        // Eliminar el más antiguo (el primero del conjunto)
+        const firstKey = processedMessages.value.values().next().value;
+        processedMessages.value.delete(firstKey);
+      }
+      
+      return false;
+    };
     
     // Cargar solicitudes del usuario y solicitudes pendientes
     const loadSolicitudes = async () => {
@@ -337,8 +428,20 @@ export default {
     const loadMensajesNoLeidos = async () => {
       try {
         if (authStore.user) {
-          const data = await mensajesService.getMensajesNoLeidos(authStore.user.id);
+          // En lugar de usar getMensajesNoLeidos, haz una consulta directa a Supabase
+          const { data, error } = await supabase
+            .from('mensajes')
+            .select('id, solicitud_id, leido')
+            .eq('leido', false);
+          
+          if (error) {
+            console.error('Error al cargar mensajes no leídos:', error);
+            return;
+          }
+          
+          // Actualizar mensajesNoLeidos.value con los resultados
           mensajesNoLeidos.value = data || [];
+          console.log('Mensajes no leídos actualizados:', mensajesNoLeidos.value.length);
         }
       } catch (error) {
         console.error('Error al cargar mensajes no leídos:', error);
@@ -372,8 +475,21 @@ export default {
     const cargarMensajes = async (solicitudId) => {
       cargandoMensajes.value = true;
       try {
+        console.log('Cargando mensajes para solicitud:', solicitudId);
         const mensajes = await mensajesService.getMensajesBySolicitud(solicitudId);
+        console.log('Mensajes cargados:', mensajes);
+        
+        // Asignar mensajes al estado
         chatMessages.value = mensajes;
+        
+        // Registrar los mensajes existentes en el set de procesados
+        mensajes.forEach(mensaje => {
+          const key = mensaje.id 
+            ? `id_${mensaje.id}` 
+            : `${mensaje.created_at}_${mensaje.tipo}_${mensaje.contenido}`;
+          
+          processedMessages.value.add(key);
+        });
         
         // Marcar mensajes como leídos
         await mensajesService.marcarComoLeidos(solicitudId);
@@ -392,38 +508,115 @@ export default {
     
     // Seleccionar una solicitud
     const selectSolicitud = async (solicitud) => {
-      // Si ya hay una sala activa, salir primero
-      if (chatStore.isInRoom && chatStore.roomId !== solicitud.room_id) {
-        chatStore.leaveRoom();
+      try {
+        console.log('Seleccionando solicitud:', solicitud.id);
+        
+        // Si ya hay una sala activa, salir primero
+        if (chatStore.isInRoom && chatStore.roomId !== solicitud.room_id) {
+          chatStore.leaveRoom();
+        }
+        
+        // Establecer la solicitud seleccionada
+        selectedSolicitudId.value = solicitud.id;
+        
+        // Limpiar mensajes anteriores y mostrar estado de carga
+        chatMessages.value = [];
+        cargandoMensajes.value = true;
+        
+        // Cargar datos de la solicitud
+        await cargarSolicitud(solicitud.id);
+        
+        // Dos enfoques: 1) Usar supabase directamente o 2) usar chatStore
+        // Enfoque 1: Cargar mensajes directamente desde Supabase
+        try {
+          console.log('Cargando mensajes directamente desde Supabase');
+          
+          const { data: mensajesData, error } = await supabase
+            .from('mensajes')
+            .select('*')
+            .eq('solicitud_id', solicitud.id)
+            .order('created_at', { ascending: true });
+          
+          if (error) throw error;
+          
+          if (mensajesData && mensajesData.length > 0) {
+            // Formatear mensajes antes de asignarlos
+            chatMessages.value = mensajesData.map(msg => ({
+              id: msg.id,
+              contenido: msg.contenido,
+              created_at: msg.created_at,
+              tipo: msg.tipo,
+              leido: msg.leido || false,
+              asistente_id: msg.asistente_id,
+              usuario_id: msg.usuario_id
+            }));
+            
+            console.log(`${chatMessages.value.length} mensajes cargados desde Supabase`);
+          } else {
+            console.log('No hay mensajes en Supabase para esta solicitud');
+            chatMessages.value = [];
+          }
+          
+          // Marcar mensajes como leídos (solo los mensajes de tipo usuario)
+          const { error: updateError } = await supabase
+            .from('mensajes')
+            .update({ leido: true })
+            .eq('solicitud_id', solicitud.id)
+            .eq('tipo', 'usuario')
+            .eq('leido', false);
+          
+          if (updateError) {
+            console.error('Error al marcar mensajes como leídos:', updateError);
+          } else {
+            console.log('Mensajes del usuario marcados como leídos');
+            // Actualizar contador de no leídos
+            loadMensajesNoLeidos();
+          }
+        } catch (supabaseError) {
+          console.error('Error al cargar mensajes desde Supabase:', supabaseError);
+          
+          // Enfoque 2: Fallback al método anterior si falla Supabase directo
+          console.log('Intentando cargar mensajes con método de respaldo');
+          await cargarMensajes(solicitud.id);
+        }
+        
+        // Configurar chatStore (mantener por compatibilidad)
+        chatStore.setUserRole('asistente');
+        
+        // Unirse a la sala de chat
+        const userId = authStore.user.id;
+        const userName = authStore.user.nombre || 'Asistente';
+        
+        if (!chatStore.isInRoom || chatStore.roomId !== solicitud.room_id) {
+          await chatStore.joinRoom(
+            solicitud.room_id,
+            userName,
+            'asistente',
+            solicitud.id
+          );
+        }
+        
+        // Limpiar el set de mensajes procesados al cambiar de sala
+        processedMessages.value.clear();
+        
+        // Configurar nuevas suscripciones en tiempo real
+        unsubscribe.value = setupRealtimeSubscription();
+        
+        // Desplazar al final del chat
+        await nextTick(() => {
+          scrollToBottom();
+        });
+        
+        // Cerrar sidebar en modo móvil
+        sidebarOpen.value = false;
+      } catch (error) {
+        console.error('Error al seleccionar solicitud:', error);
+        cargandoMensajes.value = false;
+        alert('Error al cargar la conversación. Intente nuevamente.');
+      } finally {
+        // Asegurar que el estado de carga se desactive
+        cargandoMensajes.value = false;
       }
-      
-      // Establecer la solicitud seleccionada
-      selectedSolicitudId.value = solicitud.id;
-      
-      // Cargar datos de la solicitud
-      await cargarSolicitud(solicitud.id);
-      
-      // Configurar chatStore
-      chatStore.setUserRole('asistente');
-      
-      // Unirse a la sala de chat
-      const userId = authStore.user.id;
-      const userName = authStore.user.nombre || 'Asistente';
-      
-      if (!chatStore.isInRoom || chatStore.roomId !== solicitud.room_id) {
-        await chatStore.joinRoom(
-          solicitud.room_id,
-          userName,
-          'asistente',
-          solicitud.id
-        );
-      }
-      
-      // Cargar mensajes de la solicitud
-      await cargarMensajes(solicitud.id);
-      
-      // Cerrar sidebar en modo móvil
-      sidebarOpen.value = false;
     };
     
     // Cerrar chat actual
@@ -434,6 +627,7 @@ export default {
       selectedSolicitudId.value = null;
       selectedSolicitud.value = null;
       chatMessages.value = [];
+      processedMessages.value.clear();
     };
     
     // Alternar visibilidad del sidebar en móvil
@@ -445,50 +639,115 @@ export default {
     const enviarMensaje = async () => {
       if (!nuevoMensaje.value.trim() || !selectedSolicitudId.value) return;
       
+      // Verificar si la solicitud tiene asistente asignado
+      if (selectedSolicitud.value && !selectedSolicitud.value.asistente_id) {
+        alert('Debes asignar la solicitud antes de enviar mensajes');
+        return;
+      }
+      
       try {
-        // Obtener el asistente actual
+        // Obtener información del asistente
         const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
         if (!asistente) {
           console.error('No se pudo obtener información del asistente');
           return;
         }
         
-        // Preparar datos del mensaje
-        const mensaje = {
-          solicitud_id: selectedSolicitudId.value,
-          contenido: nuevoMensaje.value.trim(),
-          tipo: 'asistente', // Tipo asistente para mensajes enviados desde la web
-          leido: false,
-          _esAsistente: true,
-          _asistenteId: asistente.id,
-          _usuarioId: null
-        };
-        
-        // Enviar mensaje usando el servicio
-        const mensajeGuardado = await mensajesService.enviarMensaje(mensaje);
-        
-        // Agregar el mensaje a la lista
-        if (mensajeGuardado) {
-          // Formatear el mensaje para mostrar
-          const mensajeFormateado = {
-            ...mensajeGuardado,
-            remitente: authStore.user.nombre || 'Asistente',
-            esDeAsistente: true,
-            isLocal: true
-          };
-          
-          chatMessages.value.push(mensajeFormateado);
-        }
-        
-        // Limpiar campo de entrada
+        // Guardar y limpiar mensaje antes de enviarlo
+        const mensajeTexto = nuevoMensaje.value.trim();
         nuevoMensaje.value = '';
         
-        // Desplazar al final del chat
-        await scrollToBottom();
+        // Crear mensaje temporal para UI inmediata
+        const mensajeTemporal = {
+          id: `temp-${Date.now()}`,
+          contenido: mensajeTexto,
+          created_at: new Date().toISOString(),
+          tipo: 'asistente',
+          leido: false,
+          temporal: true
+        };
         
+        // Añadir mensaje temporal a la lista local
+        chatMessages.value.push(mensajeTemporal);
+        
+        // Scroll inmediato
+        nextTick(() => {
+          scrollToBottom();
+        });
+        
+        // ENFOQUE 1: Insertar directamente en Supabase
+        try {
+          console.log('Enviando mensaje directo a Supabase');
+          
+          // Datos para inserción
+          const mensajeData = {
+            solicitud_id: selectedSolicitudId.value,
+            contenido: mensajeTexto,
+            tipo: 'asistente',
+            leido: false,
+            asistente_id: asistente.id,
+            created_at: new Date().toISOString()
+          };
+          
+          // Insertar en la tabla mensajes
+          const { data, error } = await supabase
+            .from('mensajes')
+            .insert(mensajeData)
+            .select();
+          
+          if (error) throw error;
+          
+          if (data && data[0]) {
+            console.log('Mensaje guardado exitosamente en Supabase:', data[0]);
+            
+            // Reemplazar mensaje temporal con el real si no lo ha hecho la suscripción
+            setTimeout(() => {
+              const index = chatMessages.value.findIndex(m => m.id === mensajeTemporal.id);
+              if (index !== -1) {
+                chatMessages.value[index] = {
+                  ...data[0],
+                  contenido: data[0].contenido // Asegurar contenido correcto
+                };
+              }
+            }, 500);
+          }
+        } catch (supabaseError) {
+          console.error('Error enviando mensaje a Supabase:', supabaseError);
+          
+          // ENFOQUE 2: Fallback a método anterior
+          console.log('Intentando enviar mensaje con método de respaldo');
+          
+          // Preparar datos del mensaje para el servicio
+          const mensaje = {
+            solicitud_id: selectedSolicitudId.value,
+            contenido: mensajeTexto,
+            tipo: 'asistente',
+            leido: false,
+            _esAsistente: true,
+            _asistenteId: asistente.id,
+            _usuarioId: null
+          };
+          
+          // Enviar mensaje usando el servicio
+          const mensajeGuardado = await mensajesService.enviarMensaje(mensaje);
+          
+          // Reemplazar mensaje temporal con real
+          if (mensajeGuardado) {
+            const index = chatMessages.value.findIndex(m => m.id === mensajeTemporal.id);
+            if (index !== -1) {
+              chatMessages.value[index] = {
+                ...mensajeGuardado,
+                contenido: mensajeGuardado.contenido
+              };
+            }
+          }
+        }
       } catch (error) {
-        console.error('Error al enviar mensaje:', error);
+        console.error('Error general al enviar mensaje:', error);
         alert('No se pudo enviar el mensaje. Inténtalo de nuevo.');
+        
+        // Eliminar mensaje temporal en caso de error
+        chatMessages.value = chatMessages.value.filter(m => !m.temporal);
       }
     };
     
@@ -535,13 +794,50 @@ export default {
     
     // Verificar si un mensaje es propio (del asistente)
     const esMensajePropio = (mensaje) => {
-      // Si el mensaje tiene campo isLocal, usarlo
+      // Si el mensaje tiene campo isLocal explícito, usarlo
       if (mensaje.isLocal !== undefined) {
         return mensaje.isLocal;
       }
       
-      // Verificar si el mensaje es del asistente
-      return mensaje.tipo === 'asistente' || mensaje.esDeAsistente === true;
+      // Por propiedad sender si coincide con el nombre del usuario
+      if (mensaje.sender && authStore.user && authStore.user.nombre) {
+        return mensaje.sender === authStore.user.nombre;
+      }
+      
+      // Por tipo explícito
+      if (mensaje.tipo === 'asistente') {
+        return true; // En UserChatView somos el asistente
+      }
+      
+      // Verificar si es un mensaje del propio asistente por ID
+      return mensaje.asistente_id && mensaje.asistente_id === authStore.user.id;
+    };
+    
+    // Determinar tipo de mensaje de forma más inteligente
+    const determinarTipoMensaje = (mensaje) => {
+      // Usar tipo explícito si existe
+      if (mensaje.tipo) {
+        return mensaje.tipo;
+      }
+      
+      // Por propiedad isLocal (indica si es del usuario actual)
+      if (mensaje.isLocal !== undefined) {
+        return mensaje.isLocal ? 'asistente' : 'usuario';
+      }
+      
+      // Por sender
+      if (mensaje.sender) {
+        // Si el sender es el nombre del usuario actual y el rol es asistente, es mensaje de asistente
+        const nombreUsuario = authStore.user.nombre?.toLowerCase() || '';
+        const esAsistente = mensaje.sender.toLowerCase().includes('asist') || 
+                           (nombreUsuario && mensaje.sender.toLowerCase().includes(nombreUsuario) && 
+                            chatStore.userRole === 'asistente');
+        
+        return esAsistente ? 'asistente' : 'usuario';
+      }
+      
+      // Fallback basado en el rol actual
+      return chatStore.userRole === 'asistente' ? 'asistente' : 'usuario';
     };
     
     // Asignar solicitud a sí mismo
@@ -569,16 +865,23 @@ export default {
         // Actualizar el objeto de solicitud local
         if (solicitudActualizada) {
           console.log('Solicitud asignada correctamente', solicitudActualizada);
-          selectedSolicitud.value = solicitudActualizada;
-          
-          // Actualizar el estado en chatStore
-          chatStore.setCurrentRequest(solicitudActualizada);
-          
-          // Mostrar notificación de éxito
-          alert('Solicitud asignada correctamente');
           
           // Recargar la lista de solicitudes
           await loadSolicitudes();
+          
+          // Cambiar a la pestaña "Mis Conversaciones"
+          activeTab.value = 'conversaciones';
+          
+          // Seleccionar automáticamente la solicitud recién asignada
+          setTimeout(() => {
+            const solicitudAsignada = misConversaciones.value.find(s => s.id === solicitudActualizada.id);
+            if (solicitudAsignada) {
+              selectSolicitud(solicitudAsignada);
+            }
+          }, 300); // Pequeño delay para que misConversaciones se actualice
+          
+          // Mostrar notificación de éxito
+          alert('Solicitud asignada correctamente');
         }
       } catch (error) {
         console.error('Error al asignar solicitud:', error);
@@ -653,9 +956,88 @@ export default {
     
     // Configurar suscripción en tiempo real
     const setupRealtimeSubscription = () => {
-      // Suscribirse a nuevos mensajes
-      const mensajesChannel = supabase
-        .channel('usuario_mensajes')
+      console.log('Configurando suscripción en tiempo real a Supabase');
+      
+      // Limpiar cualquier suscripción anterior
+      if (unsubscribe.value && typeof unsubscribe.value === 'function') {
+        unsubscribe.value();
+      }
+      
+      // Suscripción específica para mensajes de la solicitud actual
+      let specificChannel = null;
+      if (selectedSolicitudId.value) {
+        console.log(`Creando canal específico para solicitud ${selectedSolicitudId.value}`);
+        specificChannel = supabase
+          .channel(`messages-${selectedSolicitudId.value}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'mensajes',
+              filter: `solicitud_id=eq.${selectedSolicitudId.value}`
+            },
+            async (payload) => {
+              console.log('Nuevo mensaje específico detectado:', payload.new);
+              
+              // Verificar si este mensaje ya existe en la lista
+              const yaExiste = chatMessages.value.some(m => 
+                (m.id && m.id === payload.new.id) || 
+                (m.contenido === payload.new.contenido && 
+                  m.created_at && new Date(m.created_at).getTime() === new Date(payload.new.created_at).getTime())
+              );
+              
+              if (!yaExiste) {
+                // Crear objeto normalizado con todos los campos necesarios
+                const nuevoMensaje = {
+                  id: payload.new.id || Date.now() + Math.floor(Math.random() * 1000),
+                  contenido: payload.new.contenido,
+                  created_at: payload.new.created_at || new Date().toISOString(),
+                  tipo: payload.new.tipo || 'usuario',
+                  leido: payload.new.leido || false,
+                  asistente_id: payload.new.asistente_id,
+                  usuario_id: payload.new.usuario_id,
+                  source: 'supabase_specific_channel' // Para debugging
+                };
+                
+                console.log('Añadiendo mensaje a chatMessages:', nuevoMensaje);
+                
+                // Añadir mensaje a la lista usando spread para garantizar reactividad
+                chatMessages.value = [...chatMessages.value, nuevoMensaje];
+                
+                // Si el mensaje no es del asistente (no es nuestro), marcarlo como leído
+                if (payload.new.tipo === 'usuario') {
+                  // Marcar como leído mediante Supabase directamente
+                  const { error } = await supabase
+                    .from('mensajes')
+                    .update({ leido: true })
+                    .eq('id', payload.new.id);
+                    
+                  if (error) {
+                    console.error('Error al marcar mensaje como leído:', error);
+                  }
+                }
+                
+                // Actualizar contador de mensajes no leídos
+                loadMensajesNoLeidos();
+                
+                // Desplazar al final
+                nextTick(() => {
+                  scrollToBottom();
+                });
+              } else {
+                console.log('Mensaje ya existe en la lista, ignorando');
+              }
+            }
+          )
+          .subscribe((status) => {
+            console.log(`Estado de suscripción de canal específico: ${status}`);
+          });
+      }
+      
+      // Canal general para mensajes (cualquier mensaje nuevo en la tabla)
+      const generalChannel = supabase
+        .channel('general_messages')
         .on(
           'postgres_changes',
           {
@@ -664,29 +1046,23 @@ export default {
             table: 'mensajes'
           },
           (payload) => {
-            // Si hay una solicitud seleccionada y el mensaje es para esta solicitud
-            if (selectedSolicitudId.value && payload.new && 
-                payload.new.solicitud_id === selectedSolicitudId.value) {
-              // Obtener los detalles del mensaje
-              mensajesService.getMensajesBySolicitud(selectedSolicitudId.value)
-                .then(mensajes => {
-                  // Actualizar solo si hay mensaje nuevo
-                  if (mensajes.length > chatMessages.value.length) {
-                    chatMessages.value = mensajes;
-                    scrollToBottom();
-                  }
-                });
-            }
+            console.log('Mensaje general detectado:', payload.new);
             
-            // Actualizar lista de mensajes no leídos
-            loadMensajesNoLeidos();
+            // Solo procesar mensajes que no son para la solicitud actual
+            // (la solicitud actual ya está siendo manejada por specificChannel)
+            if (payload.new.solicitud_id !== selectedSolicitudId.value) {
+              // Actualizar contador de mensajes no leídos
+              loadMensajesNoLeidos();
+            }
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          console.log(`Estado de suscripción de canal general: ${status}`);
+        });
       
-      // Suscribirse a cambios en solicitudes
+      // Canal para cambios en solicitudes
       const solicitudesChannel = supabase
-        .channel('usuario_solicitudes')
+        .channel('solicitudes_changes')
         .on(
           'postgres_changes',
           {
@@ -695,56 +1071,195 @@ export default {
             table: 'solicitudes_asistencia'
           },
           (payload) => {
-            // Actualizar lista de solicitudes
+            console.log('Cambio en solicitudes detectado:', payload);
+            
+            // Actualizar la lista de solicitudes
             loadSolicitudes();
             
-            // Si la solicitud actual cambió, actualizar los datos
-            if (selectedSolicitudId.value && payload.new && 
-                payload.new.id === selectedSolicitudId.value) {
+            // Si hay una solicitud actual seleccionada y cambió, actualizar sus datos
+            if (selectedSolicitudId.value && payload.new && payload.new.id === selectedSolicitudId.value) {
               cargarSolicitud(selectedSolicitudId.value);
             }
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          console.log(`Estado de suscripción de canal solicitudes: ${status}`);
+        });
       
-      // Devolver función para cancelar suscripciones
+      // Devolver función para limpiar todas las suscripciones
       return () => {
-        supabase.removeChannel(mensajesChannel);
+        console.log('Limpiando suscripciones de Supabase');
+        if (specificChannel) {
+          supabase.removeChannel(specificChannel);
+        }
+        supabase.removeChannel(generalChannel);
         supabase.removeChannel(solicitudesChannel);
       };
     };
     
-    // Observar cambios en los mensajes para desplazar al final
     watch(chatMessages, async () => {
-      await scrollToBottom();
-    });
+  await scrollToBottom();
+  console.log('Mensajes actualizados, desplazando al final');
+}, { deep: true });
+
+// Crear un contador para mensaje - más eficiente que observar todo el array
+const messageCount = computed(() => chatMessages.value.length);
+watch(messageCount, (newCount, oldCount) => {
+  console.log(`Contador de mensajes cambió: ${oldCount} → ${newCount}`);
+  if (newCount > oldCount) {
+    // Hay nuevos mensajes
+    nextTick(() => scrollToBottom());
+  }
+});
+
+// Mantener el watch del chat store, pero solo para compatibilidad
+watch(() => chatStore.messages, (newMessages, oldMessages) => {
+  if (!Array.isArray(newMessages) || !Array.isArray(oldMessages)) return;
+  
+  if (newMessages.length > 0 && selectedSolicitudId.value) {
+    console.log('Mensajes actualizados desde store:', newMessages.length);
+    
+    // Si hay nuevos mensajes
+    if (newMessages.length > oldMessages.length) {
+      const nuevosMensajes = newMessages.slice(oldMessages.length);
+      
+      for (const mensaje of nuevosMensajes) {
+        console.log('Procesando nuevo mensaje del store:', mensaje);
+        
+        // Verificar si ya existe (evitar duplicados)
+        const yaExiste = chatMessages.value.some(m => 
+          (m.id && m.id === mensaje.id) || 
+          (m.created_at === mensaje.timestamp && m.contenido === mensaje.message) ||
+          (m.contenido === mensaje.message && 
+            new Date(m.created_at).getTime() > Date.now() - 10000)
+        );
+        
+        if (!yaExiste) {
+          // Añadir mensaje a chatMessages
+          chatMessages.value.push({
+            id: mensaje.id || `store-${Date.now()}`,
+            contenido: mensaje.message || mensaje.contenido,
+            created_at: mensaje.timestamp || mensaje.created_at || new Date().toISOString(),
+            tipo: determinarTipoMensaje(mensaje),
+            leido: false,
+            source: 'chatstore'
+          });
+        } else {
+          console.log('Mensaje del store ya existe, ignorando');
+        }
+      }
+    }
+  }
+}, { deep: true });
     
     // Eventos del ciclo de vida
     onMounted(async () => {
-      await loadSolicitudes();
-      
-      // Configurar suscripción a cambios en tiempo real
-      if (authStore.user) {
-        unsubscribe.value = setupRealtimeSubscription();
+  console.log('Montando componente UserChatView');
+  
+  // Inicializar chat store (mantener por compatibilidad)
+  chatStore.initialize();
+  
+  // Limpiar el set de mensajes procesados
+  processedMessages.value.clear();
+  
+  // Cargar solicitudes iniciales
+  await loadSolicitudes();
+  
+  // Configurar suscripción global a cambios en tiempo real
+  if (authStore.user) {
+    unsubscribe.value = setupRealtimeSubscription();
+  }
+  
+  // Registrar cambios manuales cada 5 segundos (respaldo adicional)
+  const intervalId = setInterval(async () => {
+    if (selectedSolicitudId.value && !cargandoMensajes.value) {
+      try {
+        // Comprobar si hay nuevos mensajes no visualizados
+        const { data, error } = await supabase
+          .from('mensajes')
+          .select('id')
+          .eq('solicitud_id', selectedSolicitudId.value)
+          .eq('leido', false)
+          .eq('tipo', 'usuario');
+          
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          console.log(`${data.length} mensajes no leídos detectados, actualizando...`);
+          
+          // Recargar mensajes
+          const { data: newMensajes, error: mensajesError } = await supabase
+            .from('mensajes')
+            .select('*')
+            .eq('solicitud_id', selectedSolicitudId.value)
+            .order('created_at', { ascending: true });
+            
+          if (mensajesError) throw mensajesError;
+          
+          if (newMensajes) {
+            // Verificar si hay mensajes nuevos que no están en la lista actual
+            const mensajesNuevos = newMensajes.filter(nuevoMsg => 
+              !chatMessages.value.some(msg => msg.id === nuevoMsg.id)
+            );
+            
+            if (mensajesNuevos.length > 0) {
+              console.log(`Añadiendo ${mensajesNuevos.length} mensajes nuevos desde intervalo`);
+              
+              // Añadir solo los mensajes nuevos
+              mensajesNuevos.forEach(msg => {
+                chatMessages.value.push({
+                  id: msg.id,
+                  contenido: msg.contenido,
+                  created_at: msg.created_at,
+                  tipo: msg.tipo,
+                  leido: msg.leido,
+                  source: 'interval_check'
+                });
+              });
+              
+              // Marcar como leídos
+              await supabase
+                .from('mensajes')
+                .update({ leido: true })
+                .eq('solicitud_id', selectedSolicitudId.value)
+                .eq('tipo', 'usuario')
+                .eq('leido', false);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error en verificación periódica:', error);
       }
-    });
+    }
+  }, 5000); // Comprobar cada 5 segundos
+  
+  // Eliminar intervalo al desmontar
+  onUnmounted(() => {
+    clearInterval(intervalId);
+  });
+});
     
-    onUnmounted(() => {
-      // Cancelar suscripciones
-      if (unsubscribe.value && typeof unsubscribe.value === 'function') {
-        unsubscribe.value();
-      }
-      
-      // Limpiar cualquier sala de chat activa
-      if (chatStore.isInRoom) {
-        chatStore.cleanup();
-      }
-      
-      // Limpiar timeout de escritura
-      if (typingTimeout.value) {
-        clearTimeout(typingTimeout.value);
-      }
-    });
+onUnmounted(() => {
+  console.log('Desmontando componente UserChatView');
+  
+  // Cancelar suscripciones Realtime
+  if (unsubscribe.value && typeof unsubscribe.value === 'function') {
+    unsubscribe.value();
+  }
+  
+  // Limpiar sala de chat activa
+  if (chatStore.isInRoom) {
+    chatStore.cleanup();
+  }
+  
+  // Limpiar timeout de escritura
+  if (typingTimeout.value) {
+    clearTimeout(typingTimeout.value);
+  }
+  
+  // Limpiar el set de mensajes procesados
+  processedMessages.value.clear();
+});
     
     return {
       solicitudes,
@@ -780,23 +1295,25 @@ export default {
 };
 </script>
 
-<style scoped>
+<style>
+/* Estilos para UserChatView.vue */
+
 .chat-view {
-  height: 100%;
+  height: 15%;
   min-height: calc(100vh - 80px);
   background-color: #f8f9fa;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+/* MODIFICADO: Asegurar que el contenedor tenga altura completa */
 .container {
-  max-width: 1400px;
+  max-width: 170;
   height: 100%;
   margin: 0 auto;
   display: flex;
   padding: 25px;
 }
 
-/* === SIDEBAR STYLES === */
 /* === SIDEBAR STYLES === */
 .sidebar {
   width: 350px;
@@ -1116,6 +1633,7 @@ export default {
 }
 
 /* === CHAT AREA STYLES === */
+/* MODIFICADO: Asegurar que .chat-area tenga altura completa y use flexbox */
 .chat-area {
   flex: 1;
   border-radius: 16px;
@@ -1124,6 +1642,7 @@ export default {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
+  min-height: 0; /* Importante para flex en Firefox */
 }
 
 .empty-chat-area {
@@ -1205,6 +1724,7 @@ export default {
 }
 
 /* Estilos para el componente de chat incorporado */
+/* MODIFICADO: Asegurar que el contenedor de chat use todo el espacio disponible */
 .chat-container {
   display: flex;
   flex-direction: column;
@@ -1297,12 +1817,14 @@ export default {
   background-color: #f5f5f5;
 }
 
+/* MODIFICADO: Área de mensajes con altura flexible */
 .chat-body {
   flex: 1;
   padding: 15px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  min-height: 0; /* Necesario para flexbox en algunos navegadores */
 }
 
 .mensaje {
@@ -1359,10 +1881,12 @@ export default {
   color: #4caf50;
 }
 
+/* MODIFICADO: Footer de chat con altura automática */
 .chat-footer {
   padding: 10px 15px;
   background-color: #ffffff;
   border-top: 1px solid #e0e0e0;
+  flex-shrink: 0;
 }
 
 .message-input-container {
@@ -1379,7 +1903,7 @@ export default {
   font-family: inherit;
   font-size: 0.9rem;
   min-height: 20px;
-  max-height: 100px;
+  max-height: 100px; /* Limitar altura del input */
   overflow-y: auto;
 }
 
@@ -1509,6 +2033,12 @@ export default {
 
   .avatar-usuario {
     background: linear-gradient(135deg, #ff9800, #f57c00);
+  }
+  
+  /* MODIFICADO: Adaptación móvil para .chat-body */
+  .chat-body {
+    height: auto;
+    flex: 1;
   }
 }
 </style>

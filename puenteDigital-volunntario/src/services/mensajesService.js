@@ -293,5 +293,21 @@ export const mensajesService = {
       console.error('Error al obtener chats atendidos por asistente:', error);
       throw error;
     }
+  },
+  
+  async getMensajesNoLeidos(usuarioId) {
+    try {
+      const { data, error } = await supabase
+        .from('mensajes')
+        .select('id, solicitud_id, contenido, created_at, tipo, leido')
+        .eq('leido', false)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error al obtener mensajes no leídos:', error);
+      return [];
+    }
   }
 };
