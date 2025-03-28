@@ -53,7 +53,7 @@ const AsistenciaScreen = ({ navigation }) => {
       Alert.alert('Error', 'Por favor, describe brevemente el problema');
       return;
     }
-
+  
     // Verificar que se hayan inicializado los servicios
     if (!isServiceInitialized) {
       try {
@@ -64,7 +64,7 @@ const AsistenciaScreen = ({ navigation }) => {
         return;
       }
     }
-
+  
     setIsLoading(true);
     try {
       // Verificar que tengamos datos de usuario
@@ -72,22 +72,30 @@ const AsistenciaScreen = ({ navigation }) => {
       if (!userDataString) {
         throw new Error('No hay datos de usuario para crear solicitud');
       }
-
+  
       const userData = JSON.parse(userDataString);
       console.log('Creando solicitud con datos de usuario:', userData);
-
-
-      const solicitudesActivas = await AsistenciaService.verificarSolicitudPendiente();
-      if (solicitudesActivas) {
+  
+      // Verificar si hay solicitudes activas no finalizadas
+      console.log('Verificando solicitudes existentes no finalizadas...');
+      const solicitudesActivas = await AsistenciaService.obtenerMisSolicitudes();
+      
+      // Buscar una solicitud que esté en_proceso o pendiente (no finalizada ni cancelada)
+      const solicitudExistente = solicitudesActivas.find(
+        s => (s.estado === 'pendiente' || s.estado === 'en_proceso') && s.tipo_asistencia === 'chat'
+      );
+      
+      if (solicitudExistente) {
+        console.log('Encontrada solicitud existente no finalizada:', solicitudExistente);
         // Usar la solicitud existente en lugar de crear una nueva
         navigation.navigate('Chat', { 
-          solicitudId: solicitudesActivas.id,
-          roomId: solicitudesActivas.room_id 
+          solicitudId: solicitudExistente.id,
+          roomId: solicitudExistente.room_id 
         });
         return;
       }
-
-
+  
+      console.log('No hay solicitudes existentes, creando una nueva...');
       // Crear la solicitud en la base de datos
       const solicitud = await ChatService.createChatRequest(descripcion);
       

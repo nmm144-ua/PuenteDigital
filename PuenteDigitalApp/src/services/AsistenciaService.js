@@ -117,7 +117,8 @@ class AsistenciaService {
         .from('solicitudes_asistencia')
         .select('*, asistente:asistente_id(*)')
         .eq('usuario_id', this.userDbId)
-        .order('created_at', { ascending: false });
+        .order('estado', { ascending: true }) // Ordenar por estado (pendiente, en_proceso primero)
+        .order('created_at', { ascending: false }); // Luego por fecha (más reciente primero)
       
       if (error) {
         console.error('Error al obtener solicitudes:', error);
@@ -202,7 +203,8 @@ class AsistenciaService {
         .from('solicitudes_asistencia')
         .select('*')
         .eq('usuario_id', this.userDbId)
-        .in('estado', ['pendiente', 'en_proceso'])
+        .in('estado', ['pendiente', 'en_proceso']) // Solo buscar solicitudes activas
+        .eq('tipo_asistencia', 'chat') // Especificar tipo chat
         .order('created_at', { ascending: false })
         .limit(1)
         .single();

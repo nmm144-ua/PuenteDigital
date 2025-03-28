@@ -150,9 +150,25 @@ class MensajesService {
     try {
       console.log('Enviando mensaje para solicitud:', solicitudId);
       
-      // El userDbId es opcional, el usuario puede no estar inicializado
-      // en la versión móvil
+      // Verificar primero si la solicitud está finalizada
+      const { data: solicitud, error: solicitudError } = await supabase
+        .from('solicitudes_asistencia')
+        .select('estado')
+        .eq('id', solicitudId)
+        .single();
       
+      if (solicitudError) {
+        console.error('Error al verificar estado de solicitud:', solicitudError);
+        throw new Error('No se pudo verificar el estado de la solicitud');
+      }
+      
+      // Si la solicitud está finalizada, no permitir envío de nuevos mensajes
+      if (solicitud && solicitud.estado === 'finalizada') {
+        console.error('No se pueden enviar mensajes en una solicitud finalizada');
+        throw new Error('Esta solicitud ha sido finalizada y no acepta nuevos mensajes');
+      }
+      
+      // Si llegamos aquí, la solicitud no está finalizada y podemos enviar el mensaje
       const nuevoMensaje = {
         solicitud_id: solicitudId,
         contenido: mensaje,

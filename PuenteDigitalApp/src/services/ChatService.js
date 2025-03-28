@@ -273,86 +273,8 @@ class ChatService {
     }, 500);
     
     return true;
-  }
+  } 
   
-  // Cargar mensajes históricos
-  async loadHistoricalMessages(roomId) {
-    try {
-      // Buscar solicitud asociada con esta sala
-      const { data: solicitud, error: errorSolicitud } = await supabase
-        .from('solicitudes_asistencia')
-        .select('id')
-        .eq('room_id', roomId)
-        .single();
-      
-      if (errorSolicitud || !solicitud) {
-        throw new Error('No se encontró solicitud para esta sala');
-      }
-      
-      // Cargar mensajes de la solicitud
-      const { data: mensajes, error } = await supabase
-        .from('mensajes')
-        .select('*')
-        .eq('solicitud_id', solicitud.id)
-        .order('created_at', { ascending: true });
-      
-      if (error) throw error;
-      
-      console.log('Estructura de mensajes cargados:', 
-        mensajes && mensajes.length > 0 ? Object.keys(mensajes[0]) : []);
-      
-      // Limpiar lista de mensajes
-      this.messages = [];
-      
-      // Formatear mensajes
-      if (mensajes && mensajes.length) {
-        // Registrar IDs para evitar duplicados
-        mensajes.forEach(m => {
-          this.processedMessageIds.add(m.id.toString());
-          
-          // También registrar claves combinadas
-          const key = `${m.created_at}_${m.tipo === 'asistente' ? 'Asistente' : 'Usuario'}_${m.contenido}`;
-          this.processedMessageKeys.add(key);
-        });
-        
-        // Formatear y añadir mensajes a la lista
-        this.messages = mensajes.map(m => {
-          // Como no tenemos usuario_id o asistente_id en la tabla mensajes,
-          // usamos el tipo para determinar el remitente
-          const esDeAsistente = m.tipo === 'asistente';
-          const esPropio = this.userRole === 'asistente' ? esDeAsistente : !esDeAsistente;
-          
-          return {
-            id: m.id,
-            message: m.contenido,
-            sender: esDeAsistente ? 'Asistente' : 'Usuario',
-            timestamp: m.created_at,
-            isLocal: esPropio
-          };
-        });
-      }
-      
-      return this.messages;
-    } catch (error) {
-      console.error('Error al cargar mensajes históricos:', error);
-      return [];
-    }
-  }
-  
-  // Determinar si un mensaje es del usuario actual
-  isMessageFromCurrentUser(message) {
-    // Si el mensaje tiene campo isLocal, usarlo
-    if (message.isLocal !== undefined) {
-      return message.isLocal;
-    }
-    
-    // Como no tenemos usuario_id o asistente_id en la tabla mensajes,
-    // usamos el tipo para determinar el remitente
-    const esDeAsistente = message.tipo === 'asistente';
-    return this.userRole === 'asistente' ? esDeAsistente : !esDeAsistente;
-  }
-  
-  // Enviar mensaje
   async sendMessage(content, solicitudId = null) {
     if (!content || !this.currentRoom) {
       throw new Error('Contenido o sala no especificados');
@@ -457,6 +379,206 @@ class ChatService {
       throw error;
     }
   }
+  
+  // Cargar mensajes históricos
+  async loadHistoricalMessages(roomId) {
+    try {
+      // Buscar solicitud asociada con esta sala
+      const { data: solicitud, error: errorSolicitud } = await supabase
+        .from('solicitudes_asistencia')
+        .select('id')
+        .eq('room_id', roomId)
+        .single();
+      
+      if (errorSolicitud || !solicitud) {
+        throw new Error('No se encontró solicitud para esta sala');
+      }
+      
+      // Cargar mensajes de la solicitud
+      const { data: mensajes, error } = await supabase
+        .from('mensajes')
+        .select('*')
+        .eq('solicitud_id', solicitud.id)
+        .order('created_at', { ascending: true });
+      
+      if (error) throw error;
+      
+      console.log('Estructura de mensajes cargados:', 
+        mensajes && mensajes.length > 0 ? Object.keys(mensajes[0]) : []);
+      
+      // Limpiar lista de mensajes
+      this.messages = [];
+      
+      // Formatear mensajes
+      if (mensajes && mensajes.length) {
+        // Registrar IDs para evitar duplicados
+        mensajes.forEach(m => {
+          this.processedMessageIds.add(m.id.toString());
+          
+          // También registrar claves combinadas
+          const key = `${m.created_at}_${m.tipo === 'asistente' ? 'Asistente' : 'Usuario'}_${m.contenido}`;
+          this.processedMessageKeys.add(key);
+        });
+        
+        // Formatear y añadir mensajes a la lista
+        this.messages = mensajes.map(m => {
+          // Como no tenemos usuario_id o asistente_id en la tabla mensajes,
+          // usamos el tipo para determinar el remitente
+          const esDeAsistente = m.tipo === 'asistente';
+          const esPropio = this.userRole === 'asistente' ? esDeAsistente : !esDeAsistente;
+          
+          return {
+            id: m.id,
+            message: m.contenido,
+            sender: esDeAsistente ? 'Asistente' : 'Usuario',
+            timestamp: m.created_at,
+            isLocal: esPropio
+          };
+        });
+      }
+      
+      return this.messages;
+    } catch (error) {
+      console.error('Error al cargar mensajes históricos:', error);
+      return [];
+    }
+  }
+  
+  // Determinar si un mensaje es del usuario actual
+  isMessageFromCurrentUser(message) {
+    // Si el mensaje tiene campo isLocal, usarlo
+    if (message.isLocal !== undefined) {
+      return message.isLocal;
+    }
+    
+    // Como no tenemos usuario_id o asistente_id en la tabla mensajes,
+    // usamos el tipo para determinar el remitente
+    const esDeAsistente = message.tipo === 'asistente';
+    return this.userRole === 'asistente' ? esDeAsistente : !esDeAsistente;
+  }
+  
+  // Enviar mensaje
+  async sendMessage(content, solicitudId = null) {
+    if (!content || !this.currentRoom) {
+      throw new Error('Contenido o sala no especificados');
+    }
+    
+    try {
+      // Verificar primero si la solicitud está finalizada
+      if (solicitudId) {
+        const { data: solicitud, error: solicitudError } = await supabase
+          .from('solicitudes_asistencia')
+          .select('estado')
+          .eq('id', solicitudId)
+          .single();
+        
+        if (solicitudError) {
+          console.error('Error al verificar estado de solicitud:', solicitudError);
+        } else if (solicitud && solicitud.estado === 'finalizada') {
+          console.error('No se pueden enviar mensajes en una solicitud finalizada');
+          throw new Error('Esta solicitud ha sido finalizada y no acepta nuevos mensajes');
+        }
+      }
+      
+      // Crear un identificador único para este mensaje
+      const tempId = Date.now().toString();
+      const timestamp = new Date().toISOString();
+      
+      // Crear mensaje para la UI
+      const messageData = {
+        id: tempId, // ID temporal
+        message: content,
+        sender: this.userName,
+        timestamp: timestamp,
+        isLocal: true // Este mensaje siempre es local
+      };
+      
+      // Generar clave única para este mensaje
+      const messageKey = `${timestamp}_${this.userName}_${content}`;
+      
+      // Registrar como procesado para evitar duplicados
+      this.processedMessageKeys.add(messageKey);
+      
+      // Guardar mensaje pendiente para detectar duplicados
+      this.pendingLocalMessages.set(tempId, messageData);
+      
+      // Añadir a la lista local
+      this.messages.push(messageData);
+      
+      // Enviar vía socket
+      const socketSuccess = socketService.sendMessage(this.currentRoom, content, this.userName);
+      
+      if (!socketSuccess) {
+        console.warn('No se pudo enviar mensaje por socket, solo se guardará en BD');
+      }
+      
+      // Guardar en la base de datos si tenemos ID de solicitud
+      if (solicitudId) {
+        // Crear objeto de mensaje para la BD
+        const mensaje = {
+          solicitud_id: solicitudId,
+          contenido: content,
+          tipo: this.isAsistente ? 'asistente' : 'usuario',
+          leido: false
+        };
+        
+        console.log('Enviando mensaje a BD:', mensaje);
+        
+        // Guardar en la base de datos
+        const { data, error } = await supabase
+          .from('mensajes')
+          .insert([mensaje])
+          .select();
+        
+        if (error) {
+          console.error('Error al guardar mensaje en BD:', error);
+          throw error;
+        }
+        
+        // Actualizar el mensaje local con el ID permanente
+        if (data && data[0]) {
+          // Buscar el mensaje en la lista local
+          const index = this.messages.findIndex(m => 
+            m.id === tempId || 
+            (m.message === content && m.isLocal)
+          );
+          
+          if (index !== -1) {
+            // Actualizar con el ID permanente
+            this.messages[index].id = data[0].id;
+            // Registrar en la lista de procesados
+            this.processedMessageIds.add(data[0].id.toString());
+          }
+          
+          // Eliminar de los pendientes pues ya se confirmó
+          this.pendingLocalMessages.delete(tempId);
+        }
+      }
+      
+      // Notificar callback con el mensaje enviado (si existe y no está deshabilitado)
+      if (this.callbacks.onMessageReceived && !this.disableCallbacks) {
+        // Usar timeout para asegurar que el mensaje se procese después de cualquier lógica actual
+        setTimeout(() => {
+          if (this.callbacks.onMessageReceived) {
+            try {
+              this.callbacks.onMessageReceived(messageData);
+            } catch (callbackError) {
+              console.error('Error en callback de mensaje enviado:', callbackError);
+            }
+          }
+        }, 50);
+      }
+      
+      // Limpiar mensajes temporales antiguos
+      this.cleanTemporaryMessages();
+      
+      return messageData;
+    } catch (error) {
+      console.error('Error al enviar mensaje:', error);
+      throw error;
+    }
+  }
+  
   
   // Enviar estado de escritura
   sendTypingStatus(isTyping) {

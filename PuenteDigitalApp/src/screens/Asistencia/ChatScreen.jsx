@@ -274,6 +274,23 @@ const ChatScreen = ({ route, navigation }) => {
           return;
         }
         
+        // Verificar si la solicitud está finalizada y mostrar alerta
+        if (solicitudData.estado === 'finalizada') {
+          console.log('La solicitud está finalizada');
+          
+          // Mostrar alerta para informar al usuario
+          Alert.alert(
+            'Solicitud finalizada',
+            'Esta solicitud ha sido marcada como finalizada por el asistente. No podrás enviar nuevos mensajes, pero puedes revisar el historial de la conversación.',
+            [
+              { 
+                text: 'Entendido',
+                onPress: () => console.log('Usuario informado sobre solicitud finalizada')
+              }
+            ]
+          );
+        }
+        
         // Obtener datos de usuario almacenados
         const userDataString = await AsyncStorage.getItem('userData');
         const userData = userDataString ? JSON.parse(userDataString) : null;
@@ -357,6 +374,43 @@ const ChatScreen = ({ route, navigation }) => {
     };
   }, [handleNewMessage, handleTypingStatus, filterDuplicateMessages]);
   
+  //Efecto para el estado de la solicitud
+  useEffect(() => {
+    if (!solicitudId) return;
+    
+    const checkSolicitudStatus = async () => {
+      try {
+        // Obtener el estado actualizado de la solicitud
+        const updatedSolicitud = await AsistenciaService.obtenerSolicitud(solicitudId);
+        
+        if (updatedSolicitud && updatedSolicitud.estado !== solicitud?.estado) {
+          console.log('Estado de solicitud actualizado:', updatedSolicitud.estado);
+          setSolicitud(updatedSolicitud);
+          
+          // Si la solicitud se marca como finalizada, mostrar un mensaje
+          if (updatedSolicitud.estado === 'finalizada' && solicitud?.estado !== 'finalizada') {
+            Alert.alert(
+              'Solicitud finalizada',
+              'Esta solicitud de asistencia ha sido finalizada por el asistente.',
+              [{ text: 'Entendido' }]
+            );
+          }
+        }
+      } catch (error) {
+        console.error('Error al verificar estado de solicitud:', error);
+      }
+    };
+    
+    // Verificar inmediatamente al cargar
+    checkSolicitudStatus();
+    
+    // Configurar verificación periódica cada 10 segundos
+    const intervalId = setInterval(checkSolicitudStatus, 10000);
+    
+    return () => clearInterval(intervalId);
+  }, [solicitudId, solicitud?.estado]);
+
+
   // Salir del chat
   const leaveChat = () => {
     // Desregistrar callbacks primero
@@ -394,6 +448,21 @@ const ChatScreen = ({ route, navigation }) => {
           <Text style={styles.headerTitle}>
             {solicitud?.asistente?.nombre || 'Asistente'}
           </Text>
+
+          {solicitud && (
+            <View style={[
+              styles.statusIndicator, 
+              solicitud.estado === 'finalizada' ? styles.finishedStatus : 
+              solicitud.estado === 'en_proceso' ? styles.activeStatus : 
+              styles.pendingStatus
+            ]}>
+              <Text style={styles.statusText}>
+                {solicitud.estado === 'finalizada' ? 'Finalizada' : 
+                solicitud.estado === 'en_proceso' ? 'En proceso' : 
+                'Pendiente'}
+              </Text>
+            </View>
+          )}
           
           {remoteUserIsTyping && (
             <Text style={styles.typingText}>Escribiendo...</Text>
@@ -435,28 +504,39 @@ const ChatScreen = ({ route, navigation }) => {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="Escribe un mensaje..."
-            value={inputText}
-            onChangeText={handleInputChange}
-            multiline
-            maxLength={500}
-          />
-          
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              !inputText.trim() && styles.sendButtonDisabled
-            ]}
-            onPress={sendMessage}
-            disabled={!inputText.trim()}
-          >
-            <MaterialIcons name="send" size={24} color="white" />
-          </TouchableOpacity>
-        </View>
+        {solicitud && solicitud.estado === 'finalizada' ? (
+          <View style={styles.finishedContainer}>
+            <MaterialIcons name="check-circle" size={24} color="#4CAF50" />
+            <Text style={styles.finishedText}>
+              Esta solicitud ha sido finalizada
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              placeholder="Escribe un mensaje..."
+              value={inputText}
+              onChangeText={handleInputChange}
+              multiline
+              maxLength={500}
+            />
+            
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                !inputText.trim() && styles.sendButtonDisabled
+              ]}
+              onPress={sendMessage}
+              disabled={!inputText.trim()}
+            >
+              <MaterialIcons name="send" size={24} color="white" />
+            </TouchableOpacity>
+          </View>
+        )}
       </KeyboardAvoidingView>
+
+
     </SafeAreaView>
   );
 };
@@ -485,6 +565,46 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
+  },
+  statusIndicator: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginTop: 5,
+    alignSelf: 'flex-start',
+  },
+  activeStatus: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#1976D2',
+    borderWidth: 1,
+  },
+  pendingStatus: {
+    backgroundColor: '#FFF3E0',
+    borderColor: '#FF9800',
+    borderWidth: 1,
+  },
+  finishedStatus: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#4CAF50',
+    borderWidth: 1,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  finishedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E8F5E9',
+    padding: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#4CAF50',
+  },
+  finishedText: {
+    marginLeft: 8,
+    color: '#4CAF50',
+    fontWeight: '500',
   },
   typingText: {
     fontSize: 12,
