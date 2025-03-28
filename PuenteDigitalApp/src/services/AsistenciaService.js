@@ -19,17 +19,47 @@ class AsistenciaService {
       
       if (!userDataString) {
         console.error('No se encontró información de usuario en AsyncStorage');
-        return false;
+        
+        // Para usuarios anónimos, retornar true pero con ID null
+        console.log('Configurando como usuario anónimo');
+        this.userId = null;
+        this.userDbId = null;
+        this.isAsistente = false;
+        
+        // Intentar obtener ID de dispositivo
+        try {
+          const deviceInfo = await AsyncStorage.getItem('device_info');
+          if (deviceInfo) {
+            const deviceData = JSON.parse(deviceInfo);
+            console.log('Usando ID de dispositivo como identificador:', deviceData.deviceId);
+            this.deviceId = deviceData.deviceId;
+          }
+        } catch (deviceError) {
+          console.warn('No se pudo obtener información del dispositivo');
+        }
+        
+        return true; // Permitir continuar como anónimo
       }
       
       const userData = JSON.parse(userDataString);
       
       if (!userData || !userData.id) {
-        console.error('Datos de usuario inválidos:', userData);
-        return false;
+        console.warn('Datos de usuario inválidos, tratando como anónimo:', userData);
+        
+        // Si son datos de usuario anónimo, usar el id_dispositivo si está disponible
+        if (userData && userData.id_dispositivo) {
+          console.log('Usando ID de dispositivo:', userData.id_dispositivo);
+          this.deviceId = userData.id_dispositivo;
+          this.userDbId = userData.userDbId; // Puede ser el ID en la tabla usuario
+        }
+        
+        this.userId = null;
+        this.isAsistente = false;
+        
+        return true; // Permitir continuar como anónimo
       }
       
-      this.userId = userData.id;           // ID de autenticación
+      this.userId = userData.id;           // ID de autenticación (auth.users)
       this.userDbId = userData.userDbId;   // ID en la tabla usuario
       this.isAsistente = userData.isAsistente || false;
       
@@ -42,18 +72,82 @@ class AsistenciaService {
       return true;
     } catch (error) {
       console.error('Error al inicializar AsistenciaService:', error);
-      return false;
+      
+      // En caso de error, configurar como anónimo pero devolver true
+      // para que la app pueda continuar funcionando
+      this.userId = null;
+      this.userDbId = null;
+      this.isAsistente = false;
+      
+      return true;
     }
   }
-
-  // Crear una nueva solicitud de asistencia
+  
+  // Modificar también el método crearSolicitud para manejar usuarios anónimos
   async crearSolicitud(descripcion, tipoAsistencia = 'chat') {
     try {
       // Intentar inicializar si no se ha hecho
-      if (!this.userDbId) {
+      if (!this.userDbId && !this.deviceId) {
         const inicializado = await this.init();
         if (!inicializado) {
           throw new Error('No se pudo inicializar el servicio');
+        }
+      }
+      
+      // Para usuarios anónimos sin userDbId pero con deviceId, intentar encontrar o crear
+      // un registro de usuario anónimo en la tabla
+      if (!this.userDbId && this.deviceId) {
+        console.log('Buscando usuario asociado al dispositivo:', this.deviceId);
+        
+        // Buscar usuario existente para este dispositivo
+        const { data: usuarioExistente, error: errorBusqueda } = await supabase
+          .from('usuario')
+          .select('id')
+          .eq('id_dispositivo', this.deviceId)
+          .single();
+        
+        if (!errorBusqueda && usuarioExistente) {
+          // Usar usuario existente
+          this.userDbId = usuarioExistente.id;
+          console.log('Usuario anónimo existente encontrado:', this.userDbId);
+        } else {
+          // Crear nuevo usuario anónimo
+          console.log('Creando nuevo usuario anónimo para dispositivo:', this.deviceId);
+          
+          const { data: nuevoUsuario, error: errorCreacion } = await supabase
+            .from('usuario')
+            .insert([{
+              nombre: 'Usuario', // Valor predeterminado
+              ip: null,
+              id_dispositivo: this.deviceId,
+              fecha_registro: new Date().toISOString(),
+              tipo_usuario: 'anonimo',
+              ultimo_acceso: new Date().toISOString()
+            }])
+            .select();
+          
+          if (errorCreacion) {
+            console.error('Error al crear usuario anónimo:', errorCreacion);
+            throw new Error('No se pudo crear usuario anónimo');
+          }
+          
+          // Usar el ID del usuario recién creado
+          this.userDbId = nuevoUsuario[0].id;
+          console.log('Nuevo usuario anónimo creado:', this.userDbId);
+          
+          // Actualizar AsyncStorage con la información del nuevo usuario
+          const userToStore = {
+            id: null, // No hay ID de auth
+            userDbId: this.userDbId,
+            id_dispositivo: this.deviceId,
+            nombre: 'Usuario',
+            tipo_usuario: 'anonimo',
+            isAnonymous: true,
+            isAsistente: false,
+            userRole: 'usuario'
+          };
+          
+          await AsyncStorage.setItem('userData', JSON.stringify(userToStore));
         }
       }
       

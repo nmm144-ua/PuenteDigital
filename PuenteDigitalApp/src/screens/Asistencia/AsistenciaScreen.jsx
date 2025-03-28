@@ -24,14 +24,38 @@ const AsistenciaScreen = ({ navigation }) => {
       try {
         // Obtener datos de usuario desde AsyncStorage
         const userDataString = await AsyncStorage.getItem('userData');
+        
         if (!userDataString) {
           console.warn('No hay datos de usuario en AsyncStorage');
+          
+          // Obtener información del dispositivo
+          const deviceId = await getDeviceId();
+          
+          // Crear datos de usuario anónimo
+          const anonUserData = {
+            id: null,                   // No hay ID de auth
+            userDbId: null,             // Se asignará cuando sea necesario
+            id_dispositivo: deviceId,   // ID del dispositivo para identificar
+            nombre: 'Usuario',          // Nombre predeterminado
+            tipo_usuario: 'anonimo',    // Tipo de usuario
+            isAnonymous: true,          // Flag para indicar anónimo
+            isAsistente: false,         // No es asistente
+            userRole: 'usuario'         // Rol
+          };
+          
+          // Guardar datos de usuario anónimo
+          await AsyncStorage.setItem('userData', JSON.stringify(anonUserData));
+          console.log('Datos de usuario anónimo creados:', anonUserData);
+          
+          // Inicializar ChatService con datos anónimos
+          await ChatService.init();
+          setIsServiceInitialized(true);
           return;
         }
-
+    
         const userData = JSON.parse(userDataString);
         console.log('Datos de usuario cargados:', userData);
-
+    
         // Inicializar ChatService con los datos de usuario
         await ChatService.init();
         setIsServiceInitialized(true);
@@ -41,6 +65,31 @@ const AsistenciaScreen = ({ navigation }) => {
           'Error',
           'No se pudieron inicializar los servicios. Por favor, reinicia la aplicación.'
         );
+      }
+    };
+    const getDeviceId = async () => {
+      try {
+        // Intentar obtener el ID existente primero
+        const deviceInfo = await AsyncStorage.getItem('device_info');
+        if (deviceInfo) {
+          const info = JSON.parse(deviceInfo);
+          return info.deviceId;
+        }
+        
+        // Si no existe, crear un nuevo ID único
+        const deviceId = `android-${Platform.OS}-${Date.now()}`;
+        
+        // Guardar para uso futuro
+        await AsyncStorage.setItem('device_info', JSON.stringify({ 
+          deviceId, 
+          created: new Date().toISOString() 
+        }));
+        
+        return deviceId;
+      } catch (error) {
+        console.error('Error al obtener ID de dispositivo:', error);
+        // Generar ID temporal como fallback
+        return `fallback-${Platform.OS}-${Date.now()}`;
       }
     };
 
@@ -78,6 +127,11 @@ const AsistenciaScreen = ({ navigation }) => {
   
       // Verificar si hay solicitudes activas no finalizadas
       console.log('Verificando solicitudes existentes no finalizadas...');
+      
+      // Inicializar AsistenciaService (aceptará usuarios anónimos después de las modificaciones)
+      await AsistenciaService.init();
+      
+      // Comprobar si hay solicitudes existentes
       const solicitudesActivas = await AsistenciaService.obtenerMisSolicitudes();
       
       // Buscar una solicitud que esté en_proceso o pendiente (no finalizada ni cancelada)
@@ -97,9 +151,24 @@ const AsistenciaScreen = ({ navigation }) => {
   
       console.log('No hay solicitudes existentes, creando una nueva...');
       // Crear la solicitud en la base de datos
-      const solicitud = await ChatService.createChatRequest(descripcion);
+      
+      // Si estamos usando usuario anónimo, asegurar que se registre correctamente
+      if (!userData.userDbId && userData.isAnonymous) {
+        // Actualizar el deviceId en AsistenciaService
+        AsistenciaService.deviceId = userData.id_dispositivo || await getDeviceId();
+      }
+      
+      // Crear la solicitud (si es anónimo, el servicio intentará crear un usuario)
+      const solicitud = await AsistenciaService.crearSolicitud(descripcion, 'chat');
       
       if (solicitud && solicitud.id) {
+        // Si era usuario anónimo y se creó un userDbId, guardarlo
+        if (userData.isAnonymous && AsistenciaService.userDbId && !userData.userDbId) {
+          userData.userDbId = AsistenciaService.userDbId;
+          await AsyncStorage.setItem('userData', JSON.stringify(userData));
+          console.log('Actualizado userDbId para usuario anónimo:', userData);
+        }
+        
         // Navegar directamente a la pantalla de chat
         navigation.navigate('Chat', { 
           solicitudId: solicitud.id,
@@ -115,18 +184,40 @@ const AsistenciaScreen = ({ navigation }) => {
       setIsLoading(false);
     }
   };
+  
 
   // Función auxiliar para inicializar servicios
   const initializeServices = async () => {
-    const userDataString = await AsyncStorage.getItem('userData');
-    if (!userDataString) {
-      throw new Error('No hay datos de usuario');
+    try {
+      const userDataString = await AsyncStorage.getItem('userData');
+      
+      if (!userDataString) {
+        // Crear datos de usuario anónimo si no existen
+        const deviceId = await getDeviceId();
+        
+        const anonUserData = {
+          id: null,
+          userDbId: null,
+          id_dispositivo: deviceId,
+          nombre: 'Usuario',
+          tipo_usuario: 'anonimo',
+          isAnonymous: true,
+          isAsistente: false,
+          userRole: 'usuario'
+        };
+        
+        await AsyncStorage.setItem('userData', JSON.stringify(anonUserData));
+        console.log('Creados datos para usuario anónimo:', anonUserData);
+      }
+  
+      // Ahora es seguro inicializar los servicios
+      await ChatService.init();
+      setIsServiceInitialized(true);
+      return true;
+    } catch (error) {
+      console.error('Error en initializeServices:', error);
+      throw error;
     }
-
-    const userData = JSON.parse(userDataString);
-    await ChatService.init();
-    setIsServiceInitialized(true);
-    return true;
   };
 
   // Solicitar asistencia por videollamada

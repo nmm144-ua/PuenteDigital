@@ -62,28 +62,74 @@ class MensajesService {
         return true;
       }
       
-      // Intentar obtener el usuario desde AsyncStorage
+      // Si no hay userId, intentar obtener información de usuario anónimo
       try {
-        const userJson = await AsyncStorage.getItem('user');
+        const userJson = await AsyncStorage.getItem('userData');
         if (userJson) {
           const user = JSON.parse(userJson);
-          this.userId = user.id;
-          this.isAsistente = user.isAsistente || false;
-          this.userDbId = user.userDbId || null;
-          this.asistenteId = user.asistenteId || null;
-          console.log('Datos cargados desde AsyncStorage:', { 
-            userId: this.userId, 
-            isAsistente: this.isAsistente,
-            userDbId: this.userDbId
-          });
-          return true;
+          
+          // Si tenemos userDbId en localStorage, usarlo
+          if (user.userDbId) {
+            this.userDbId = user.userDbId;
+            this.isAsistente = false;
+            console.log('Usando ID de usuario anónimo desde AsyncStorage:', this.userDbId);
+            return true;
+          }
+          
+          // Si tenemos id_dispositivo, intentar buscar o crear usuario anónimo
+          if (user.id_dispositivo) {
+            console.log('Buscando usuario para dispositivo:', user.id_dispositivo);
+            
+            // Buscar usuario para este dispositivo
+            const { data: usuarioExistente, error: errorBusqueda } = await supabase
+              .from('usuario')
+              .select('id')
+              .eq('id_dispositivo', user.id_dispositivo)
+              .single();
+            
+            if (!errorBusqueda && usuarioExistente) {
+              this.userDbId = usuarioExistente.id;
+              console.log('Usuario encontrado para dispositivo:', this.userDbId);
+              return true;
+            }
+            
+            // Si no existe, crear nuevo usuario anónimo
+            console.log('No se encontró usuario, creando uno nuevo');
+            
+            const { data: nuevoUsuario, error: errorCreacion } = await supabase
+              .from('usuario')
+              .insert([{
+                nombre: 'Usuario',
+                ip: null,
+                id_dispositivo: user.id_dispositivo,
+                fecha_registro: new Date().toISOString(),
+                tipo_usuario: 'anonimo',
+                ultimo_acceso: new Date().toISOString()
+              }])
+              .select();
+            
+            if (errorCreacion) {
+              console.error('Error al crear usuario anónimo:', errorCreacion);
+            } else if (nuevoUsuario && nuevoUsuario.length > 0) {
+              this.userDbId = nuevoUsuario[0].id;
+              console.log('Nuevo usuario anónimo creado:', this.userDbId);
+              
+              // Actualizar AsyncStorage
+              user.userDbId = this.userDbId;
+              await AsyncStorage.setItem('userData', JSON.stringify(user));
+              
+              return true;
+            }
+          }
         }
       } catch (storageError) {
         console.error('Error al leer AsyncStorage:', storageError);
       }
       
-      console.warn('No se pudo inicializar el servicio de mensajes');
-      return false;
+      // Si llegamos hasta aquí, no pudimos obtener o crear un usuario
+      // Pero aún así, permitir que la app funcione en modo sólo lectura
+      console.warn('No se pudo inicializar completamente el servicio de mensajes');
+      return true; // Retornar true para que la app pueda continuar
     } catch (error) {
       console.error('Error al inicializar MensajesService:', error);
       return false;
@@ -151,24 +197,45 @@ class MensajesService {
       console.log('Enviando mensaje para solicitud:', solicitudId);
       
       // Verificar primero si la solicitud está finalizada
-      const { data: solicitud, error: solicitudError } = await supabase
-        .from('solicitudes_asistencia')
-        .select('estado')
-        .eq('id', solicitudId)
-        .single();
-      
-      if (solicitudError) {
-        console.error('Error al verificar estado de solicitud:', solicitudError);
-        throw new Error('No se pudo verificar el estado de la solicitud');
+      try {
+        const { data: solicitud, error: solicitudError } = await supabase
+          .from('solicitudes_asistencia')
+          .select('estado')
+          .eq('id', solicitudId)
+          .single();
+        
+        if (!solicitudError && solicitud && solicitud.estado === 'finalizada') {
+          console.error('No se pueden enviar mensajes en una solicitud finalizada');
+          throw new Error('Esta solicitud ha sido finalizada y no acepta nuevos mensajes');
+        }
+      } catch (verificacionError) {
+        console.warn('Error al verificar estado de solicitud:', verificacionError);
+        // Continuar aunque haya error en la verificación
       }
       
-      // Si la solicitud está finalizada, no permitir envío de nuevos mensajes
-      if (solicitud && solicitud.estado === 'finalizada') {
-        console.error('No se pueden enviar mensajes en una solicitud finalizada');
-        throw new Error('Esta solicitud ha sido finalizada y no acepta nuevos mensajes');
+      // El userDbId es opcional, el usuario puede no estar inicializado
+      // en la versión móvil, especialmente para usuarios anónimos
+      
+      // Si no tenemos userDbId pero tenemos una solicitud, podemos
+      // obtener el usuario_id de la solicitud
+      if (!this.userDbId && solicitudId) {
+        try {
+          const { data: solicitud, error } = await supabase
+            .from('solicitudes_asistencia')
+            .select('usuario_id')
+            .eq('id', solicitudId)
+            .single();
+          
+          if (!error && solicitud && solicitud.usuario_id) {
+            console.log('Obtenido usuario_id de la solicitud:', solicitud.usuario_id);
+            // Usar temporalmente el ID de usuario de la solicitud
+            this.userDbId = solicitud.usuario_id;
+          }
+        } catch (solicitudError) {
+          console.warn('Error al obtener información de solicitud:', solicitudError);
+        }
       }
       
-      // Si llegamos aquí, la solicitud no está finalizada y podemos enviar el mensaje
       const nuevoMensaje = {
         solicitud_id: solicitudId,
         contenido: mensaje,

@@ -35,21 +35,82 @@ class ChatService {
       const userDataString = await AsyncStorage.getItem('userData');
       
       if (!userDataString) {
-        console.error('No se encontró información de usuario en AsyncStorage');
-        throw new Error('No se puede identificar al usuario');
+        console.log('No se encontró información de usuario en AsyncStorage, intentando configurar usuario anónimo');
+        
+        // Intentar configurar un usuario anónimo 
+        const anonUserData = {
+          id: 'anonymous',                // ID temporal para usuarios anónimos
+          userDbId: null,                 // Puede ser null para anónimos
+          userName: 'Usuario',            // Nombre predeterminado
+          userRole: 'usuario',            // Rol predeterminado
+          isAsistente: false,             // No es asistente
+          isAnonymous: true               // Marcar como anónimo
+        };
+        
+        // Configurar datos básicos para permitir funcionamiento
+        this.userId = anonUserData.id;
+        this.userName = anonUserData.userName;
+        this.userRole = anonUserData.userRole;
+        this.isAsistente = anonUserData.isAsistente;
+        
+        console.log('ChatService configurado con usuario anónimo:', {
+          userId: this.userId,
+          userName: this.userName,
+          userRole: this.userRole
+        });
+        
+        // Verificar si tenemos conexión al socket
+        if (!socketService.isConnected) {
+          try {
+            await socketService.connect();
+          } catch (error) {
+            console.error('Error al conectar con el servidor de chat:', error);
+            throw error;
+          }
+        }
+        
+        // Configurar listeners de eventos
+        this.setupSocketListeners();
+        
+        this.isConnected = true;
+        return true;
       }
       
       const userData = JSON.parse(userDataString);
       
-      if (!userData || !userData.id) {
+      if (!userData) {
         console.error('Datos de usuario inválidos:', userData);
-        throw new Error('No se puede identificar al usuario');
+        
+        // Proporcionar valores predeterminados en lugar de fallar
+        this.userId = 'anonymous';
+        this.userName = 'Usuario';
+        this.userRole = 'usuario';
+        this.isAsistente = false;
+        
+        console.log('ChatService configurado con valores predeterminados debido a datos inválidos');
+        
+        // Verificar si tenemos conexión al socket
+        if (!socketService.isConnected) {
+          try {
+            await socketService.connect();
+          } catch (error) {
+            console.error('Error al conectar con el servidor de chat:', error);
+            throw error;
+          }
+        }
+        
+        // Configurar listeners de eventos
+        this.setupSocketListeners();
+        
+        this.isConnected = true;
+        return true;
       }
       
-      this.userId = userData.id;           // ID de autenticación
-      this.userDbId = userData.userDbId;   // ID en la tabla usuario
-      this.userName = userData.nombre || 'Usuario';
-      this.userRole = userData.userRole || 'usuario';
+      // Si tenemos datos válidos, usarlos normalmente
+      this.userId = userData.id || 'anonymous';  // Proporcionar un fallback
+      this.userDbId = userData.userDbId;   // Puede ser null para anónimos
+      this.userName = userData.nombre || 'Usuario';  // Nombre con fallback
+      this.userRole = userData.userRole || 'usuario';  // Rol con fallback
       this.isAsistente = userData.isAsistente || false;
       
       console.log('ChatService inicializado con:', {
@@ -79,6 +140,7 @@ class ChatService {
       throw error;
     }
   }
+  
   
   // Configurar listeners de eventos
   setupSocketListeners() {
@@ -281,21 +343,43 @@ class ChatService {
     }
     
     try {
+      // Verificar primero si la solicitud está finalizada (solo si tenemos ID)
+      if (solicitudId) {
+        try {
+          const { data: solicitud, error: solicitudError } = await supabase
+            .from('solicitudes_asistencia')
+            .select('estado')
+            .eq('id', solicitudId)
+            .single();
+          
+          if (!solicitudError && solicitud && solicitud.estado === 'finalizada') {
+            console.error('No se pueden enviar mensajes en una solicitud finalizada');
+            throw new Error('Esta solicitud ha sido finalizada y no acepta nuevos mensajes');
+          }
+        } catch (error) {
+          // Si hay algún error en la verificación, continuaremos pero lo registramos
+          console.warn('Error al verificar estado de solicitud:', error);
+        }
+      }
+      
       // Crear un identificador único para este mensaje
       const tempId = Date.now().toString();
       const timestamp = new Date().toISOString();
+      
+      // Asegurarse de que siempre tenemos un nombre de usuario
+      const senderName = this.userName || 'Usuario';
       
       // Crear mensaje para la UI
       const messageData = {
         id: tempId, // ID temporal
         message: content,
-        sender: this.userName,
+        sender: senderName,
         timestamp: timestamp,
         isLocal: true // Este mensaje siempre es local
       };
       
       // Generar clave única para este mensaje
-      const messageKey = `${timestamp}_${this.userName}_${content}`;
+      const messageKey = `${timestamp}_${senderName}_${content}`;
       
       // Registrar como procesado para evitar duplicados
       this.processedMessageKeys.add(messageKey);
@@ -306,53 +390,59 @@ class ChatService {
       // Añadir a la lista local
       this.messages.push(messageData);
       
-      // Enviar vía socket
-      const socketSuccess = socketService.sendMessage(this.currentRoom, content, this.userName);
-      
-      if (!socketSuccess) {
-        console.warn('No se pudo enviar mensaje por socket, solo se guardará en BD');
+      // Enviar vía socket - usar try/catch para manejar posibles errores
+      try {
+        const socketSuccess = socketService.sendMessage(this.currentRoom, content, senderName);
+        
+        if (!socketSuccess) {
+          console.warn('No se pudo enviar mensaje por socket, solo se guardará en BD');
+        }
+      } catch (socketError) {
+        console.warn('Error al enviar mensaje por socket:', socketError);
       }
       
       // Guardar en la base de datos si tenemos ID de solicitud
       if (solicitudId) {
-        // Crear objeto de mensaje para la BD
-        const mensaje = {
-          solicitud_id: solicitudId,
-          contenido: content,
-          tipo: this.isAsistente ? 'asistente' : 'usuario',
-          leido: false
-        };
-        
-        console.log('Enviando mensaje a BD:', mensaje);
-        
-        // Guardar en la base de datos
-        const { data, error } = await supabase
-          .from('mensajes')
-          .insert([mensaje])
-          .select();
-        
-        if (error) {
-          console.error('Error al guardar mensaje en BD:', error);
-          throw error;
-        }
-        
-        // Actualizar el mensaje local con el ID permanente
-        if (data && data[0]) {
-          // Buscar el mensaje en la lista local
-          const index = this.messages.findIndex(m => 
-            m.id === tempId || 
-            (m.message === content && m.isLocal)
-          );
+        try {
+          // Crear objeto de mensaje para la BD
+          const mensaje = {
+            solicitud_id: solicitudId,
+            contenido: content,
+            tipo: this.isAsistente ? 'asistente' : 'usuario',
+            leido: false
+          };
           
-          if (index !== -1) {
-            // Actualizar con el ID permanente
-            this.messages[index].id = data[0].id;
-            // Registrar en la lista de procesados
-            this.processedMessageIds.add(data[0].id.toString());
+          console.log('Enviando mensaje a BD:', mensaje);
+          
+          // Guardar en la base de datos
+          const { data, error } = await supabase
+            .from('mensajes')
+            .insert([mensaje])
+            .select();
+          
+          if (error) {
+            console.error('Error al guardar mensaje en BD:', error);
+            // No lanzar el error, permitir que el mensaje se muestre en la UI aunque no se guarde en BD
+          } else if (data && data[0]) {
+            // Actualizar el mensaje local con el ID permanente
+            const index = this.messages.findIndex(m => 
+              m.id === tempId || 
+              (m.message === content && m.isLocal)
+            );
+            
+            if (index !== -1) {
+              // Actualizar con el ID permanente
+              this.messages[index].id = data[0].id;
+              // Registrar en la lista de procesados
+              this.processedMessageIds.add(data[0].id.toString());
+            }
+            
+            // Eliminar de los pendientes pues ya se confirmó
+            this.pendingLocalMessages.delete(tempId);
           }
-          
-          // Eliminar de los pendientes pues ya se confirmó
-          this.pendingLocalMessages.delete(tempId);
+        } catch (dbError) {
+          console.error('Error al guardar mensaje en BD:', dbError);
+          // No fallar el envío de mensaje si el BD falla
         }
       }
       
