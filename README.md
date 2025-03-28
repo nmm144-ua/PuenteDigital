@@ -1,7 +1,6 @@
 # PuenteDigital
 TFG de Ingeniería Informática en el que se desarrollará una aplicación móvil para intentar ayudar con la brecha digital para las personas que la sufren.
 
-
 1. npx eas build --profile development --platform android
 2. npx expo start --dev-client
 
@@ -212,3 +211,20 @@ Este método permite una experiencia de desarrollo más fluida para iteraciones 
 ---
 
 Con estos métodos podrás desarrollar y probar tu aplicación Expo en un dispositivo real sin necesidad de Expo Go ni Android Studio, eligiendo el enfoque que mejor se adapte a tu flujo de trabajo.
+=======
+## Para levantar la app
+
+### Backend
+BaaS hecho con supabase, por lo que no es necesario levantar la app
+
+### App web
+```
+npm run dev
+```
+
+### App móvil
+```
+npm start
+```
+Y probar con el qr tanto en ios (com la url) como en android (con Expo Go). También se puede probar en la web.
+
