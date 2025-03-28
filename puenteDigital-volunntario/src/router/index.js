@@ -52,7 +52,33 @@ const routes = [
         path: 'detalles/{id}',
         name: 'DetallesAsistente',
         component: () => import('../components/DetallesAsistente.vue')
-      }
+      },
+      // Actualiza las rutas de videollamada para usar VideollamadaView
+      {
+        path: 'call',
+        name: 'HomeCall',
+        component: () => import('../views/VideoCall/HomeCallView.vue')
+      },
+      {
+        path: 'videollamada/:id',  // Nueva ruta para el nuevo componente
+        name: 'VideollamadaView',
+        component: () => import('../views/VideoCall/VideoLlamadaView.vue'),
+        props: route => ({
+          roomId: route.params.id,
+          role: 'asistente',  // Por defecto es asistente en esta ruta
+          userName: useAuthStore().user?.nombre || 'Asistente'
+        })
+      },
+      {
+        path: 'gestion-llamadas',
+        name: 'GestionLlamadas',
+        component: () => import('../views/Asistente/GestionLlamadas.vue')
+      },
+      {
+        path: 'chat',
+        name: 'UsuarioChat',
+        component: () => import('../views/Chat/UserChatView.vue')
+      },
     ]
   },
   {
@@ -86,8 +112,24 @@ const routes = [
         path: 'suspendidos',
         name: 'Suspendidos',
         component: () => import('../views/Admin/ListadoSuspendidos.vue')
+      },
+      {
+        path: 'UsuariosAppMovil',
+        name: 'UsuariosAppMovil',
+        component: () => import('../views/Admin/ListadoUsuariosAppMovil.vue')
       }
     ]
+  },
+  // Ruta pública para usuarios que acceden desde móvil o link
+  {
+    path: '/videollamada/:id',
+    name: 'VideollamadaPublica',
+    component: () => import('../views/VideoCall/VideoLlamadaView.vue'),
+    props: route => ({
+      roomId: route.params.id,
+      role: route.query.role || 'usuario',  // Por defecto es usuario
+      userName: route.query.nombre || 'Usuario'
+    })
   },
   {
     path: '/:pathMatch(.*)*',
@@ -106,9 +148,8 @@ const routes = [
     path: '/reset-password',
     name: 'ResetPassword',
     component: () => import('../views/Auth/ResetPassword.vue')
-  }
+  },
 ];
-
 
 const router = createRouter({
   history: createWebHistory(),
@@ -122,17 +163,14 @@ router.beforeEach(async (to, from, next) => {
   if (!authStore.sessionChecked) {
     await authStore.checkSession();
   }
-
   // Si la ruta requiere no estar autenticado (login/register) y el usuario está autenticado
   if (to.meta.requiresGuest && authStore.isAuthenticated) {
     return next(authStore.isAdmin ? '/admin' : '/asistente');
   }
-
   // Si la ruta requiere autenticación y el usuario no está autenticado
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return next('/login');
   }
-
   // Si la ruta tiene roles específicos, verificar si el usuario tiene el rol necesario
   if (to.meta.roles && !to.meta.roles.includes(authStore.currentRole)) {
     // Redirigir según el rol del usuario
@@ -142,7 +180,6 @@ router.beforeEach(async (to, from, next) => {
       return next('/asistente');
     }
   }
-
   next();
 });
 

@@ -1,34 +1,79 @@
 {
   "expo": {
-    "name": "PuenteDigitalApp",
-    "slug": "PuenteDigitalApp",
+    "name": "PuenteDigital",
+    "slug": "puentedigitalapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/PuenteDigital.jpg",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/PuenteDigital.jpg",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "scheme": "puentedigital",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.puentedigital.app"
+      "bundleIdentifier": "com.puentedigital.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Esta aplicación necesita acceso a la cámara para videollamadas",
+        "NSMicrophoneUsageDescription": "Esta aplicación necesita acceso al micrófono para llamadas de voz",
+        "NSBluetoothAlwaysUsageDescription": "Esta aplicación utiliza Bluetooth para conectarse a dispositivos de audio",
+        "NSPhotoLibraryUsageDescription": "Esta app necesita acceso a la galería"
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/PuenteDigital.jpg",
         "backgroundColor": "#ffffff"
       },
       "package": "com.puentedigital.app",
       "permissions": [
         "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE"
+        "ACCESS_WIFI_STATE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CHANGE_NETWORK_STATE",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.INTERNET",
+        "android.permission.BLUETOOTH",
+        "android.permission.WAKE_LOCK",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "INTERNET",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/PuenteDigital.jpg"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermissionText": "Esta aplicación necesita acceso a la cámara para videollamadas",
+          "microphonePermissionText": "Esta aplicación necesita acceso al micrófono para llamadas de voz"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Esta aplicación necesita acceso al micrófono para las videollamadas"
+        }
+      ],
+      [
+        "expo-dev-client"
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "cff133b4-df7a-4f15-8653-cb185c1e721d",
+        "owner": "nmm144"
+      }
+    },
+    "owner": "nmm144"
   }
 }

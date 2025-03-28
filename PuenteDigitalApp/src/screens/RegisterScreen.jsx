@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-
+import { requestDeviceInfoPermissions } from '../utils/PermissionsHandlers';
 
 const RegisterScreen = ({ navigation }) => {
     const { register } = useAuth();
@@ -57,6 +57,16 @@ const RegisterScreen = ({ navigation }) => {
     const handleRegister = async () => {
         if (!validateForm()) return;
 
+        // Solicitar permisos antes de registrar
+        const permissionsGranted = await requestDeviceInfoPermissions();
+        if (!permissionsGranted) {
+            Alert.alert(
+                'Permisos requeridos',
+                'Necesitamos acceso a información básica del dispositivo para continuar.'
+            );
+            return;
+        }
+
         setLoading(true);
         try {
             const { success, error } = await register(
@@ -72,12 +82,13 @@ const RegisterScreen = ({ navigation }) => {
                     [
                         {
                             text: 'OK',
-                            onPress: () => navigation.navigate('Inicio')
+                            // No necesitamos navegar manualmente, AuthContext lo maneja
+                            onPress: () => {}
                         }
                     ]
                 );
             } else {
-                Alert.alert('Error', error.message);
+                Alert.alert('Error', error?.message || 'No se pudo crear la cuenta');
             }
         } catch (error) {
             Alert.alert(

@@ -1,6 +1,7 @@
 // src/services/authService.js
 import { supabase } from '../../supabase';
 import { asistenteService } from './asistenteService';
+import { usuarioAppService } from './usuarioAppService';
 
 export const authService = {
   // Registrar un nuevo usuario
