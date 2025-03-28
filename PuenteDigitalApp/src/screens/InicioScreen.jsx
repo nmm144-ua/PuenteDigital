@@ -39,12 +39,6 @@ const InicioScreen = ({ navigation }) => {
                     <Text style={styles.cardTitle}>¿Qué es PuenteDigital?</Text>
                     <Text style={styles.cardText}>
                         PuenteDigital es una aplicación diseñada para ayudar a las personas mayores a superar la brecha digital. {'\n'}{'\n'}
-                        Todo esto se consigue gracias a :{'\n'} 
-                    </Text>
-                    <Text style={styles.cardText}>
-                        - Teleasistencia en tiempo real.{'\n'}
-                        - Tutoriales interactivos para aprender a usar dispositivos.{'\n'}
-                        - Soporte técnico personalizado.
                     </Text>
                 </View>
 
@@ -59,6 +53,7 @@ const InicioScreen = ({ navigation }) => {
 
                 </View>
 
+
                 <View style={styles.card}>
                     <Text style={styles.cardTitle}>Opciones de cuenta</Text>
                     <TouchableOpacity
@@ -67,7 +62,7 @@ const InicioScreen = ({ navigation }) => {
                     >
                     <Text style={styles.buttonText}>CERRAR SESIÓN</Text>
                     </TouchableOpacity>
-                </View>
+                </View>                
 
             </ScrollView>
     );
