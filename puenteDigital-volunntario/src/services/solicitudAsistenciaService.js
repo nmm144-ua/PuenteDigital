@@ -241,5 +241,31 @@ export const solicitudesAsistenciaService = {
       console.error('Error al obtener estadísticas:', error);
       throw new Error('Error al obtener estadísticas: ' + error.message);
     }
+  },
+
+  // Eliminar una solicitud de asistencia
+  async eliminarSolicitud(solicitudId) {
+    try {
+      // Verificar que hay solicitudId válido
+      if (!solicitudId) {
+        throw new Error('ID de solicitud no válido');
+      }
+
+      console.log('Eliminando solicitud:', solicitudId);
+      
+      // Eliminar la solicitud de la base de datos
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .delete()
+        .eq('id', solicitudId);
+      
+      if (error) throw error;
+      
+      console.log('Solicitud eliminada correctamente');
+      return { success: true, message: 'Solicitud eliminada correctamente' };
+    } catch (error) {
+      console.error('Error al eliminar la solicitud:', error);
+      throw error;
+    }
   }
 };

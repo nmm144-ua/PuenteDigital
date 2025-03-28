@@ -309,5 +309,31 @@ export const mensajesService = {
       console.error('Error al obtener mensajes no leídos:', error);
       return [];
     }
+  },
+  
+  // Eliminar todos los mensajes de una solicitud
+  async eliminarMensajesPorSolicitud(solicitudId) {
+    try {
+      // Verificar que hay solicitudId válido
+      if (!solicitudId) {
+        throw new Error('ID de solicitud no válido');
+      }
+
+      console.log('Eliminando todos los mensajes para solicitud:', solicitudId);
+      
+      // Eliminar los mensajes de la base de datos
+      const { data, error } = await supabase
+        .from('mensajes')
+        .delete()
+        .eq('solicitud_id', solicitudId);
+      
+      if (error) throw error;
+      
+      console.log('Mensajes eliminados correctamente');
+      return { success: true, message: 'Mensajes eliminados correctamente' };
+    } catch (error) {
+      console.error('Error al eliminar mensajes de la solicitud:', error);
+      throw error;
+    }
   }
 };

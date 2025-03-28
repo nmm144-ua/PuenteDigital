@@ -172,10 +172,10 @@ const navegarA = (ruta) => {
       router.push('/asistente/perfil');
       break;
     case 'chat':
-      router.push('/chat');
+      router.push('/asistente/chat');
       break;
     case 'videollamadas':
-      router.push('/videollamadas');
+      router.push('/asistente/videollamadas');
       break;
     case 'historial':
       router.push('/asistente/historial');

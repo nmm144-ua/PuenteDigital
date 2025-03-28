@@ -28,6 +28,25 @@
         >
         <i class="fas fa-user-check"></i>
       </button>
+      <!-- Finalizar solicitud-->
+      <button 
+        v-if="solicitud && solicitud.asistente_id && solicitud.estado !== 'finalizada'" 
+        @click="finalizarSolicitud" 
+        class="finish-button"
+        title="Finalizar solicitud"
+      >
+        <i class="fas fa-check"></i>
+      </button>
+      
+      <!-- Eliminar solicitud (visible solo si está finalizada) -->
+      <button 
+        v-if="solicitud && solicitud.estado === 'finalizada'" 
+        @click="eliminarSolicitud" 
+        class="delete-button"
+        title="Eliminar solicitud"
+      >
+        <i class="fas fa-trash"></i>
+      </button>
         <button 
           v-if="!chatStore.isInCall && solicitud" 
           @click="iniciarLlamada" 
@@ -110,6 +129,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useCallStore } from '../../stores/call.store';
 import { useChatStore } from '../../stores/chat.store';
 import { asistenteService } from '@/services/asistenteService';
+import { supabase } from '../../../supabase';
 
 export default {
   name: 'ChatComponent',
@@ -123,7 +143,7 @@ export default {
       default: true
     }
   },
-  emits: ['close'],
+  emits: ['close', 'solicitud-actualizada', 'solicitud-eliminada'],  
   setup(props, { emit }) {
     const router = useRouter();
     const authStore = useAuthStore();
@@ -415,7 +435,69 @@ export default {
         params: { id: solicitud.value.room_id }
       });
     };
-    
+
+    // Finalizar una solicitud
+    const finalizarSolicitud = async () => {
+      if (!solicitud.value || !solicitud.value.id) return;
+      
+      // Confirmar con el usuario
+      if (!confirm('¿Estás seguro de que deseas finalizar esta solicitud? Esta acción marcará la asistencia como completada.')) {
+        return;
+      }
+      
+      try {
+        const solicitudActualizada = await solicitudesAsistenciaService.finalizarSolicitud(solicitud.value.id);
+        
+        // Actualizar el objeto de solicitud local
+        if (solicitudActualizada) {
+          console.log('Solicitud finalizada correctamente', solicitudActualizada);
+          solicitud.value = solicitudActualizada;
+          
+          // Actualizar el estado en chatStore
+          chatStore.setCurrentRequest(solicitudActualizada);
+          
+          // Mostrar notificación de éxito
+          alert('Solicitud finalizada correctamente');
+          
+          // Opcional: Emitir evento para actualizar lista de solicitudes en el componente padre
+          emit('solicitud-actualizada');
+        }
+      } catch (error) {
+        console.error('Error al finalizar solicitud:', error);
+        alert('No se pudo finalizar la solicitud: ' + error.message);
+      }
+    };
+
+    // Eliminar una solicitud
+    const eliminarSolicitud = async () => {
+      if (!solicitud.value || !solicitud.value.id) return;
+      
+      // Confirmar con el usuario (confirmación más estricta para eliminar)
+      if (!confirm('¿Estás COMPLETAMENTE SEGURO de que deseas ELIMINAR esta solicitud? Esta acción eliminará permanentemente todos los mensajes y la solicitud. Esta acción no se puede deshacer.')) {
+        return;
+      }
+      
+      try {
+        // Primero eliminar todos los mensajes asociados
+        await mensajesService.eliminarMensajesPorSolicitud(solicitud.value.id);
+        
+        // Luego eliminar la solicitud
+        await solicitudesAsistenciaService.eliminarSolicitud(solicitud.value.id);
+        
+        console.log('Solicitud y mensajes eliminados correctamente');
+        
+        // Mostrar notificación de éxito
+        alert('Solicitud eliminada correctamente');
+        
+        // Emitir evento para cerrar el chat y actualizar lista de solicitudes
+        emit('solicitud-eliminada');
+        emit('close');
+      } catch (error) {
+        console.error('Error al eliminar solicitud:', error);
+        alert('No se pudo eliminar la solicitud: ' + error.message);
+      }
+    };
+        
     onMounted(async () => {
       await inicializarChat();
       
@@ -468,7 +550,9 @@ export default {
       getInitials,
       handleTyping,
       iniciarLlamada,
-      asignarSolicitud
+      asignarSolicitud,
+      finalizarSolicitud,
+      eliminarSolicitud
     };
   }
 };
@@ -487,6 +571,42 @@ export default {
   cursor: pointer;
   transition: background-color 0.2s;
   color: #4caf50; /* Color verde para asignación */
+}
+
+.finish-button, .delete-button {
+  background: none;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.finish-button {
+  color: #4caf50; /* Verde */
+}
+
+.finish-button:hover {
+  background-color: #e8f5e9; /* Verde claro */
+  transform: scale(1.1);
+}
+
+.delete-button {
+  color: #f44336; /* Rojo */
+}
+
+.delete-button:hover {
+  background-color: #ffebee; /* Rojo claro */
+  transform: scale(1.1);
+}
+
+/* Modificar estilos existentes para mantener la consistencia */
+.call-button:hover, .close-button:hover, .assign-button:hover {
+  transform: scale(1.1);
 }
 
 .assign-button:hover {

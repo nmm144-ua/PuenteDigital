@@ -75,7 +75,7 @@ const routes = [
         component: () => import('../views/Asistente/GestionLlamadas.vue')
       },
       {
-        path: 'usuario/chat',
+        path: 'chat',
         name: 'UsuarioChat',
         component: () => import('../views/Chat/UserChatView.vue')
       },

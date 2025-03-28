@@ -190,6 +190,27 @@
               >
                 <i class="fas fa-user-check"></i>
               </button>
+
+              <!-- Nuevo botón para finalizar solicitud -->
+              <button 
+                v-if="selectedSolicitud && selectedSolicitud.asistente_id && selectedSolicitud.estado !== 'finalizada'" 
+                @click="finalizarSolicitud(selectedSolicitud)" 
+                class="finish-button"
+                title="Finalizar solicitud"
+              >
+                <i class="fas fa-check"></i>
+              </button>
+              
+              <!-- Nuevo botón para eliminar solicitud -->
+              <button 
+                v-if="selectedSolicitud && selectedSolicitud.estado === 'finalizada'" 
+                @click="eliminarSolicitud(selectedSolicitud)" 
+                class="delete-button"
+                title="Eliminar solicitud"
+              >
+                <i class="fas fa-trash"></i>
+              </button>
+
               <button 
                 @click="closeChatRoom" 
                 class="close-button"
@@ -1096,170 +1117,239 @@ export default {
         supabase.removeChannel(solicitudesChannel);
       };
     };
+
+
+    // Finalizar una solicitud
+    const finalizarSolicitud = async (solicitud) => {
+      if (!solicitud || !solicitud.id) return;
+      
+      // Confirmar con el usuario
+      if (!confirm('¿Estás seguro de que deseas finalizar esta solicitud? Esta acción marcará la asistencia como completada.')) {
+        return;
+      }
+      
+      try {
+        const solicitudActualizada = await solicitudesAsistenciaService.finalizarSolicitud(solicitud.id);
+        
+        // Actualizar el objeto de solicitud local
+        if (solicitudActualizada) {
+          console.log('Solicitud finalizada correctamente', solicitudActualizada);
+          
+          // Actualizar solicitud seleccionada
+          if (selectedSolicitudId.value === solicitud.id) {
+            selectedSolicitud.value = solicitudActualizada;
+          }
+          
+          // Recargar la lista de solicitudes
+          await loadSolicitudes();
+          
+          // Mostrar notificación de éxito
+          alert('Solicitud finalizada correctamente');
+        }
+      } catch (error) {
+        console.error('Error al finalizar solicitud:', error);
+        alert('No se pudo finalizar la solicitud: ' + error.message);
+      }
+    };
+
+    // Eliminar una solicitud
+    const eliminarSolicitud = async (solicitud) => {
+      if (!solicitud || !solicitud.id) return;
+      
+      // Confirmar con el usuario (confirmación más estricta para eliminar)
+      if (!confirm('¿Estás COMPLETAMENTE SEGURO de que deseas ELIMINAR esta solicitud? Esta acción eliminará permanentemente todos los mensajes y la solicitud. Esta acción no se puede deshacer.')) {
+        return;
+      }
+      
+      try {
+        // Primero eliminar todos los mensajes asociados
+        await mensajesService.eliminarMensajesPorSolicitud(solicitud.id);
+        
+        // Luego eliminar la solicitud
+        await solicitudesAsistenciaService.eliminarSolicitud(solicitud.id);
+        
+        console.log('Solicitud y mensajes eliminados correctamente');
+        
+        // Si era la solicitud seleccionada, cerrar la vista
+        if (selectedSolicitudId.value === solicitud.id) {
+          closeChatRoom();
+        }
+        
+        // Recargar la lista de solicitudes
+        await loadSolicitudes();
+        
+        // Mostrar notificación de éxito
+        alert('Solicitud eliminada correctamente');
+      } catch (error) {
+        console.error('Error al eliminar solicitud:', error);
+        alert('No se pudo eliminar la solicitud: ' + error.message);
+      }
+    };
+
     
     watch(chatMessages, async () => {
-  await scrollToBottom();
-  console.log('Mensajes actualizados, desplazando al final');
-}, { deep: true });
+      await scrollToBottom();
+      console.log('Mensajes actualizados, desplazando al final');
+    }, { deep: true });
 
-// Crear un contador para mensaje - más eficiente que observar todo el array
-const messageCount = computed(() => chatMessages.value.length);
-watch(messageCount, (newCount, oldCount) => {
-  console.log(`Contador de mensajes cambió: ${oldCount} → ${newCount}`);
-  if (newCount > oldCount) {
-    // Hay nuevos mensajes
-    nextTick(() => scrollToBottom());
-  }
-});
-
-// Mantener el watch del chat store, pero solo para compatibilidad
-watch(() => chatStore.messages, (newMessages, oldMessages) => {
-  if (!Array.isArray(newMessages) || !Array.isArray(oldMessages)) return;
-  
-  if (newMessages.length > 0 && selectedSolicitudId.value) {
-    console.log('Mensajes actualizados desde store:', newMessages.length);
-    
-    // Si hay nuevos mensajes
-    if (newMessages.length > oldMessages.length) {
-      const nuevosMensajes = newMessages.slice(oldMessages.length);
-      
-      for (const mensaje of nuevosMensajes) {
-        console.log('Procesando nuevo mensaje del store:', mensaje);
-        
-        // Verificar si ya existe (evitar duplicados)
-        const yaExiste = chatMessages.value.some(m => 
-          (m.id && m.id === mensaje.id) || 
-          (m.created_at === mensaje.timestamp && m.contenido === mensaje.message) ||
-          (m.contenido === mensaje.message && 
-            new Date(m.created_at).getTime() > Date.now() - 10000)
-        );
-        
-        if (!yaExiste) {
-          // Añadir mensaje a chatMessages
-          chatMessages.value.push({
-            id: mensaje.id || `store-${Date.now()}`,
-            contenido: mensaje.message || mensaje.contenido,
-            created_at: mensaje.timestamp || mensaje.created_at || new Date().toISOString(),
-            tipo: determinarTipoMensaje(mensaje),
-            leido: false,
-            source: 'chatstore'
-          });
-        } else {
-          console.log('Mensaje del store ya existe, ignorando');
-        }
+    // Crear un contador para mensaje - más eficiente que observar todo el array
+    const messageCount = computed(() => chatMessages.value.length);
+    watch(messageCount, (newCount, oldCount) => {
+      console.log(`Contador de mensajes cambió: ${oldCount} → ${newCount}`);
+      if (newCount > oldCount) {
+        // Hay nuevos mensajes
+        nextTick(() => scrollToBottom());
       }
-    }
-  }
-}, { deep: true });
-    
-    // Eventos del ciclo de vida
-    onMounted(async () => {
-  console.log('Montando componente UserChatView');
-  
-  // Inicializar chat store (mantener por compatibilidad)
-  chatStore.initialize();
-  
-  // Limpiar el set de mensajes procesados
-  processedMessages.value.clear();
-  
-  // Cargar solicitudes iniciales
-  await loadSolicitudes();
-  
-  // Configurar suscripción global a cambios en tiempo real
-  if (authStore.user) {
-    unsubscribe.value = setupRealtimeSubscription();
-  }
-  
-  // Registrar cambios manuales cada 5 segundos (respaldo adicional)
-  const intervalId = setInterval(async () => {
-    if (selectedSolicitudId.value && !cargandoMensajes.value) {
-      try {
-        // Comprobar si hay nuevos mensajes no visualizados
-        const { data, error } = await supabase
-          .from('mensajes')
-          .select('id')
-          .eq('solicitud_id', selectedSolicitudId.value)
-          .eq('leido', false)
-          .eq('tipo', 'usuario');
-          
-        if (error) throw error;
+    });
+
+    // Mantener el watch del chat store, pero solo para compatibilidad
+    watch(() => chatStore.messages, (newMessages, oldMessages) => {
+      if (!Array.isArray(newMessages) || !Array.isArray(oldMessages)) return;
+      
+      if (newMessages.length > 0 && selectedSolicitudId.value) {
+        console.log('Mensajes actualizados desde store:', newMessages.length);
         
-        if (data && data.length > 0) {
-          console.log(`${data.length} mensajes no leídos detectados, actualizando...`);
+        // Si hay nuevos mensajes
+        if (newMessages.length > oldMessages.length) {
+          const nuevosMensajes = newMessages.slice(oldMessages.length);
           
-          // Recargar mensajes
-          const { data: newMensajes, error: mensajesError } = await supabase
-            .from('mensajes')
-            .select('*')
-            .eq('solicitud_id', selectedSolicitudId.value)
-            .order('created_at', { ascending: true });
+          for (const mensaje of nuevosMensajes) {
+            console.log('Procesando nuevo mensaje del store:', mensaje);
             
-          if (mensajesError) throw mensajesError;
-          
-          if (newMensajes) {
-            // Verificar si hay mensajes nuevos que no están en la lista actual
-            const mensajesNuevos = newMensajes.filter(nuevoMsg => 
-              !chatMessages.value.some(msg => msg.id === nuevoMsg.id)
+            // Verificar si ya existe (evitar duplicados)
+            const yaExiste = chatMessages.value.some(m => 
+              (m.id && m.id === mensaje.id) || 
+              (m.created_at === mensaje.timestamp && m.contenido === mensaje.message) ||
+              (m.contenido === mensaje.message && 
+                new Date(m.created_at).getTime() > Date.now() - 10000)
             );
             
-            if (mensajesNuevos.length > 0) {
-              console.log(`Añadiendo ${mensajesNuevos.length} mensajes nuevos desde intervalo`);
-              
-              // Añadir solo los mensajes nuevos
-              mensajesNuevos.forEach(msg => {
-                chatMessages.value.push({
-                  id: msg.id,
-                  contenido: msg.contenido,
-                  created_at: msg.created_at,
-                  tipo: msg.tipo,
-                  leido: msg.leido,
-                  source: 'interval_check'
-                });
+            if (!yaExiste) {
+              // Añadir mensaje a chatMessages
+              chatMessages.value.push({
+                id: mensaje.id || `store-${Date.now()}`,
+                contenido: mensaje.message || mensaje.contenido,
+                created_at: mensaje.timestamp || mensaje.created_at || new Date().toISOString(),
+                tipo: determinarTipoMensaje(mensaje),
+                leido: false,
+                source: 'chatstore'
               });
-              
-              // Marcar como leídos
-              await supabase
-                .from('mensajes')
-                .update({ leido: true })
-                .eq('solicitud_id', selectedSolicitudId.value)
-                .eq('tipo', 'usuario')
-                .eq('leido', false);
+            } else {
+              console.log('Mensaje del store ya existe, ignorando');
             }
           }
         }
-      } catch (error) {
-        console.error('Error en verificación periódica:', error);
       }
-    }
-  }, 5000); // Comprobar cada 5 segundos
-  
-  // Eliminar intervalo al desmontar
-  onUnmounted(() => {
-    clearInterval(intervalId);
-  });
-});
+    }, { deep: true });
     
-onUnmounted(() => {
-  console.log('Desmontando componente UserChatView');
-  
-  // Cancelar suscripciones Realtime
-  if (unsubscribe.value && typeof unsubscribe.value === 'function') {
-    unsubscribe.value();
-  }
-  
-  // Limpiar sala de chat activa
-  if (chatStore.isInRoom) {
-    chatStore.cleanup();
-  }
-  
-  // Limpiar timeout de escritura
-  if (typingTimeout.value) {
-    clearTimeout(typingTimeout.value);
-  }
-  
-  // Limpiar el set de mensajes procesados
-  processedMessages.value.clear();
-});
+    // Eventos del ciclo de vida
+    onMounted(async () => {
+      console.log('Montando componente UserChatView');
+      
+      // Inicializar chat store (mantener por compatibilidad)
+      chatStore.initialize();
+      
+      // Limpiar el set de mensajes procesados
+      processedMessages.value.clear();
+      
+      // Cargar solicitudes iniciales
+      await loadSolicitudes();
+      
+      // Configurar suscripción global a cambios en tiempo real
+      if (authStore.user) {
+        unsubscribe.value = setupRealtimeSubscription();
+      }
+      
+      // Registrar cambios manuales cada 5 segundos (respaldo adicional)
+      const intervalId = setInterval(async () => {
+        if (selectedSolicitudId.value && !cargandoMensajes.value) {
+          try {
+            // Comprobar si hay nuevos mensajes no visualizados
+            const { data, error } = await supabase
+              .from('mensajes')
+              .select('id')
+              .eq('solicitud_id', selectedSolicitudId.value)
+              .eq('leido', false)
+              .eq('tipo', 'usuario');
+              
+            if (error) throw error;
+            
+            if (data && data.length > 0) {
+              console.log(`${data.length} mensajes no leídos detectados, actualizando...`);
+              
+              // Recargar mensajes
+              const { data: newMensajes, error: mensajesError } = await supabase
+                .from('mensajes')
+                .select('*')
+                .eq('solicitud_id', selectedSolicitudId.value)
+                .order('created_at', { ascending: true });
+                
+              if (mensajesError) throw mensajesError;
+              
+              if (newMensajes) {
+                // Verificar si hay mensajes nuevos que no están en la lista actual
+                const mensajesNuevos = newMensajes.filter(nuevoMsg => 
+                  !chatMessages.value.some(msg => msg.id === nuevoMsg.id)
+                );
+                
+                if (mensajesNuevos.length > 0) {
+                  console.log(`Añadiendo ${mensajesNuevos.length} mensajes nuevos desde intervalo`);
+                  
+                  // Añadir solo los mensajes nuevos
+                  mensajesNuevos.forEach(msg => {
+                    chatMessages.value.push({
+                      id: msg.id,
+                      contenido: msg.contenido,
+                      created_at: msg.created_at,
+                      tipo: msg.tipo,
+                      leido: msg.leido,
+                      source: 'interval_check'
+                    });
+                  });
+                  
+                  // Marcar como leídos
+                  await supabase
+                    .from('mensajes')
+                    .update({ leido: true })
+                    .eq('solicitud_id', selectedSolicitudId.value)
+                    .eq('tipo', 'usuario')
+                    .eq('leido', false);
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error en verificación periódica:', error);
+          }
+        }
+      }, 5000); // Comprobar cada 5 segundos
+      
+      // Eliminar intervalo al desmontar
+      onUnmounted(() => {
+        clearInterval(intervalId);
+      });
+    });
+    
+    onUnmounted(() => {
+      console.log('Desmontando componente UserChatView');
+      
+      // Cancelar suscripciones Realtime
+      if (unsubscribe.value && typeof unsubscribe.value === 'function') {
+        unsubscribe.value();
+      }
+      
+      // Limpiar sala de chat activa
+      if (chatStore.isInRoom) {
+        chatStore.cleanup();
+      }
+      
+      // Limpiar timeout de escritura
+      if (typingTimeout.value) {
+        clearTimeout(typingTimeout.value);
+      }
+      
+      // Limpiar el set de mensajes procesados
+      processedMessages.value.clear();
+    });
     
     return {
       solicitudes,
@@ -1289,7 +1379,9 @@ onUnmounted(() => {
       getPreviewText,
       getStatusText,
       tieneNuevosMensajes,
-      loadSolicitudes
+      loadSolicitudes,
+      finalizarSolicitud,
+      eliminarSolicitud
     };
   }
 };
@@ -1305,8 +1397,43 @@ onUnmounted(() => {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+.finish-button, .delete-button {
+  background: none;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
 
-asignar-button {
+.finish-button {
+  color: #4caf50; /* Verde */
+}
+
+.finish-button:hover {
+  background-color: #e8f5e9; /* Verde claro */
+  transform: scale(1.1);
+}
+
+.delete-button {
+  color: #f44336; /* Rojo */
+}
+
+.delete-button:hover {
+  background-color: #ffebee; /* Rojo claro */
+  transform: scale(1.1);
+}
+
+/* También añadir efectos de escala a los botones existentes */
+.assign-button:hover, .close-button:hover {
+  transform: scale(1.1);
+}
+
+.asignar-button {
   background: linear-gradient(135deg, #4caf50, #2e7d32);
   color: white;
   border: none;
