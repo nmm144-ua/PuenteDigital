@@ -84,7 +84,7 @@ class AsistenciaService {
   }
   
   // Modificar también el método crearSolicitud para manejar usuarios anónimos
-  async crearSolicitud(descripcion, tipoAsistencia = 'chat') {
+  async crearSolicitud(descripcion, tipoAsistencia ) {
     try {
       // Intentar inicializar si no se ha hecho
       if (!this.userDbId && !this.deviceId) {

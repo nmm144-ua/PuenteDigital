@@ -66,7 +66,9 @@ const MainNavigator = () => {
         component={VideollamadaScreen}
         options={{
           headerShown: false,
-          gestureEnabled: false
+          gestureEnabled: false,
+          animationEnabled: false,
+          presentation: "card"
         }}
       />
       

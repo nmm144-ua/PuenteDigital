@@ -13,7 +13,7 @@ class SocketService {
     this.connectionAttempts = 0;
     
     // Server URL - cambiar a la URL real de tu servidor
-    this.serverUrl = 'http://192.168.1.38:3001';
+    this.serverUrl = 'http://192.168.1.45:3001';
     
     // Evitar duplicación de listeners
     this.registeredEvents = new Set();
@@ -170,6 +170,7 @@ class SocketService {
   // Desconectar del servidor
   disconnect() {
     console.log('Desconectando socket...');
+    console.trace("Traza de llamada a disconnect"); // Traza para encontrar el origen
     if (this.socket) {
       // Si estamos en una sala, salir primero
       if (this.currentRoom) {
@@ -263,7 +264,8 @@ class SocketService {
     
     if (this.socket && this.isConnected && roomId) {
       console.log(`Abandonando sala: ${roomId}`);
-      
+      console.trace("Traza de llamada a leaveRoom"); // Agregado para detectar el origen
+
       // Enviar evento para abandonar la sala
       this.socket.emit('leave-room', { roomId });
       this.currentRoom = null;
@@ -386,10 +388,6 @@ class SocketService {
   }
   
   // Enviar mensaje de chat
- // Modificar en socketService.js para evitar envío de mensajes duplicados
-
-// Dentro de la clase SocketService, modificar el método sendMessage:
-
   sendMessage(roomId, message, senderName) {
     if (!this.socket || !this.isConnected) {
       console.error('No hay conexión con el servidor al enviar mensaje');
@@ -587,6 +585,33 @@ class SocketService {
       socketId: this.socket?.id
     };
   }
+
+  //PARTE DE VIDEOLLAMADAS
+
+  //Finalizar llamada
+  endCall(roomId, toUserId) {
+    if (!this.socket || !this.isConnected) {
+      console.error('No hay conexión con el servidor al finalizar llamada');
+      return false;
+    }
+    
+    console.log(`Enviando evento de finalización de llamada en sala ${roomId} a ${toUserId || 'todos'}`);
+    
+    try {
+      this.socket.emit('call-ended', {
+        roomId: roomId,
+        to: toUserId || null, // Si no se especifica, se enviará a todos en la sala
+        from: this.userId || 'unknown'
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Error al enviar evento de finalización de llamada:', error);
+      return false;
+    }
+  }
+
+
 }
 
 // Exportar una instancia única

@@ -49,7 +49,7 @@ const getServerUrl = () => {
   }
   
   // Para React Native y entorno móvil
-  return 'http://192.168.1.38:3001'; // URL del servidor
+  return 'http://localhost:3001'; // URL del servidor
 };
 
 const SOCKET_SERVER = getServerUrl();

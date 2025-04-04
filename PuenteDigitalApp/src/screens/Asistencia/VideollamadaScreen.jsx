@@ -47,21 +47,32 @@ const VideollamadaScreen = ({ route, navigation }) => {
   // Función para finalizar la llamada
   const endCall = async () => {
     try {
+      console.log("endCall: Iniciando proceso de finalización");
+      
       // Notificar a través del socket que la llamada ha finalizado
-      SocketService.endCall(roomId, asistenteId);
+      if (SocketService.endCall) {
+        console.log(`endCall: Notificando finalización - sala: ${roomId}, asistente: ${asistenteId}`);
+        SocketService.endCall(roomId, asistenteId);
+      } else {
+        console.error("endCall: Método SocketService.endCall no está definido");
+      }
       
       // Detener y liberar los streams
       if (localStream) {
+        console.log("endCall: Deteniendo streams locales");
         localStream.getTracks().forEach(track => track.stop());
       }
       
       // Limpiar el servicio WebRTC
-      WebRTCService.cleanup();
+      console.log("endCall: Limpiando WebRTC");
+      await WebRTCService.cleanup();
       
       // Actualizar el estado
+      console.log("endCall: Actualizando estado a 'ended'");
       setCallStatus('ended');
       
       // Navegar de vuelta a la pantalla anterior
+      console.log("endCall: Navegando a pantalla anterior");
       navigation.navigate('OpcionesInicio');
     } catch (error) {
       console.error('Error al finalizar la llamada:', error);
@@ -205,9 +216,6 @@ const VideollamadaScreen = ({ route, navigation }) => {
         clearInterval(durationTimerRef.current);
       }
       
-      if (callStatus !== 'ended') {
-        endCall();
-      }
     };
   }, []);
   
