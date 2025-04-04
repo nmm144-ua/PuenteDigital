@@ -4,7 +4,6 @@ import {
   RTCIceCandidate,
   RTCSessionDescription,
   mediaDevices,
-  MediaStream
 } from 'react-native-webrtc';
 import { Platform } from 'react-native';
 import SocketService from './socketService';
@@ -21,186 +20,279 @@ class WebRTCService {
     this.isInitializing = false;
     this.isProcessingOffer = false;
     this.isProcessingAnswer = false;
+    this.remoteStream = {};
     
     // Configuración de servidores ICE (STUN/TURN)
     this.iceServers = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
-      // Servidores TURN gratuitos (limitados)
-      { 
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      // Servidor TURN público de Google
+      {
         urls: 'turn:numb.viagenie.ca',
-        credential: 'muazkh',
-        username: 'webrtc@live.com'
+        username: 'webrtc@live.com',
+        credential: 'muazkh'
+      },
+      // Servidores TURN alternativos
+      {
+        urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+        username: 'webrtc',
+        credential: 'webrtc'
       }
     ];
+    this.verifyICEServers();
+  }
+
+  async verifyICEServers() {
+    try {
+      // Crear una conexión temporal solo para probar
+      const pc = new RTCPeerConnection({
+        iceServers: this.iceServers,
+        iceTransportPolicy: 'all'
+      });
+      
+      let candidateFound = false;
+      
+      pc.onicecandidate = event => {
+        if (event.candidate) {
+          if (event.candidate.candidate.indexOf('typ relay') > -1) {
+            console.log('TURN server funciona correctamente');
+            candidateFound = true;
+          }
+        }
+      };
+      
+      // Crear oferta para activar generación de candidatos
+      await pc.createOffer();
+      
+      // Esperar un tiempo para verificar los resultados
+      setTimeout(() => {
+        if (!candidateFound) {
+          console.warn('No se detectaron candidatos TURN. Los servidores podrían no estar disponibles.');
+        }
+        pc.close();
+      }, 5000);
+    } catch (error) {
+      console.error('Error al verificar servidores ICE:', error);
+    }
   }
   
   // Método principal para inicializar WebRTC
   async init() {
-    if (this.isInitializing) {
-      console.log('Ya hay una inicialización en curso, esperando...');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return this.peerConnection !== null;
+    // Prevenir inicializaciones simultáneas
+    if (this._initializingPromise) {
+      console.log('Inicialización en progreso, esperando...');
+      return this._initializingPromise;
     }
     
-    this.isInitializing = true;
-    
-    try {
-      // Cerrar conexión anterior si existe
-      if (this.peerConnection) {
-        console.log('Cerrando conexión anterior antes de inicializar...');
-        this.peerConnection.close();
-        this.peerConnection = null;
-      }
-      
-      console.log('Inicializando WebRTC...');
-      
-      // Crear una nueva conexión RTCPeerConnection
-      this.peerConnection = new RTCPeerConnection({
-        iceServers: this.iceServers,
-        iceCandidatePoolSize: 10,
-        sdpSemantics: Platform.OS === 'ios' ? 'unified-plan' : 'plan-b'
-      });
-      
-      // Configurar eventos de la conexión
-      this.setupPeerConnectionListeners();
-      
-      // Obtener stream local si no existe
-      if (!this.localStream) {
-        try {
-          const stream = await this.getLocalStream();
-          this.localStream = stream;
-        } catch (mediaError) {
-          console.warn('No se pudo obtener stream local:', mediaError);
-          // Continuamos incluso sin stream local, para poder recibir streams remotos
-        }
-      }
-      
-      // Agregar tracks al peer connection
-      if (this.localStream && this.peerConnection) {
-        this.localStream.getTracks().forEach(track => {
-          this.peerConnection.addTrack(track, this.localStream);
-        });
-      }
-      
-      console.log('WebRTC inicializado correctamente');
-      this.isInitializing = false;
-      return true;
-    } catch (error) {
-      console.error('Error al inicializar WebRTC:', error);
-      
-      // Limpiar en caso de error
-      if (this.peerConnection) {
-        try {
+    // Crear promesa de inicialización
+    this._initializingPromise = (async () => {
+      try {
+        console.log('Inicializando WebRTC...');
+        
+        // Cerrar conexión anterior si existe
+        if (this.peerConnection) {
+          console.log('Cerrando conexión anterior antes de inicializar...');
           this.peerConnection.close();
-        } catch (e) {
-          // Ignorar errores durante la limpieza
+          this.peerConnection = null;
         }
-        this.peerConnection = null;
+        
+        // Crear nueva conexión
+        this.peerConnection = new RTCPeerConnection({
+          iceServers: this.iceServers,
+          iceTransportPolicy: 'all',
+          bundlePolicy: 'max-bundle',
+          rtcpMuxPolicy: 'require',
+          sdpSemantics: 'unified-plan'
+        });
+        
+        // Configurar eventos
+        this.setupPeerConnectionListeners();
+        
+        // Agregar tracks si hay stream local
+        if (this.localStream) {
+          console.log('Agregando tracks al peerConnection');
+          this.localStream.getTracks().forEach(track => {
+            const sender = this.peerConnection.addTrack(track, this.localStream);
+            console.log(`Track ${track.kind} añadido con éxito, ID: ${track.id}, sender: `, sender);
+          });
+        } else {
+          // Obtener stream local si no existe
+          try {
+            this.localStream = await this.getLocalStream();
+            // Agregar tracks después de obtener stream local
+            console.log('Agregando tracks al peerConnection');
+            this.localStream.getTracks().forEach(track => {
+              const sender = this.peerConnection.addTrack(track, this.localStream);
+              console.log(`Track ${track.kind} añadido con éxito, ID: ${track.id}, sender: `, sender);
+            });
+          } catch (mediaError) {
+            console.warn('No se pudo obtener stream local:', mediaError);
+          }
+        }
+        
+        console.log('WebRTC inicializado correctamente');
+        return true;
+      } catch (error) {
+        console.error('Error al inicializar WebRTC:', error);
+        throw error;
+      } finally {
+        // Limpia la promesa de inicialización
+        this._initializingPromise = null;
       }
-      
-      this.isInitializing = false;
-      throw error;
-    }
+    })();
+    
+    return this._initializingPromise;
   }
   
   // Configurar los listeners para eventos de la conexión
-  // Versión mejorada de setupPeerConnectionListeners
-
-setupPeerConnectionListeners() {
-  if (!this.peerConnection) {
-    console.warn('setupPeerConnectionListeners: No hay peer connection');
-    return;
-  }
-  
-  // Evento cuando se genera un candidato ICE
-  this.peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      // Enviar el candidato ICE al otro usuario a través del socket
-      if (this.remoteUserId) {
-        SocketService.sendIceCandidate(
-          event.candidate.toJSON(),
-          this.remoteUserId,
-          this.userId
-        );
-      } else {
-        console.warn('No hay remoteUserId para enviar candidato ICE');
-        // Guardar candidato para enviar más tarde
-        this.pendingIceCandidates.push(event.candidate.toJSON());
-      }
-    } else {
-      console.log('Recolección de candidatos ICE completada');
-    }
-  };
-  
-  // Evento cuando cambia el estado de la conexión ICE
-  this.peerConnection.oniceconnectionstatechange = () => {
-    // IMPORTANTE: Verificar que peerConnection sigue existiendo
-    if (!this.peerConnection) return;
-    
-    const state = this.peerConnection.iceConnectionState;
-    console.log('ICE Connection State:', state);
-    
-    if (state === 'connected' || state === 'completed') {
-      console.log('Conexión WebRTC establecida correctamente');
-      
-      // Una vez conectado, enviar cualquier candidato ICE pendiente
-      if (this.remoteUserId && this.pendingIceCandidates.length > 0) {
-        console.log(`Enviando ${this.pendingIceCandidates.length} candidatos ICE pendientes`);
-        this.pendingIceCandidates.forEach(candidate => {
-          SocketService.sendIceCandidate(candidate, this.remoteUserId, this.userId);
-        });
-        this.pendingIceCandidates = [];
-      }
-    } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
-      console.log('Conexión ICE cerrada o fallida');
-    }
-  };
-  
-  // Evento cuando cambia el estado de la conexión de señalización
-  this.peerConnection.onsignalingstatechange = () => {
-    // IMPORTANTE: Verificar que peerConnection sigue existiendo
-    if (!this.peerConnection) return;
-    
-    const state = this.peerConnection.signalingState;
-    console.log('Signaling State:', state);
-    
-    if (state === 'stable') {
-      // Procesar candidatos ICE pendientes cuando estamos en estado estable
-      this.processPendingIceCandidates();
-    }
-  };
-  
-  // Evento de conexión (solo disponible en algunas implementaciones)
-  if (typeof this.peerConnection.onconnectionstatechange !== 'undefined') {
-    this.peerConnection.onconnectionstatechange = () => {
-      // IMPORTANTE: Verificar que peerConnection sigue existiendo
-      if (!this.peerConnection) return;
-      
-      console.log('Connection State:', this.peerConnection.connectionState);
-    };
-  }
-  
-  // Evento cuando se recibe un track del otro usuario
-  this.peerConnection.ontrack = (event) => {
-    console.log('Stream remoto recibido:', event.streams[0]);
-    
-    if (!event.streams || !event.streams[0]) {
-      console.warn('Evento ontrack sin streams');
+  setupPeerConnectionListeners() {
+    if (!this.peerConnection) {
+      console.warn('setupPeerConnectionListeners: No hay peer connection');
       return;
     }
     
-    // Guardar el stream remoto
-    this.remoteStream = event.streams[0];
+    // Evento cuando se genera un candidato ICE
+    this.peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        // Enviar el candidato ICE al otro usuario a través del socket
+        if (this.remoteUserId) {
+          SocketService.sendIceCandidate(
+            event.candidate.toJSON(),
+            this.remoteUserId,
+            this.userId
+          );
+        } else {
+          console.warn('No hay remoteUserId para enviar candidato ICE');
+          // Guardar candidato para enviar más tarde
+          this.pendingIceCandidates.push(event.candidate.toJSON());
+        }
+      } else {
+        console.log('Recolección de candidatos ICE completada');
+      }
+    };
     
-    // Notificar que se ha recibido el stream remoto
-    if (this.onRemoteStreamCallback) {
-      this.onRemoteStreamCallback(this.remoteStream);
+    // Evento cuando cambia el estado de la conexión ICE
+    this.peerConnection.oniceconnectionstatechange = () => {
+      const state = this.peerConnection.iceConnectionState;
+      console.log('***** ICE CONNECTION STATE CHANGE *****:', state);
+      
+      if (state === 'connected' || state === 'completed') {
+        console.log('Conexión ICE establecida');
+      } else if (state === 'failed') {
+        console.error('Conexión ICE fallida - posible problema de NAT/firewall');
+      } else if (state === 'disconnected') {
+        console.error('Conexión ICE desconectada');
+      }
+    };
+    
+    // Evento cuando cambia el estado de la conexión de señalización
+    this.peerConnection.onsignalingstatechange = () => {
+      // IMPORTANTE: Verificar que peerConnection sigue existiendo
+      if (!this.peerConnection) return;
+      
+      const state = this.peerConnection.signalingState;
+      console.log('Signaling State:', state);
+      
+      if (state === 'stable') {
+        // Procesar candidatos ICE pendientes cuando estamos en estado estable
+        this.processPendingIceCandidates();
+      }
+    };
+    
+    // Evento de conexión (solo disponible en algunas implementaciones)
+    if (typeof this.peerConnection.onconnectionstatechange !== 'undefined') {
+      this.peerConnection.onconnectionstatechange = () => {
+        // IMPORTANTE: Verificar que peerConnection sigue existiendo
+        if (!this.peerConnection) return;
+        
+        console.log('Connection State:', this.peerConnection.connectionState);
+      };
     }
-  };
-}
+    
+    // Evento cuando se recibe un track del otro usuario
+    this.peerConnection.ontrack = (event) => {
+      console.log('===== TRACK REMOTO RECIBIDO =====');
+      console.log('- event.streams:', event.streams?.length);
+      
+      if (!event.streams || event.streams.length === 0) {
+        console.error('No hay streams en el evento ontrack');
+        return;
+      }
+      
+      const remoteStream = event.streams[0];
+      console.log('- Stream ID:', remoteStream.id);
+      console.log('- Audio tracks:', remoteStream.getAudioTracks().length);
+      console.log('- Video tracks:', remoteStream.getVideoTracks().length);
+      
+      // Verificar que el stream tenga tracks activos antes de utilizarlo
+      const hasActiveTracks = remoteStream.getTracks().some(track => track.readyState === 'live');
+      
+      if (!hasActiveTracks) {
+        console.warn('Stream remoto recibido pero no tiene tracks activos');
+      }
+      
+      // Guardar referencia al stream para cada usuario
+      this.remoteStreams[this.remoteUserId] = remoteStream;
+      
+      // Notificar a través del callback
+      if (this.callbacks.onRemoteStream) {
+        this.callbacks.onRemoteStream(this.remoteUserId, remoteStream);
+      }
+    };
+  }
   
+  logWebRTCState() {
+    console.log('======== DIAGNÓSTICO WEBRTC ========');
+    console.log('Estado de conexión:', this.peerConnection?.connectionState);
+    console.log('Estado de conexión ICE:', this.peerConnection?.iceConnectionState);
+    console.log('Estado de señalización:', this.peerConnection?.signalingState);
+    
+    // Estado del stream local
+    if (this.localStream) {
+      const audioTracks = this.localStream.getAudioTracks();
+      const videoTracks = this.localStream.getVideoTracks();
+      console.log('Stream local - Audio tracks:', audioTracks.length, 'Video tracks:', videoTracks.length);
+      
+      // Estado de cada track
+      audioTracks.forEach((track, i) => {
+        console.log(`Audio Track ${i}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+      });
+      
+      videoTracks.forEach((track, i) => {
+        console.log(`Video Track ${i}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+      });
+    } else {
+      console.log('No hay stream local');
+    }
+    
+    // Verificar streams remotos
+    console.log('Streams remotos:', Object.keys(this.remoteStreams));
+    
+    if (this.remoteUserId) {
+      console.log('RemoteUserId configurado:', this.remoteUserId);
+    } else {
+      console.log('RemoteUserId NO configurado');
+    }
+    
+    // Verificar estado de transceivers (si están disponibles)
+    if (this.peerConnection?.getTransceivers) {
+      const transceivers = this.peerConnection.getTransceivers();
+      console.log('Transceivers:', transceivers.length);
+      transceivers.forEach((transceiver, i) => {
+        console.log(`Transceiver ${i}:`, {
+          currentDirection: transceiver.currentDirection,
+          direction: transceiver.direction,
+          stopped: transceiver.stopped
+        });
+      });
+    }
+    
+    console.log('=============================');
+  }
+
   // Obtener el stream local (cámara y micrófono)
   async getLocalStream() {
     try {
@@ -241,89 +333,68 @@ setupPeerConnectionListeners() {
     }
   }
 
-  // Manejar una oferta recibida (VERSIÓN MEJORADA)
-  // Versión final del método handleIncomingOffer
-
+  // Manejar una oferta recibida
   async handleIncomingOffer(offer, fromUserId) {
-    // Evitar procesamiento de múltiples ofertas simultáneas
-    if (this.isProcessingOffer) {
-      console.log('Ya hay una oferta en proceso, esperando finalización...');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      if (this.isProcessingOffer) {
-        console.log('La oferta anterior sigue en proceso, ignorando nueva oferta');
-        return null;
-      }
-    }
+    console.log('***** PROCESANDO OFERTA EN WEBRTC *****');
+    console.log('De usuario:', fromUserId);
     
-    this.isProcessingOffer = true;
-    console.log('Manejando oferta entrante de:', fromUserId);
+    // Establecer remoteUserId
     this.remoteUserId = fromUserId;
     
     try {
-      // Guardar una copia segura de la oferta original
-      const offerCopy = JSON.parse(JSON.stringify(offer));
+      // Cerrar cualquier conexión existente
+      if (this.peerConnection) {
+        console.log('Cerrando conexión existente antes de procesar oferta');
+        this.peerConnection.close();
+        this.peerConnection = null;
+      }
       
-      // IMPORTANTE: Limpiar por completo el estado anterior
-      this.cleanup();
-      
-      // Crear una nueva instancia de RTCPeerConnection
+      // Inicializar nueva conexión
+      console.log('Inicializando nueva conexión para responder a oferta');
       await this.init();
       
-      // Verificar que la conexión se creó correctamente
-      if (!this.peerConnection) {
-        throw new Error('No se pudo crear la conexión WebRTC');
-      }
+      // Verificar estado inicial
+      console.log('Estado inicial de señalización:', this.peerConnection.signalingState);
       
-      // IMPORTANTE: Esperar a que la conexión esté completamente inicializada
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Establecer descripción remota primero (la oferta)
+      console.log('Estableciendo descripción remota (oferta)');
+      await this.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
       
-      // Verificar el estado de señalización antes de continuar
-      console.log(`Estado de señalización antes de setRemoteDescription: ${this.peerConnection.signalingState}`);
+      // Verificar estado después de establecer oferta
+      console.log('Estado después de establecer oferta remota:', this.peerConnection.signalingState);
       
-      if (this.peerConnection.signalingState !== 'stable') {
-        console.warn(`Estado de señalización inesperado: ${this.peerConnection.signalingState}, esperaba 'stable'`);
-        // No lanzar error, seguir intentando
-      }
-      
-      // Establecer la oferta remota
-      console.log('Estableciendo descripción remota...');
-      const remoteDesc = new RTCSessionDescription(offerCopy);
-      await this.peerConnection.setRemoteDescription(remoteDesc);
-      
-      // Esperar a que el estado de señalización cambie
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Verificar que estamos en el estado correcto ahora
-      if (this.peerConnection.signalingState !== 'have-remote-offer') {
-        console.error(`Estado de señalización después de setRemoteDescription: ${this.peerConnection.signalingState}, esperaba 'have-remote-offer'`);
-        // No lanzar error, intentar continuar
-      } else {
-        console.log('Estado de señalización correcto: have-remote-offer');
-      }
-      
-      // Crear respuesta
-      console.log('Creando respuesta...');
+      // Crear respuesta inmediatamente después de establecer la descripción remota
+      console.log('Creando respuesta SDP');
       const answer = await this.peerConnection.createAnswer();
       
-      // Establecer la descripción local
-      console.log('Estableciendo descripción local (respuesta)...');
+      // Establecer descripción local (la respuesta) inmediatamente
+      console.log('Estableciendo descripción local (respuesta)');
       await this.peerConnection.setLocalDescription(answer);
       
-      console.log('Respuesta creada y establecida correctamente');
+      // Verificar estado final
+      console.log('Estado final después de establecer respuesta:', this.peerConnection.signalingState);
       
-      // Procesar candidatos ICE pendientes ahora que tenemos configuración completa
-      this.processPendingIceCandidates();
+      // Enviar respuesta
+      console.log('Enviando respuesta a:', fromUserId);
+      const enviado = SocketService.sendAnswer(answer, fromUserId);
+      console.log('Respuesta enviada con éxito:', enviado);
       
-      // Ya no estamos procesando la oferta
-      this.isProcessingOffer = false;
-      return answer;
+      return true;
     } catch (error) {
-      console.error('Error al manejar oferta entrante:', error);
-      this.isProcessingOffer = false;
+      console.error('***** ERROR AL PROCESAR OFERTA *****');
+      console.error('Mensaje:', error.message);
+      console.error('Stack:', error.stack);
       
-      // IMPORTANTE: Siempre limpiar en caso de error
-      this.cleanup();
+      // Limpiar recursos en caso de error
+      try {
+        if (this.peerConnection) {
+          console.log('Limpiando conexión después de error');
+          this.peerConnection.close();
+          this.peerConnection = null;
+        }
+      } catch (cleanupError) {
+        console.warn('Error durante la limpieza:', cleanupError);
+      }
       
       throw error;
     }
@@ -538,6 +609,17 @@ setupPeerConnectionListeners() {
     }
   }
   
+  getDebugInfo() {
+    return {
+      initialized: !!this.peerConnection,
+      remoteUserId: this.remoteUserId,
+      localStreamActive: !!this.localStream,
+      signalingState: this.peerConnection?.signalingState,
+      iceConnectionState: this.peerConnection?.iceConnectionState,
+      iceGatheringState: this.peerConnection?.iceGatheringState
+    };
+  }
+
   // Limpiar recursos al finalizar
   cleanup() {
     console.log('Limpiando recursos WebRTC...');
@@ -605,6 +687,93 @@ setupPeerConnectionListeners() {
     this.isProcessingAnswer = false;
     
     console.log('Recursos WebRTC liberados correctamente');
+  }
+
+  // Añadir a WebRTCService.js
+  async testLoopback() {
+    try {
+      console.log('Iniciando prueba de loopback...');
+      
+      // Obtener stream local si no existe
+      if (!this.localStream) {
+        this.localStream = await this.getLocalStream();
+      }
+      
+      // Crear dos conexiones peer para simular una llamada loopback
+      const pc1 = new RTCPeerConnection({
+        iceServers: this.iceServers,
+        sdpSemantics: 'unified-plan'
+      });
+      
+      const pc2 = new RTCPeerConnection({
+        iceServers: this.iceServers,
+        sdpSemantics: 'unified-plan'
+      });
+      
+      // Variable para almacenar el resultado
+      let loopbackSuccess = false;
+      
+      // Configurar evento ontrack para pc2
+      pc2.ontrack = (event) => {
+        console.log('Loopback: Track recibido en pc2');
+        if (event.streams && event.streams[0]) {
+          loopbackSuccess = true;
+          console.log('Loopback: Stream recibido correctamente');
+        }
+      };
+      
+      // Añadir tracks de localStream a pc1
+      this.localStream.getTracks().forEach(track => {
+        pc1.addTrack(track, this.localStream);
+      });
+      
+      // Conectar los candidatos ICE entre ambos peers
+      pc1.onicecandidate = e => {
+        if (e.candidate) pc2.addIceCandidate(e.candidate);
+      };
+      
+      pc2.onicecandidate = e => {
+        if (e.candidate) pc1.addIceCandidate(e.candidate);
+      };
+      
+      // Crear oferta desde pc1
+      const offer = await pc1.createOffer();
+      await pc1.setLocalDescription(offer);
+      
+      // Establecer oferta como descripción remota en pc2
+      await pc2.setRemoteDescription(pc1.localDescription);
+      
+      // Crear respuesta desde pc2
+      const answer = await pc2.createAnswer();
+      await pc2.setLocalDescription(answer);
+      
+      // Establecer respuesta como descripción remota en pc1
+      await pc1.setRemoteDescription(pc2.localDescription);
+      
+      // Esperar y verificar resultado
+      return new Promise(resolve => {
+        setTimeout(() => {
+          // Limpiar recursos
+          pc1.close();
+          pc2.close();
+          
+          // Devolver resultado
+          resolve({
+            success: loopbackSuccess,
+            message: loopbackSuccess 
+              ? 'Test de loopback exitoso: La captura y transmisión de medios funciona correctamente'
+              : 'Test de loopback fallido: Hay un problema con la transmisión de medios'
+          });
+        }, 5000); // Esperar 5 segundos para que se establezca la conexión
+      });
+    } catch (error) {
+      console.error('Error en prueba de loopback:', error);
+      return {
+        success: false,
+        message: `Error en prueba de loopback: ${error.message}`,
+        error
+      };
+    }
   }
 }
 

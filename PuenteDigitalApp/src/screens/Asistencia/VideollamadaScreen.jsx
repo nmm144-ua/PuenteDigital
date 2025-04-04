@@ -171,13 +171,6 @@ const VideollamadaScreen = ({ route, navigation }) => {
         endCall();
       });
       
-      // Si somos el asistente, crear oferta para iniciar la llamada
-      if (asistenteId) {
-        // Usuario común: esperar a que el asistente llame
-      } else {
-        // Lógica para cuando el asistente inicia la llamada (no necesaria aquí)
-      }
-      
       webrtcInitializedRef.current = true;
     } catch (error) {
       console.error('Error al inicializar WebRTC:', error);
@@ -194,6 +187,23 @@ const VideollamadaScreen = ({ route, navigation }) => {
     if (!webrtcInitializedRef.current) {
       inicializarWebRTC();
     }
+
+    SocketService.onOffer(async (data) => {
+      console.log('Oferta recibida en component, pasando a WebRTCService');
+      try {
+        await WebRTCService.handleIncomingOffer(data.offer, data.from);
+      } catch (error) {
+        console.error('Error al manejar oferta:', error);
+      }
+    });
+    
+    SocketService.onIceCandidate((data) => {
+      console.log('Candidato ICE recibido, pasando a WebRTCService');
+      WebRTCService.addIceCandidate(data.candidate)
+        .catch(error => console.error('Error al añadir candidato ICE:', error));
+    });
+
+     
     
     // Prevenir navegación hacia atrás sin finalizar la llamada
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -224,7 +234,7 @@ const VideollamadaScreen = ({ route, navigation }) => {
       {/* Stream remoto (pantalla completa) */}
       {remoteStream ? (
         <RTCView
-          streamURL={remoteStream.toURL()}
+          streamURL={remoteStream ? remoteStream.toURL() : ''}
           style={styles.remoteStream}
           objectFit="cover"
         />

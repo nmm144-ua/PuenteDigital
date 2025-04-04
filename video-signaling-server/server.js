@@ -143,32 +143,40 @@ io.on('connection', (socket) => {
   
   // 1. Oferta de conexión
   socket.on('offer', ({ offer, to, from }) => {
+    console.log(`Oferta SDP recibida de ${from} para ${to}`);
     const toSocketId = userSocketMap.get(to);
     if (toSocketId) {
+      console.log(`Reenviando oferta a ${to} (socket: ${toSocketId})`);
       io.to(toSocketId).emit('offer', { offer, from });
     }
   });
   
   // 2. Respuesta a la oferta
   socket.on('answer', ({ answer, to, from }) => {
+    console.log(`Respuesta SDP recibida de ${from} para ${to}`);
     const toSocketId = userSocketMap.get(to);
     if (toSocketId) {
+      console.log(`Reenviando respuesta a ${to} (socket: ${toSocketId})`);
       io.to(toSocketId).emit('answer', { answer, from });
     }
   });
   
   // 3. Candidatos ICE
   socket.on('ice-candidate', ({ candidate, to, from }) => {
+    console.log(`Candidato ICE recibido de ${from} para ${to}`);
     const toSocketId = userSocketMap.get(to);
     if (toSocketId) {
+      console.log(`Reenviando candidato a ${to} (socket: ${toSocketId})`);
       io.to(toSocketId).emit('ice-candidate', { candidate, from });
     }
   });
   
   // 4. Solicitud para iniciar llamada
   socket.on('call-user', ({ roomId, to, from, fromName }) => {
+    console.log(`Solicitud de llamada recibida de ${from} para ${to}`);
     const toSocketId = userSocketMap.get(to);
     if (toSocketId) {
+      console.log(`Reenviando solicitud a ${to} (socket: ${toSocketId})`);
       io.to(toSocketId).emit('call-requested', { 
         from, 
         fromName, 
@@ -179,8 +187,10 @@ io.on('connection', (socket) => {
   
   // 5. Aceptar/rechazar llamada
   socket.on('call-response', ({ to, accepted, from }) => {
+    console.log(`Respuesta aceptacion ${accepted} recibida de ${from} para ${to}`);
     const toSocketId = userSocketMap.get(to);
     if (toSocketId) {
+      console.log(`Reenviando aceptacion ${accepted} a ${to} (socket: ${toSocketId})`);
       io.to(toSocketId).emit('call-response', { 
         from, 
         accepted 
@@ -191,9 +201,11 @@ io.on('connection', (socket) => {
   // 6. Finalizar llamada
   socket.on('end-call', ({ roomId, to, from }) => {
     if (to) {
+      console.log(`Finalizar llamada recibida de ${from} para ${to}`);
       // Finalizar llamada con un usuario específico
       const toSocketId = userSocketMap.get(to);
       if (toSocketId) {
+        console.log(`Reenviando inalizar llamada recibida a ${to} (socket: ${toSocketId})`);
         io.to(toSocketId).emit('call-ended', { from });
       }
     } else {
