@@ -183,63 +183,22 @@ export default {
       }
       
       const stream = this.remoteStreams[userId];
-      if (!stream) {
-        console.warn(`No hay stream para usuario ${userId}`);
-        return;
-      }
-      
-      // Verificar si el stream es válido y activo
-      if (!this.isValidMediaStream(stream)) {
-        console.warn(`Stream inválido para usuario ${userId}`);
-        return;
-      }
-      
-      if (!this.isMediaStreamActive(stream)) {
-        console.warn(`Stream inactivo para usuario ${userId}`);
-        return;
-      }
-      
-      // Asignar stream al video si es diferente
-      if (video.srcObject !== stream) {
-        console.log(`Asignando stream al video de ${userId}`);
+      if (stream) {
+        console.log(`Verificando stream para usuario ${userId}`, {
+          streamId: stream.id,
+          audioTracks: stream.getAudioTracks().length,
+          videoTracks: stream.getVideoTracks().length,
+          active: stream.active
+        });
         
-        try {
-          // Asignar stream y configurar eventos
+        // Asegurar que el stream se asigne incluso si parece inactivo
+        // (esto es importante para compatibilidad con React Native)
+        if (video.srcObject !== stream) {
+          console.log(`Asignando stream al video de ${userId} (forzado)`);
           video.srcObject = stream;
           
-          // Configurar evento onloadedmetadata
-          video.onloadedmetadata = () => {
-            console.log(`Video ${userId} cargado: ${video.videoWidth}x${video.videoHeight}`);
-            
-            // Detectar orientación
-            const isPortrait = video.videoHeight > video.videoWidth;
-            this.videoOrientations[userId] = {
-              width: video.videoWidth,
-              height: video.videoHeight,
-              isPortrait: isPortrait
-            };
-            
-            // Emitir evento
-            this.$emit('video-dimension', {
-              userId,
-              width: video.videoWidth,
-              height: video.videoHeight,
-              isPortrait: isPortrait
-            });
-            
-            // Reproducir video con manejo de errores
-            this.playVideo(video, userId);
-          };
-          
-          // Configurar un temporizador de seguridad para casos donde onloadedmetadata no se dispara
-          setTimeout(() => {
-            if (!this.videoOrientations[userId]) {
-              console.log(`Forzando reproducción de video para ${userId} (no se detectó metadata)`);
-              this.playVideo(video, userId);
-            }
-          }, 2000);
-        } catch (error) {
-          console.error(`Error al asignar stream para usuario ${userId}:`, error);
+          // Intentar reproducir inmediatamente
+          this.playVideo(video, userId);
         }
       }
     },
