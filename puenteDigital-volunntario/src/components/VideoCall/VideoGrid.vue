@@ -191,30 +191,37 @@ export default {
           active: stream.active
         });
         
-        // Importante: verificar si el stream es diferente antes de asignarlo
-        if (video.srcObject !== stream) {
-          console.log(`Asignando stream al video de ${userId} (forzado)`);
+        // IMPORTANTE: Manejar la asignación del stream con cuidado
+        const currentStream = video.srcObject;
+        
+        // Si el stream es diferente o no hay stream asignado
+        if (!currentStream || currentStream.id !== stream.id) {
+          console.log(`Asignando nuevo stream al video de ${userId}`);
           
-          // Detener la reproducción actual antes de cambiar el srcObject
+          // Pausar cualquier reproducción existente
           if (video.srcObject) {
             try {
               video.pause();
-            } catch (e) {}
+            } catch (e) {
+              console.warn('Error al pausar video:', e);
+            }
           }
           
           // Asignar el nuevo stream
           video.srcObject = stream;
           
-          // Esperar un momento para que se establezca correctamente
+          // Configurar propiedades de reproducción
+          video.muted = false;
+          video.volume = 1.0;
+          
+          // Dejar un pequeño tiempo para que el navegador procese el cambio
           setTimeout(() => {
-            // Intentar reproducir después de una pequeña espera
             this.playVideo(video, userId);
-          }, 200);
-        } else {
-          console.log(`Stream ya asignado para ${userId}, verificando reproducción`);
-          if (video.paused) {
-            this.playVideo(video, userId);
-          }
+          }, 100);
+        } else if (video.paused || video.ended) {
+          // Si el stream es el mismo pero está pausado, reiniciar
+          console.log(`Stream ya asignado pero pausado para ${userId}, reiniciando...`);
+          this.playVideo(video, userId);
         }
       }
     },
@@ -223,25 +230,24 @@ export default {
     playVideo(video, userId) {
       if (!video) return;
       
-      // Verificar que video y video.srcObject son válidos
+      // Asegurarnos de que haya un stream
       if (!video.srcObject) {
         console.warn(`Video para ${userId} no tiene srcObject`);
-        return;
-      }
-      
-      // Asegurar que el stream tiene tracks
-      const stream = video.srcObject;
-      const hasTracks = (stream.getVideoTracks().length > 0 || stream.getAudioTracks().length > 0);
-      
-      if (!hasTracks) {
-        console.warn(`Stream para ${userId} no tiene tracks activos`);
-        return;
+        
+        // Intentar asignar el stream nuevamente
+        const stream = this.remoteStreams[userId];
+        if (stream) {
+          video.srcObject = stream;
+        } else {
+          return;
+        }
       }
       
       console.log(`Intentando reproducir video para ${userId}...`);
       
-      // Establecer muted=true inicialmente para mejorar las probabilidades de auto-reproducción
-      video.muted = true;
+      // Configurar propiedades de audio
+      video.muted = false;
+      video.volume = 1.0;
       
       // Intentar reproducir el video
       video.play().then(() => {
@@ -252,24 +258,48 @@ export default {
           clearInterval(this.streamPlayIntervals[userId]);
         }
         
-        // Monitorear estado de reproducción cada 2 segundos
+        // Monitorear estado de reproducción
         this.streamPlayIntervals[userId] = setInterval(() => {
-          if (video.paused || video.ended) {
-            console.log(`Video para ${userId} detenido, intentando reanudar...`);
-            video.play().catch(e => console.warn(`No se pudo reanudar video: ${e.message}`));
+          if (!video || !this.remoteStreams[userId]) {
+            // Si ya no existe el video o el stream, limpiar el intervalo
+            clearInterval(this.streamPlayIntervals[userId]);
+            delete this.streamPlayIntervals[userId];
+            return;
+          }
+          
+          // Verificar si el video está pausado o congelado
+          if (video.paused || video.ended || video.currentTime === 0) {
+            console.log(`Video para ${userId} pausado/congelado, intentando reanudar...`);
+            
+            // Verificar si el stream sigue activo
+            const stream = video.srcObject;
+            if (stream && stream.active && stream.getVideoTracks().length > 0) {
+              video.play().catch(e => console.warn(`No se pudo reanudar video: ${e.message}`));
+            } else {
+              console.warn(`Stream para ${userId} ya no es válido, eliminando monitor`);
+              clearInterval(this.streamPlayIntervals[userId]);
+              delete this.streamPlayIntervals[userId];
+            }
           }
         }, 2000);
         
       }).catch(err => {
-        console.warn(`Fallo al reproducir video de ${userId}, error:`, err);
+        console.warn(`Fallo al reproducir video de ${userId}:`, err);
         
-        // Si falla, intentarlo de nuevo en un momento
+        // Si falla, intentar con diferentes configuraciones
+        video.muted = true; // Intentar con muted
+        
         setTimeout(() => {
-          console.log(`Reintentando reproducción para ${userId}...`);
-          video.play().catch(e => {
+          video.play().then(() => {
+            console.log(`Video para ${userId} comenzó a reproducirse con muted`);
+            // Si funciona con muted, intentar quitar muted después
+            setTimeout(() => {
+              video.muted = false;
+            }, 1000);
+          }).catch(e => {
             console.error(`Falló último intento para ${userId}:`, e);
           });
-        }, 1000);
+        }, 500);
       });
     },
         
@@ -408,6 +438,140 @@ export default {
       
       console.log('============================================');
     },
+
+    // Método para verificar y reiniciar videos
+    checkAndRestartVideos() {
+      console.log('Verificando y reiniciando videos si es necesario...');
+      
+      const videoElements = this.$refs.videoElements;
+      if (!videoElements) return;
+      
+      // Convertir a array si no lo es
+      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
+      
+      // Para cada video, verificar si está en pausa o detenido
+      videos.forEach(video => {
+        if (!video) return;
+        
+        const userId = video.getAttribute('data-user-id');
+        if (!userId || !this.remoteStreams[userId]) return;
+        
+        // Si el video está detenido o en pausa, intentar reproducirlo
+        if (video.paused || video.ended) {
+          console.log(`Video para ${userId} está pausado o detenido, reiniciando...`);
+          
+          // Asegurarse de que no esté silenciado
+          video.muted = false;
+          video.volume = 1.0;
+          
+          // Verificar que el stream sigue siendo válido
+          const stream = this.remoteStreams[userId];
+          if (stream && stream.active) {
+            // Reintentar reproducción sin cambiar el srcObject
+            video.play().catch(err => {
+              console.warn(`Intento de reanudar video fallido:`, err);
+            });
+          }
+        }
+      });
+    },
+
+    // Método para detener todos los videos antes de la limpieza
+    stopAllVideoPlayback() {
+      console.log('Pausando todos los videos antes de la limpieza...');
+      
+      const videoElements = this.$refs.videoElements;
+      if (!videoElements) return;
+      
+      // Convertir a array si no lo es
+      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
+      
+      // Para cada video, detener reproducción PERO NO eliminar srcObject
+      videos.forEach(video => {
+        if (!video) return;
+        
+        try {
+          // Solo pausar, no eliminar srcObject
+          video.pause();
+        } catch (e) {
+          console.warn('Error al pausar video:', e);
+        }
+      });
+      
+      // Limpiar intervalos
+      Object.keys(this.streamPlayIntervals).forEach(userId => {
+        clearInterval(this.streamPlayIntervals[userId]);
+        delete this.streamPlayIntervals[userId];
+      });
+    },
+
+    // Método para diagnóstico completo de videos
+    diagnoseVideos() {
+      console.log('===== DIAGNÓSTICO DE VIDEOS EN VIDEOGRID =====');
+      
+      const videoElements = this.$refs.videoElements;
+      if (!videoElements) {
+        console.log('No hay elementos de video para diagnosticar');
+        return;
+      }
+      
+      // Convertir a array si no lo es
+      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
+      
+      console.log(`Encontrados ${videos.length} elementos de video`);
+      
+      // Para cada video, verificar su estado
+      videos.forEach(video => {
+        if (!video) return;
+        
+        const userId = video.getAttribute('data-user-id');
+        if (!userId) {
+          console.log('Video sin userId');
+          return;
+        }
+        
+        console.log(`VIDEO PARA ${userId}:`);
+        console.log('- Pausado:', video.paused);
+        console.log('- Terminado:', video.ended);
+        console.log('- Tiempo actual:', video.currentTime);
+        console.log('- Muted:', video.muted);
+        console.log('- Volumen:', video.volume);
+        console.log('- Ancho/Alto:', video.videoWidth, 'x', video.videoHeight);
+        console.log('- Ready State:', video.readyState);
+        
+        // Verificar srcObject
+        if (video.srcObject) {
+          const stream = video.srcObject;
+          console.log('- Stream asignado:', stream.id);
+          console.log('- Stream activo:', stream.active);
+          console.log('- Audio tracks:', stream.getAudioTracks().length);
+          console.log('- Video tracks:', stream.getVideoTracks().length);
+          
+          // Verificar tracks
+          const videoTracks = stream.getVideoTracks();
+          if (videoTracks.length > 0) {
+            console.log('- Video track principal:', {
+              enabled: videoTracks[0].enabled,
+              readyState: videoTracks[0].readyState
+            });
+          }
+          
+          // Verificar la conexión entre el stream asignado y el stream en remoteStreams
+          const storedStream = this.remoteStreams[userId];
+          console.log('- ¿Coincide con remoteStreams?', storedStream === stream);
+          
+          // Verificar si hay problemas de congelamiento
+          if (video.currentTime === 0 && !video.paused) {
+            console.log('- POSIBLE CONGELAMIENTO: currentTime=0 pero video no pausado');
+          }
+        } else {
+          console.log('- NO TIENE STREAM ASIGNADO');
+        }
+      });
+      
+      console.log('============================================');
+    },
+
   },
   mounted() {
     // Iniciar con los streams actuales

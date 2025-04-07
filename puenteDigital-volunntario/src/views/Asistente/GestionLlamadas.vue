@@ -136,7 +136,28 @@ export default {
     const pendingSolicitudes = ref([]);
     const isLoading = ref(true);
     const asistenteInfo = ref(null);
+    const autoRefreshInterval = ref(null);
     
+    // Configurar auto-refresco cada 2 segundos
+    const startAutoRefresh = () => {
+      // Limpiar intervalo existente si hay uno
+      if (autoRefreshInterval.value) {
+        clearInterval(autoRefreshInterval.value);
+      }
+      
+      // Crear nuevo intervalo
+      autoRefreshInterval.value = setInterval(() => {
+        loadSolicitudes();
+      }, 2000); // 2000 ms = 2 segundos
+    };
+
+    const stopAutoRefresh = () => {
+      if (autoRefreshInterval.value) {
+        clearInterval(autoRefreshInterval.value);
+        autoRefreshInterval.value = null;
+      }
+    };
+
     // Estadísticas calculadas
     const waitingStats = computed(() => {
       if (pendingSolicitudes.value.length === 0) {
@@ -352,6 +373,9 @@ export default {
     onMounted(async () => {
       await loadAsistenteInfo();
       await loadSolicitudes();
+
+      // Iniciar auto-refresco
+      startAutoRefresh();
       
       // Configurar suscripción en tiempo real
       const unsubscribe = setupRealtimeSubscription();
@@ -361,6 +385,7 @@ export default {
         if (unsubscribe && typeof unsubscribe === 'function') {
           unsubscribe();
         }
+        stopAutoRefresh();
       });
     });
     

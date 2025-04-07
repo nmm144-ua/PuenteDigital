@@ -112,6 +112,7 @@ export default {
     const solicitudes = ref([]);
     const isLoading = ref(true);
     const asistenteInfo = ref(null);
+    const autoRefreshInterval = ref(null);
     
     // Filtros
     const filtros = ref({
@@ -308,6 +309,28 @@ export default {
     const verDetalle = (solicitud) => {
       router.push(`/asistente/solicitud/${solicitud.id}`);
     };
+
+    // Configurar auto-refresco cada 2 segundos
+    const startAutoRefresh = () => {
+      // Limpiar intervalo existente si hay uno
+      if (autoRefreshInterval.value) {
+        clearInterval(autoRefreshInterval.value);
+      }
+      
+      // Crear nuevo intervalo
+      autoRefreshInterval.value = setInterval(() => {
+        loadSolicitudes();
+      }, 3000); // 3 segundos
+    };
+
+    // Detener auto-refresco
+    const stopAutoRefresh = () => {
+      if (autoRefreshInterval.value) {
+        clearInterval(autoRefreshInterval.value);
+        autoRefreshInterval.value = null;
+      }
+    };
+
     
     // ===== CICLO DE VIDA =====
     
@@ -317,7 +340,11 @@ export default {
       
       // Cargar solicitudes iniciales
       await loadSolicitudes();
-      
+
+
+      // Iniciar auto-refresco
+      startAutoRefresh();
+          
       // Configurar suscripción en tiempo real
       const unsubscribe = setupRealtimeSubscription();
       
@@ -326,6 +353,7 @@ export default {
         if (unsubscribe && typeof unsubscribe === 'function') {
           unsubscribe();
         }
+        stopAutoRefresh();
       });
     });
     

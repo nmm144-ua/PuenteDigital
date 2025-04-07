@@ -323,6 +323,7 @@ export default {
     const messageInput = ref(null); // Referencia al input de mensaje
     const typingTimeout = ref(null); // Timeout para evento de escritura
     const processedMessages = ref(new Set()); // Set para rastrear mensajes procesados
+    const autoRefreshInterval = ref(null);
     
     // Filtrar solicitudes por estado para mis conversaciones (con asistente asignado)
     const misConversaciones = computed(() => {
@@ -1187,6 +1188,33 @@ export default {
     };
 
     
+    // Añadir esta función para controlar el intervalo de actualización automática
+    const setupAutoRefresh = () => {
+      // Limpiar cualquier intervalo existente
+      if (autoRefreshInterval.value) {
+        clearInterval(autoRefreshInterval.value);
+        autoRefreshInterval.value = null;
+      }
+      
+      // Solo crear intervalo si estamos en la pestaña 'solicitudes'
+      if (activeTab.value === 'solicitudes') {
+        autoRefreshInterval.value = setInterval(() => {
+          // Solo actualizar si no está cargando ya
+          if (!isLoading.value) {
+            loadSolicitudes();
+          }
+        }, 3000); // Actualizar cada 3 segundos
+      }
+    };
+
+    // Modificar el watch para activeTab
+    watch(activeTab, (newTab) => {
+      // Si cambia la pestaña, configurar/limpiar el intervalo según corresponda
+      setupAutoRefresh();
+    });
+
+
+    
     watch(chatMessages, async () => {
       await scrollToBottom();
       console.log('Mensajes actualizados, desplazando al final');
@@ -1259,6 +1287,8 @@ export default {
       if (authStore.user) {
         unsubscribe.value = setupRealtimeSubscription();
       }
+
+      setupAutoRefresh();
       
       // Registrar cambios manuales cada 5 segundos (respaldo adicional)
       const intervalId = setInterval(async () => {
@@ -1346,6 +1376,13 @@ export default {
       if (typingTimeout.value) {
         clearTimeout(typingTimeout.value);
       }
+
+
+      // Limpiar intervalo de actualización automática
+      if (autoRefreshInterval.value) {
+        clearInterval(autoRefreshInterval.value);
+        autoRefreshInterval.value = null;
+      }
       
       // Limpiar el set de mensajes procesados
       processedMessages.value.clear();
@@ -1381,7 +1418,8 @@ export default {
       tieneNuevosMensajes,
       loadSolicitudes,
       finalizarSolicitud,
-      eliminarSolicitud
+      eliminarSolicitud,
+      autoRefreshInterval
     };
   }
 };
