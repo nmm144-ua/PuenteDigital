@@ -300,7 +300,6 @@ import { asistenteService } from '../../services/asistenteService';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatStore } from '../../stores/chat.store';
 import { supabase } from '../../../supabase';
-import notificationService from '../../services/notificacion.service';
 
 export default {
   name: 'UserChatView',
@@ -1308,16 +1307,6 @@ export default {
             if (data && data.length > 0) {
               console.log(`${data.length} mensajes no leídos detectados, actualizando...`);
               
-               // Notificar sobre mensajes no leídos
-               notificationService.show(
-                    `${data.length} mensaje${data.length > 1 ? 's' : ''} nuevo${data.length > 1 ? 's' : ''}`, 
-                    notificationService.TYPES.INFO,
-                    {
-                        description: 'Haz clic en ChatTexto para ver los mensajes'
-                    }
-                );
-                console.log('Notificación de mensajes no leídos mostrada');
-
               // Recargar mensajes
               const { data: newMensajes, error: mensajesError } = await supabase
                 .from('mensajes')
