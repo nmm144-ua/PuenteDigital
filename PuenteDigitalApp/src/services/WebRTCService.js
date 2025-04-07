@@ -174,8 +174,6 @@ class WebRTCService {
         console.log('Conexión ICE establecida');
       } else if (state === 'failed') {
         console.error('Conexión ICE fallida - posible problema de NAT/firewall');
-      } else if (state === 'disconnected') {
-        console.error('Conexión ICE desconectada');
       }
     };
     
