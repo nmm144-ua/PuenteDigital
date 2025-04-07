@@ -55,20 +55,34 @@ const VideollamadaScreen = ({ route, navigation }) => {
         durationTimerRef.current = null;
       }
       
+      // Actualizar el estado primero
+      setCallStatus('ended');
+      
+      // Guardar referencia a remoteStream antes de limpiar
+      const currentRemoteStream = remoteStream;
+      
+      // Detener y liberar remoteStream explícitamente
+      if (currentRemoteStream) {
+        try {
+          currentRemoteStream.getTracks().forEach(track => {
+            track.stop();
+          });
+          setRemoteStream(null);
+        } catch (e) {
+          console.warn('Error al detener tracks remotos:', e);
+        }
+      }
+      
       // Notificar a través del socket que la llamada ha finalizado
       SocketService.endCall(roomId, asistenteId);
       
-      // Actualizar el estado
-      setCallStatus('ended');
+      // Limpiar recursos WebRTC
+      WebRTCService.cleanup();
       
-      // Limpiar recursos y navegar de vuelta
+      // Navegar de vuelta a la pantalla anterior después de un breve retraso
       setTimeout(() => {
-        // Limpiar WebRTC
-        WebRTCService.cleanup();
-        
-        // Navegar de vuelta a la pantalla anterior
         navigation.navigate('OpcionesInicio');
-      }, 1000);
+      }, 500);
     } catch (error) {
       console.error('Error al finalizar la llamada:', error);
       navigation.navigate('OpcionesInicio');
@@ -263,6 +277,9 @@ const VideollamadaScreen = ({ route, navigation }) => {
           style={styles.remoteStream}
           objectFit="cover"
           mirror={false}
+          zOrder={0} // Asegura que esté en la capa inferior
+          // Importante: Añadir key para forzar re-renderizado cuando cambia el stream
+          key={`remote-stream-${remoteStream.id}`}
         />
       ) : (
         <View style={styles.loadingContainer}>
@@ -284,6 +301,8 @@ const VideollamadaScreen = ({ route, navigation }) => {
             style={styles.localStream}
             objectFit="cover"
             mirror={true}
+            zOrder={1} // Asegura que esté en la capa superior
+            key={`local-stream-${localStream.id}`}
           />
         </View>
       )}

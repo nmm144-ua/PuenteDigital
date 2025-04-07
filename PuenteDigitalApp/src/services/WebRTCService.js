@@ -88,7 +88,7 @@ class WebRTCService {
   
   // Método principal para inicializar WebRTC
   async init() {
-    // Prevenir inicializaciones simultáneas
+    // Si ya hay una inicialización en progreso, esperarla en lugar de iniciar otra
     if (this._initializingPromise) {
       console.log('Inicialización en progreso, esperando...');
       return this._initializingPromise;
@@ -102,8 +102,22 @@ class WebRTCService {
         // Cerrar conexión anterior si existe
         if (this.peerConnection) {
           console.log('Cerrando conexión anterior antes de inicializar...');
-          this.peerConnection.close();
+          try {
+            // Limpiar eventos primero
+            this.peerConnection.onicecandidate = null;
+            this.peerConnection.oniceconnectionstatechange = null;
+            this.peerConnection.onsignalingstatechange = null;
+            this.peerConnection.ontrack = null;
+            
+            // Luego cerrar
+            this.peerConnection.close();
+          } catch (e) {
+            console.warn('Error al cerrar conexión anterior:', e);
+          }
           this.peerConnection = null;
+          
+          // Esperar un momento para asegurar la liberación de recursos
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
         
         // Crear nueva conexión con configuración más robusta
@@ -128,8 +142,14 @@ class WebRTCService {
         console.error('Error al inicializar WebRTC:', error);
         throw error;
       } finally {
-        // Limpia la promesa de inicialización
-        this._initializingPromise = null;
+        // Solo liberar la promesa de inicialización después de completar
+        const result = this._initializingPromise;
+        // Esperar un breve momento antes de limpiar la promesa
+        setTimeout(() => {
+          if (this._initializingPromise === result) {
+            this._initializingPromise = null;
+          }
+        }, 100);
       }
     })();
     
@@ -343,6 +363,9 @@ class WebRTCService {
       if (this.peerConnection) {
         this.peerConnection.close();
         this.peerConnection = null;
+        
+        // Esperar un breve momento para asegurar la limpieza
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       
       // Crear una nueva conexión
@@ -363,6 +386,18 @@ class WebRTCService {
       }
       
       console.log('Estado inicial de señalización:', this.peerConnection.signalingState);
+      
+      // Obtener el stream local si no existe
+      if (!this.localStream) {
+        console.log('Obteniendo stream local para la respuesta...');
+        this.localStream = await this.getLocalStream();
+        
+        // Añadir tracks al peer connection
+        this.localStream.getTracks().forEach(track => {
+          console.log(`Añadiendo track local ${track.kind} a la conexión`);
+          this.peerConnection.addTrack(track, this.localStream);
+        });
+      }
       
       // Establecer descripción remota (la oferta)
       console.log('Estableciendo descripción remota (oferta)');
@@ -678,7 +713,7 @@ class WebRTCService {
       }
     }
     
-    // Detener y liberar streams
+    // Detener y liberar streams locales
     if (this.localStream) {
       try {
         this.localStream.getTracks().forEach(track => {
@@ -691,16 +726,21 @@ class WebRTCService {
       this.localStream = null;
     }
     
-    if (this.remoteStream) {
+    // Limpiar todos los streams remotos (importante para evitar fugas de memoria)
+    if (this.remoteStreams) {
       try {
-        this.remoteStream.getTracks().forEach(track => {
-          track.stop();
-          console.log(`Track remoto ${track.kind} detenido`);
+        Object.values(this.remoteStreams).forEach(stream => {
+          if (stream && typeof stream.getTracks === 'function') {
+            stream.getTracks().forEach(track => {
+              track.stop();
+            });
+          }
         });
       } catch (e) {
         console.warn('Error al detener tracks remotos:', e);
       }
-      this.remoteStream = null;
+      // Restablecer a un objeto vacío en lugar de null para evitar errores
+      this.remoteStreams = {};
     }
     
     // Cerrar y liberar conexión
@@ -713,6 +753,14 @@ class WebRTCService {
       this.peerConnection = null;
     }
     
+    // Restablecer callbacks
+    this.callbacks = {
+      onRemoteStream: null,
+      onRemoteStreamClosed: null,
+      onConnectionStateChange: null,
+      onError: null
+    };
+    
     // Limpiar candidatos pendientes
     this.pendingIceCandidates = [];
     
@@ -722,6 +770,9 @@ class WebRTCService {
     // Restablecer banderas
     this.isProcessingOffer = false;
     this.isProcessingAnswer = false;
+    
+    // Restablecer _initializingPromise para evitar bloqueos en futuras inicializaciones
+    this._initializingPromise = null;
     
     console.log('Recursos WebRTC liberados correctamente');
   }

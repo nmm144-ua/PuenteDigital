@@ -600,22 +600,39 @@ class SocketService {
   }
   
   onOffer(callback) {
-    this.on('offer', (data) => {
+    this.on('offer', async (data) => {
       console.log('***** OFERTA RECIBIDA EN onOffer *****');
       console.log('De usuario:', data.from);
-      console.log('A usuario:', data.to); // Es posible que esto sea undefined
-  
-      // Importar directamente WebRTCService para asegurarnos de tener acceso
-      // Añade esto en la parte superior del archivo:
-      // import WebRTCService from './WebRTCService';
+      console.log('A usuario:', data.to);
       
       // Verificar datos de la oferta
       if (data.offer && typeof data.offer === 'object') {
-        console.log('Oferta válida recibida, propiedades:', Object.keys(data.offer).join(', '));
+        console.log('Oferta válida recibida');
         
         try {
-          // Llamar directamente a WebRTCService
-          WebRTCService.handleIncomingOffer(data.offer, data.from);
+          // Actualizar el ID remoto antes de procesar la oferta
+          WebRTCService.setRemoteUserId(data.from);
+          
+          // Procesar la oferta
+          const result = await WebRTCService.handleIncomingOffer(data.offer, data.from);
+          console.log('Resultado de handleIncomingOffer:', result);
+          
+          // Si hubo un error, se puede intentar reiniciar
+          if (!result) {
+            console.log('Intento fallido, reiniciando WebRTC...');
+            // Limpieza completa
+            WebRTCService.cleanup();
+            
+            // Esperar un momento
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Volver a inicializar
+            await WebRTCService.init();
+            
+            // Segundo intento
+            const secondResult = await WebRTCService.handleIncomingOffer(data.offer, data.from);
+            console.log('Resultado de segundo intento:', secondResult);
+          }
         } catch (error) {
           console.error('Error al manejar oferta directamente:', error);
         }
@@ -717,9 +734,10 @@ class SocketService {
     console.log(`Enviando evento de finalización de llamada en sala ${roomId} a ${toUserId || 'todos'}`);
     
     try {
-      this.socket.emit('call-ended', {
+      // Cambiar a end-call para coincidir con el servidor
+      this.socket.emit('end-call', {
         roomId: roomId,
-        to: toUserId || null, // Si no se especifica, se enviará a todos en la sala
+        to: toUserId || null,
         from: this.userId || 'unknown'
       });
       
@@ -729,7 +747,6 @@ class SocketService {
       return false;
     }
   }
-
 
 }
 
