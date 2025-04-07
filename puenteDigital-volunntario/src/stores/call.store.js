@@ -276,6 +276,7 @@ export const useCallStore = defineStore('call', {
     toggleAudio() {
       this.audioEnabled = !this.audioEnabled;
       webrtcService.toggleAudio(this.audioEnabled);
+      console.log(`Micrófono ${this.audioEnabled ? 'activado' : 'desactivado'}`);
     },
     
     // Alternar cámara

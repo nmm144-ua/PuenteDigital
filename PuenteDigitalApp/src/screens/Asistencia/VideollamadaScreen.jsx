@@ -95,6 +95,7 @@ const VideollamadaScreen = ({ route, navigation }) => {
       const audioTracks = localStream.getAudioTracks();
       audioTracks.forEach(track => {
         track.enabled = !track.enabled;
+        console.log(`Micrófono ${track.enabled ? 'activado' : 'desactivado'}`);
       });
       setIsMuted(!isMuted);
     }
@@ -139,7 +140,12 @@ const VideollamadaScreen = ({ route, navigation }) => {
         if (!permisos) {
           throw new Error("Permisos de cámara/micrófono no concedidos");
         }
-        
+        //Configurar listeners de socket primero
+        SocketService.off('offer');
+        SocketService.off('answer');
+        SocketService.off('ice-candidate');
+        SocketService.off('call-ended');
+          
         // 2. Configurar callbacks ANTES de cualquier inicialización
         WebRTCService.registerCallbacks({
           onRemoteStream: (userId, stream) => {
@@ -177,11 +183,14 @@ const VideollamadaScreen = ({ route, navigation }) => {
         const myUserId = user?.id || 'anonymous';
         WebRTCService.setUserIds(myUserId, asistenteId);
         
-        // 4. Configurar listeners de socket
-        SocketService.off('offer');
-        SocketService.off('answer');
-        SocketService.off('ice-candidate');
-        SocketService.off('call-ended');
+        // 4. Inicializar WebRTC
+        await WebRTCService.init();
+        
+        // 5. Obtener stream local
+        const stream = await WebRTCService.getLocalStream();
+        setLocalStream(stream);
+
+        // 6. Configurar listeners de socket
         
         SocketService.onOffer(async (data) => {
           console.log("Oferta recibida de:", data.from);
@@ -202,13 +211,6 @@ const VideollamadaScreen = ({ route, navigation }) => {
           endCall();
         });
         
-        // 5. Inicializar WebRTC
-        await WebRTCService.init();
-        
-        // 6. Obtener stream local
-        const stream = await WebRTCService.getLocalStream();
-        setLocalStream(stream);
-        
         // 7. Verificar streams remotos existentes
         const remoteStreams = WebRTCService.getRemoteStreams();
         if (remoteStreams && Object.keys(remoteStreams).length > 0) {
@@ -224,6 +226,7 @@ const VideollamadaScreen = ({ route, navigation }) => {
             }, 1000);
           }
         }
+        WebRTCService.toggleSpeaker(true);
       } catch (error) {
         console.error("Error en inicialización:", error);
         Alert.alert(
@@ -277,9 +280,12 @@ const VideollamadaScreen = ({ route, navigation }) => {
           style={styles.remoteStream}
           objectFit="cover"
           mirror={false}
-          zOrder={0} // Asegura que esté en la capa inferior
-          // Importante: Añadir key para forzar re-renderizado cuando cambia el stream
+          zOrder={0}
+          // Importante: añadir clave única para forzar re-renderizado
           key={`remote-stream-${remoteStream.id}`}
+          // Importante: Establecer estos props adicionales
+          muted={false}
+          volume={1.0}
         />
       ) : (
         <View style={styles.loadingContainer}>
@@ -292,7 +298,7 @@ const VideollamadaScreen = ({ route, navigation }) => {
           </Text>
         </View>
       )}
-      
+
       {/* Stream local (miniatura) */}
       {localStream && (
         <View style={styles.localStreamContainer}>
@@ -301,7 +307,8 @@ const VideollamadaScreen = ({ route, navigation }) => {
             style={styles.localStream}
             objectFit="cover"
             mirror={true}
-            zOrder={1} // Asegura que esté en la capa superior
+            zOrder={1}
+            muted={true} // Importante: silenciar el stream local para evitar eco
             key={`local-stream-${localStream.id}`}
           />
         </View>
