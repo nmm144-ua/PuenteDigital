@@ -36,17 +36,16 @@ class WebRTCService {
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
-      // Servidor TURN público de Google
-      {
-        urls: 'turn:numb.viagenie.ca',
-        username: 'webrtc@live.com',
-        credential: 'muazkh'
-      },
       // Servidores TURN alternativos
       {
+        urls: 'turn:turn.bistri.com:80',
+        credential: 'homeo',
+        username: 'homeo'
+      },
+      {
         urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
-        username: 'webrtc',
-        credential: 'webrtc'
+        credential: 'webrtc',
+        username: 'webrtc'
       }
     ];
     this.verifyICEServers();
@@ -231,34 +230,98 @@ class WebRTCService {
       console.log('Audio tracks:', remoteStream.getAudioTracks().length);
       console.log('Video tracks:', remoteStream.getVideoTracks().length);
       
-      // Inicializar remoteStreams si no existe
+      // Verificar que tengamos el userId remoto
+      if (!this.remoteUserId) {
+        console.warn('remoteUserId no establecido, no se puede guardar stream remoto');
+        return;
+      }
+      
+      // Comprobar si ya tenemos un stream guardado para este usuario
       if (!this.remoteStreams) {
         this.remoteStreams = {};
       }
       
-      // Importante: Verificar que el remoteUserId está establecido
-      if (!this.remoteUserId) {
-        console.warn('remoteUserId no está establecido, no se puede guardar stream remoto');
-        return;
+      const existingStream = this.remoteStreams[this.remoteUserId];
+      
+      // Si ya tenemos un stream para este usuario, usamos el mismo objeto
+      // para evitar rerenderizaciones innecesarias
+      if (existingStream && existingStream.id === remoteStream.id) {
+        console.log('Actualizando stream existente con nuevos tracks');
+        // El stream ya está guardado y se actualizará automáticamente
+        
+      } else {
+        // Es un nuevo stream, guardarlo
+        console.log('Guardando nuevo stream remoto');
+        this.remoteStreams[this.remoteUserId] = remoteStream;
       }
+
+       // Asegurarnos de que los tracks estén habilitados
+       remoteStream.getTracks().forEach(track => {
+        if (!track.enabled) {
+          console.log(`Habilitando track de ${track.kind} que estaba deshabilitado`);
+          track.enabled = true;
+        }
+      });
       
-      // Guardar el stream
-      this.remoteStreams[this.remoteUserId] = remoteStream;
-      console.log('Stream guardado para usuario:', this.remoteUserId);
+      // Verificar si el stream tiene tanto audio como video antes de notificar
+      const hasAudio = remoteStream.getAudioTracks().length > 0;
+      const hasVideo = remoteStream.getVideoTracks().length > 0;
+      console.log(`Stream tiene audio: ${hasAudio}, video: ${hasVideo}`);
       
-      // Y notificar a través del callback
+      // Notificar siempre al recibir un nuevo track para mantener la UI actualizada
       if (this.callbacks && typeof this.callbacks.onRemoteStream === 'function') {
         console.log('Llamando callback onRemoteStream con:', this.remoteUserId);
-        try {
+        try {        
+          // Primero llamar inmediatamente para mostrar el audio
           this.callbacks.onRemoteStream(this.remoteUserId, remoteStream);
+          
+          // Luego volver a llamar después de un breve retraso para actualizar con video si está disponible
+          setTimeout(() => {
+            this.callbacks.onRemoteStream(this.remoteUserId, remoteStream);
+          }, 500);
+
         } catch (error) {
           console.error('Error en callback onRemoteStream:', error);
         }
-      } else {
-        console.warn('Callback onRemoteStream no está registrado o no es una función');
-        console.log('this.callbacks:', this.callbacks);
       }
+      
+      // Monitorear cambios en el stream durante un breve período
+      let monitorsLeft = 5; // Monitorear 5 veces
+      const monitorStreamInterval = setInterval(() => {
+        if (monitorsLeft <= 0 || !this.remoteStreams[this.remoteUserId]) {
+          clearInterval(monitorStreamInterval);
+          return;
+        }
+        
+        const currentStream = this.remoteStreams[this.remoteUserId];
+        const currentAudio = currentStream.getAudioTracks().length > 0;
+        const currentVideo = currentStream.getVideoTracks().length > 0;
+        
+        console.log(`Monitor stream [${5-monitorsLeft}]: Audio: ${currentAudio}, Video: ${currentVideo}`);
+        
+        // Si hay algún cambio, notificar de nuevo
+        if ((hasAudio !== currentAudio || hasVideo !== currentVideo) && 
+            this.callbacks && typeof this.callbacks.onRemoteStream === 'function') {
+          console.log('Cambio detectado en tracks, actualizando UI');
+          this.callbacks.onRemoteStream(this.remoteUserId, currentStream);
+        }
+        
+        monitorsLeft--;
+      }, 1000);
     };
+  }
+
+  getAnyRemoteStream() {
+    // Si no hay streams remotos, devolver null
+    if (!this.remoteStreams || Object.keys(this.remoteStreams).length === 0) {
+      console.log('No hay streams remotos disponibles');
+      return null;
+    }
+    
+    // Obtener el primer stream disponible
+    const firstKey = Object.keys(this.remoteStreams)[0];
+    console.log(`Obteniendo stream remoto con clave: ${firstKey}`);
+    return this.remoteStreams[firstKey];
   }
   
   logWebRTCState() {
@@ -464,6 +527,70 @@ class WebRTCService {
       return false;
     }
   }
+
+  // Agregar en WebRTCService.js
+  diagnosticStreamRemote(userId) {
+    if (!this.remoteStreams || !this.remoteStreams[userId]) {
+      console.log(`No hay stream remoto para el usuario ${userId}`);
+      return null;
+    }
+    
+    const stream = this.remoteStreams[userId];
+    const videoTracks = stream.getVideoTracks();
+    const audioTracks = stream.getAudioTracks();
+    
+    console.log(`=== DIAGNÓSTICO DE STREAM REMOTO (${userId}) ===`);
+    console.log(`Stream ID: ${stream.id}`);
+    console.log(`Tracks de audio: ${audioTracks.length}`);
+    console.log(`Tracks de video: ${videoTracks.length}`);
+    
+    // Diagnosticar tracks de audio
+    audioTracks.forEach((track, i) => {
+      console.log(`Audio Track ${i}:`);
+      console.log(`- ID: ${track.id}`);
+      console.log(`- Enabled: ${track.enabled}`);
+      console.log(`- Muted: ${track.muted}`);
+      console.log(`- ReadyState: ${track.readyState}`);
+      
+      // IMPORTANTE: Habilitar el track si está deshabilitado
+      if (!track.enabled) {
+        console.log('Habilitando track de audio deshabilitado');
+        track.enabled = true;
+      }
+    });
+    
+    // Diagnosticar tracks de video
+    videoTracks.forEach((track, i) => {
+      console.log(`Video Track ${i}:`);
+      console.log(`- ID: ${track.id}`);
+      console.log(`- Enabled: ${track.enabled}`);
+      console.log(`- Muted: ${track.muted}`);
+      console.log(`- ReadyState: ${track.readyState}`);
+      
+      // IMPORTANTE: Habilitar el track si está deshabilitado
+      if (!track.enabled) {
+        console.log('Habilitando track de video deshabilitado');
+        track.enabled = true;
+      }
+      
+      // Intentar obtener configuraciones
+      if (track.getSettings) {
+        const settings = track.getSettings();
+        console.log(`- Width: ${settings.width || 'N/A'}`);
+        console.log(`- Height: ${settings.height || 'N/A'}`);
+        console.log(`- FrameRate: ${settings.frameRate || 'N/A'}`);
+      }
+    });
+    
+    return {
+      hasAudio: audioTracks.length > 0,
+      hasVideo: videoTracks.length > 0,
+      audioEnabled: audioTracks.length > 0 ? audioTracks[0].enabled : false,
+      videoEnabled: videoTracks.length > 0 ? videoTracks[0].enabled : false,
+      audioMuted: audioTracks.length > 0 ? audioTracks[0].muted : true,
+      videoMuted: videoTracks.length > 0 ? videoTracks[0].muted : true
+    };
+  }
   
   // Agregar un candidato ICE recibido (VERSIÓN MEJORADA)
   async addIceCandidate(candidate) {
@@ -516,6 +643,50 @@ class WebRTCService {
     console.log('Estableciendo ID de usuario remoto:', remoteUserId);
     this.remoteUserId = remoteUserId;
   }
+
+  // Agregar en WebRTCService.js
+  ensureTracksEnabled(userId) {
+    if (!this.remoteStreams || !this.remoteStreams[userId]) {
+      return false;
+    }
+  
+    const stream = this.remoteStreams[userId];
+    let modified = false;
+  
+    // Asegurar que los tracks estén habilitados y no muted
+    stream.getTracks().forEach(track => {
+      // Forzar habilitación del track
+      if (!track.enabled) {
+        console.log('Habilitando track de', track.kind);
+        track.enabled = true;
+        modified = true;
+      }
+  
+      // Forzar unmute usando tanto la propiedad interna como el setter
+      if (track._muted === true || track.muted === true) {
+        console.log('Forzando unmute en track', track.kind);
+        try {
+          track._muted = false;
+          if (typeof track.muted === 'boolean') {
+            track.muted = false;
+          }
+          modified = true;
+        } catch (e) {
+          console.warn('No se pudo modificar muted en track:', e);
+        }
+      }
+    });
+  
+    if (modified) {
+      console.log('Notificando cambios en tracks modificados');
+      if (this.callbacks?.onRemoteStream) {
+        this.callbacks.onRemoteStream(userId, stream);
+      }
+    }
+  
+    return modified;
+  }
+  
   
   // Método para registrar callbacks
   registerCallbacks(callbacks) {
@@ -635,29 +806,20 @@ class WebRTCService {
   // Alternar el altavoz
   toggleSpeaker(speakerOn) {
     try {
-      if (!this.localStream) return;
-      
       console.log(`Alternando altavoz: ${speakerOn ? 'ON' : 'OFF'}`);
       
-      // En React Native WebRTC, esto es más complejo y podría requerir
-      // implementaciones específicas para cada plataforma
-      if (Platform.OS === 'ios') {
-        // En iOS, RTCPeerConnection tiene esta funcionalidad
-        if (this.peerConnection) {
-          this.peerConnection.audioOutput = speakerOn ? 'speaker' : 'earpiece';
-          console.log('Altavoz cambiado en iOS');
+      // Solución alternativa para Android
+      if (Platform.OS === 'android') {
+        const AudioManager = require('react-native').NativeModules.AudioManager;
+        if (AudioManager) {
+          AudioManager.setSpeakerphoneOn(speakerOn);
+          return;
         }
-      } else if (Platform.OS === 'android') {
-        // En Android, necesitas usar código nativo (NativeModules)
-        if (this.localStream && this.localStream.getAudioTracks().length > 0) {
-          const audioTrack = this.localStream.getAudioTracks()[0];
-          if (audioTrack && audioTrack._setSpeakerphoneOn) {
-            audioTrack._setSpeakerphoneOn(speakerOn);
-            console.log('Altavoz cambiado en Android');
-          } else {
-            console.warn('Método _setSpeakerphoneOn no disponible');
-          }
-        }
+      }
+      
+      // Implementación estándar
+      if (this.peerConnection) {
+        this.peerConnection.audioOutput = speakerOn ? 'speaker' : 'earpiece';
       }
     } catch (error) {
       console.error('Error al cambiar altavoz:', error);

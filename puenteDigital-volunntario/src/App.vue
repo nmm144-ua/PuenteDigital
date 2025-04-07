@@ -5,6 +5,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { computed, ref } from 'vue';
 import { onMounted } from 'vue';
 import { Dropdown } from 'bootstrap';
+import { Toaster } from 'vue-sonner';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -106,6 +107,7 @@ onMounted(() => {
 
   <!-- Contenido principal -->
   <main class="main-container">
+    <Toaster />
     <div class="router-view-container">
     <router-view></router-view>
   </div>

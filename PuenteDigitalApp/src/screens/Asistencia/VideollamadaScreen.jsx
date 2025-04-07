@@ -8,7 +8,8 @@ import {
   BackHandler,
   Platform,
   SafeAreaView,
-  Dimensions
+  Dimensions,
+  ActivityIndicator
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import SocketService from '../../services/socketService';
@@ -151,12 +152,46 @@ const VideollamadaScreen = ({ route, navigation }) => {
           onRemoteStream: (userId, stream) => {
             console.log("CALLBACK: Stream remoto recibido de:", userId);
             if (stream) {
-              console.log("Audio tracks:", stream.getAudioTracks().length);
-              console.log("Video tracks:", stream.getVideoTracks().length);
-              setRemoteStream(stream);
-              setCallStatus('connected');
+              const audioTracks = stream.getAudioTracks();
+              const videoTracks = stream.getVideoTracks();
               
-              // Iniciar temporizador
+              console.log("Audio tracks:", audioTracks.length);
+              console.log("Video tracks:", videoTracks.length);
+              
+              // Actualizar el estado del stream remoto
+              setRemoteStream(stream);
+              
+              // Si tenemos al menos un track de video, la conexión está lista
+              if (videoTracks.length > 0) {
+                setCallStatus('connected');
+                
+                // Verificar que el track de video esté habilitado
+                if (!videoTracks[0].enabled) {
+                  console.log("Track de video desactivado, intentando activar...");
+                  try {
+                    videoTracks[0].enabled = true;
+                  } catch (e) {
+                    console.error("No se pudo activar el video:", e);
+                  }
+                }
+                
+                // Verificar que el track de video no esté silenciado
+                if (videoTracks[0].muted) {
+                  console.log("Track de video silenciado, intentando activar...");
+                  try {
+                    videoTracks[0].muted = false;
+                  } catch (e) {
+                    console.error("No se pudo desactivar mute en video:", e);
+                  }
+                }
+              } else if (audioTracks.length > 0 && callStatus !== 'connected') {
+                // Si solo tenemos audio, también mostrar connected pero seguir esperando video
+                setCallStatus('audio_only');
+              }
+
+              WebRTCService.ensureTracksEnabled(userId);
+              
+              // Iniciar temporizador solo la primera vez
               if (!durationTimerRef.current) {
                 durationTimerRef.current = setInterval(() => {
                   setCallDuration(prev => prev + 1);
@@ -271,31 +306,41 @@ const VideollamadaScreen = ({ route, navigation }) => {
     };
   }, []);
   
+  
   return (
     <SafeAreaView style={styles.container}>
       {/* Stream remoto (pantalla completa) */}
       {remoteStream ? (
-        <RTCView
-          streamURL={remoteStream.toURL()}
-          style={styles.remoteStream}
-          objectFit="cover"
-          mirror={false}
-          zOrder={0}
-          // Importante: añadir clave única para forzar re-renderizado
-          key={`remote-stream-${remoteStream.id}`}
-          // Importante: Establecer estos props adicionales
-          muted={false}
-          volume={1.0}
-        />
+        <View style={styles.remoteStreamContainer}>
+          {/* Un indicador de audio/video */}
+          <View style={styles.debugOverlay}>
+            <Text style={styles.debugText}>
+              Audio: {remoteStream.getAudioTracks().length > 0 ? '✓' : '✗'} 
+              Video: {remoteStream.getVideoTracks().length > 0 ? '✓' : '✗'}
+            </Text>
+          </View>
+          
+          {/* El RTCView con configuración simplificada */}
+          <RTCView
+            streamURL={remoteStream.toURL()}
+            style={styles.remoteStream}
+            objectFit="contain" // Cambiar a contain
+            mirror={true} // Probar con mirror en true
+            zOrder={1} // Cambiar a zOrder 1
+            key={Date.now()} // Forzar recreación con timestamp
+          />
+          
+          {callStatus === 'audio_only' && (
+            <View style={styles.audioOnlyOverlay}>
+              <MaterialIcons name="videocam-off" size={48} color="#fff" />
+              <Text style={styles.audioOnlyText}>Esperando video...</Text>
+            </View>
+          )}
+        </View>
       ) : (
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>
-            {callStatus === 'connecting' 
-              ? `Conectando con ${asistenteName || 'el asistente'}...` 
-              : callStatus === 'ended'
-                ? 'Llamada finalizada'
-                : 'Esperando video remoto...'}
-          </Text>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.loadingText}>Conectando...</Text>
         </View>
       )}
 
@@ -330,6 +375,25 @@ const VideollamadaScreen = ({ route, navigation }) => {
       
       {/* Controles de la llamada */}
       <View style={styles.controlsContainer}>
+
+        {/* Botón de diagnóstico/reparación - mostrar solo si hay problemas */}
+        {remoteStream && callStatus === 'audio_only' && (
+          <TouchableOpacity 
+            style={styles.repairButton}
+            onPress={() => {
+              // Diagnosticar y reparar
+              WebRTCService.diagnosticStreamRemote(asistenteId);
+              WebRTCService.ensureTracksEnabled(asistenteId);
+              
+              // Forzar un rerenderizado al actualizar el estado
+              setRemoteStream({...remoteStream});
+            }}
+          >
+            <MaterialIcons name="refresh" size={20} color="#fff" />
+            <Text style={styles.repairButtonText}>Reparar Video</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.controlButton} onPress={toggleMute}>
           <MaterialIcons 
             name={isMuted ? 'mic-off' : 'mic'} 
@@ -386,6 +450,28 @@ const styles = StyleSheet.create({
     flex: 1,
     width: width,
     height: height,
+  },
+  remoteStreamContainer: {
+    flex: 1,
+    width: width,
+    height: height,
+    backgroundColor: '#000',
+  },
+  audioOnlyOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  audioOnlyText: {
+    color: '#fff',
+    fontSize: 18,
+    marginTop: 10,
+    fontWeight: 'bold',
   },
   loadingContainer: {
     flex: 1,

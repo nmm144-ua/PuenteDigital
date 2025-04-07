@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import { Toaster } from 'vue-sonner'
 
 import App from './App.vue'
 import router from './router'
@@ -13,5 +14,16 @@ const app = createApp(App)
 
 app.use(createPinia())
 app.use(router)
+app.component('Toaster', Toaster)
+
+app.use(Toaster, {
+    position: 'top-right',
+    duration: 4000,
+    richColors: true,
+    closeButton: true,
+    pauseWhenHover: true,
+    visibleToasts: 3
+  })
+
 
 app.mount('#app')

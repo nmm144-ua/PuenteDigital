@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import socketService from '../services/socket.service';
 import webrtcService from '../services/webrtc.service';
 import { solicitudesAsistenciaService } from '../services/solicitudAsistenciaService';
+import notificationService from '../services/notificacion.service';
 
 export const useCallStore = defineStore('call', {
   state: () => ({
@@ -105,6 +106,7 @@ export const useCallStore = defineStore('call', {
       // Cuando se solicita iniciar una llamada
       socketService.on('call-requested', ({ from, fromName }) => {
         console.log('Solicitud de llamada recibida de:', fromName);
+        notificationService.incomingCall(fromName);
         // Si somos usuario normal, aceptar automáticamente si ya nos unimos a la sala
         if (this.userRole === 'usuario') {
           this.acceptCall(from);
