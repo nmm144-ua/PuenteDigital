@@ -14,6 +14,13 @@ class NotificationService {
       INFO: 'info',
       WARNING: 'warning'
     };
+    
+    // Verificar si vue-sonner está disponible
+    if (typeof toast !== 'function') {
+      console.error('Vue-sonner no está correctamente inicializado. La función toast no está disponible');
+    } else {
+      console.log('Vue-sonner está correctamente inicializado');
+    }
   }
 
   show(message, type = this.TYPES.INFO, options = {}) {
@@ -52,7 +59,6 @@ class NotificationService {
         type: type, // Añadir tipo de notificación
         position: 'top-right',
         duration: 4000,
-        // No usar icon ni iconClass
         render: (props) => {
           // Renderizado personalizado sin HTML directo
           return `
@@ -67,6 +73,18 @@ class NotificationService {
       console.log('Notificación mostrada con éxito');
     } catch (error) {
       console.error('Error al mostrar notificación:', error);
+      
+      // Intentar un fallback más simple
+      try {
+        console.log('Intentando método de notificación alternativo');
+        toast(message, {
+          type: type,
+          description: options.description
+        });
+        console.log('Método alternativo exitoso');
+      } catch (fallbackError) {
+        console.error('Error también en método alternativo:', fallbackError);
+      }
     }
   }
 
@@ -82,8 +100,6 @@ class NotificationService {
     return this.processedNotifications.has(message) && 
            (Date.now() - this.lastShowTime < 2000);
   }
-
-
 }
 
 export default new NotificationService();

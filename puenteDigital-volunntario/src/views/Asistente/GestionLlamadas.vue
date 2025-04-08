@@ -191,7 +191,7 @@ export default {
       };
     });
     
-    // Configuración de suscripción en tiempo real
+    // Configuración de suscripción en tiempo real 
     const setupRealtimeSubscription = () => {
       const notificacionesProcesadas = new Set();
 
@@ -209,7 +209,7 @@ export default {
           (payload) => {
             // Verificar si la nueva solicitud está pendiente
             if (payload.new.estado === 'pendiente') {
-              console.log('Nueva solicitud detectada:', payload.new);
+              console.log('Nueva solicitud detectada en componente:', payload.new);
 
               // Verificar si ya procesamos esta notificación (por ID)
               const notificationKey = `insert_${payload.new.id}`;
@@ -229,17 +229,8 @@ export default {
               // Marcar como nueva solicitud para efectos visuales
               nuevasSolicitudes.value.add(payload.new.id);
               
-              // Mostrar notificación usando el servicio de notificaciones
-              notificationService.show(
-                'Nueva solicitud de asistencia',
-                notificationService.TYPES.INFO,
-                {
-                  description: payload.new.descripcion || 'Un usuario necesita ayuda'
-                }
-              );
-            
-              
-              // Recargar todas las solicitudes para obtener información completa
+              // Ya no mostramos notificaciones aquí, lo hace el servicio global
+              // Solo actualizamos la UI
               silentRefresh();
               
               // Programar eliminación del estado "nueva" después de 30 segundos
@@ -273,53 +264,58 @@ export default {
       try {
         // No activamos isLoading aquí para evitar parpadeos
         
-        // Cargar solicitudes pendientes desde el servicio
+        // Cargar solicitudes pendientes de video desde el servicio
         const solicitudes = await solicitudesAsistenciaService.getVideoSolicitudes();
         
-        // Transformar para que coincida con el formato esperado por la interfaz
+        // También cargar solicitudes pendientes de chat (para detectar nuevas, aunque no las mostremos)
+        const solicitudesChat = await solicitudesAsistenciaService.getChatSolicitudes();
+        
+        // Transformar solicitudes de video para que coincidan con el formato esperado
         const solicitudesFormateadas = solicitudes.map(s => ({
           id: s.id,
           roomId: s.room_id,
           userName: s.usuario?.nombre || 'Usuario',
           timestamp: s.created_at,
-          description: s.descripcion
+          description: s.descripcion,
+          tipo: 'video'
         }));
         
-        // Detectar nuevas solicitudes que no estaban en la lista anterior
-        const nuevasIds = solicitudesFormateadas
+        // Transformar solicitudes de chat
+        const solicitudesChatFormateadas = solicitudesChat.map(s => ({
+          id: s.id,
+          roomId: s.room_id,
+          userName: s.usuario?.nombre || 'Usuario',
+          timestamp: s.created_at,
+          description: s.descripcion,
+          tipo: 'chat'
+        }));
+        
+        // Detectar nuevas solicitudes de video que no estaban en la lista anterior
+        const nuevasIdsVideo = solicitudesFormateadas
           .filter(s => !solicitudesConocidas.value.has(s.id))
           .map(s => s.id);
         
-        // Actualizar conjunto de solicitudes conocidas
+        // Detectar nuevas solicitudes de chat que no estaban en la lista anterior
+        const nuevasIdsChat = solicitudesChatFormateadas
+          .filter(s => !solicitudesConocidas.value.has(s.id))
+          .map(s => s.id);
+        
+        // Unir todas las nuevas IDs
+        const nuevasIds = [...nuevasIdsVideo, ...nuevasIdsChat];
+        
+        // Actualizar conjunto de solicitudes conocidas para ambos tipos
         solicitudesFormateadas.forEach(s => {
           solicitudesConocidas.value.add(s.id);
         });
         
-        // Notificar por nuevas solicitudes (solo si no es la carga inicial)
-        if (!isInitialLoading.value && nuevasIds.length > 0) {
-          // Añadir a la lista de nuevas solicitudes (para destacarlas visualmente)
-          nuevasIds.forEach(id => nuevasSolicitudes.value.add(id));
-          
-          // Mostrar notificación si hay nuevas
-          if (nuevasIds.length === 1) {
-            const nuevaSolicitud = solicitudesFormateadas.find(s => s.id === nuevasIds[0]);
-            notificationService.show(
-              'Nueva solicitud de asistencia',
-              notificationService.TYPES.INFO,
-              {
-                description: nuevaSolicitud.description || 'Un usuario necesita ayuda'
-              }
-            );
-          } else if (nuevasIds.length > 1) {
-            notificationService.show(
-              `${nuevasIds.length} nuevas solicitudes de asistencia`,
-              notificationService.TYPES.INFO,
-              {
-                description: 'Varios usuarios están esperando atención'
-              }
-            );
-          }
+        solicitudesChatFormateadas.forEach(s => {
+          solicitudesConocidas.value.add(s.id);
+        });
         
+        // Añadir a la lista de nuevas solicitudes (para destacarlas visualmente)
+        // pero ya NO mostramos notificaciones aquí (lo hace el servicio global)
+        if (!isInitialLoading.value) {
+          nuevasIds.forEach(id => nuevasSolicitudes.value.add(id));
           
           // Programar eliminación del estado "nueva" después de 30 segundos
           nuevasIds.forEach(id => {
@@ -329,7 +325,7 @@ export default {
           });
         }
         
-        // Actualizar lista de solicitudes
+        // Actualizar lista de solicitudes (solo videollamadas para el display)
         pendingSolicitudes.value = solicitudesFormateadas;
         
       } catch (error) {

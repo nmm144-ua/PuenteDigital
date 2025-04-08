@@ -2,10 +2,10 @@
 import { RouterLink, RouterView } from 'vue-router';
 import { useAuthStore } from './stores/authStore';
 import { useRouter, useRoute } from 'vue-router';
-import { computed, ref } from 'vue';
-import { onMounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { Dropdown } from 'bootstrap';
 import { Toaster } from 'vue-sonner';
+import globalNotificationService from './services/globalNotificationService';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -23,11 +23,33 @@ const toggleDropdown = () => {
   showDropdown.value = !showDropdown.value;
 };
 
+// Inicializar el servicio de notificaciones globales cuando el usuario está autenticado
+// y limpiarlo al cerrar sesión
+watch(() => authStore.isAuthenticated, (isAuthenticated) => {
+  if (isAuthenticated) {
+    // Solo inicializar si el usuario es un asistente (no un admin)
+    if (!authStore.isAdmin) {
+      globalNotificationService.initialize();
+    }
+  } else {
+    globalNotificationService.cleanup();
+  }
+}, { immediate: true });
+
 onMounted(() => {
   const dropdownElement = document.getElementById('dropdownMenuButton');
   if (dropdownElement) {
     new Dropdown(dropdownElement);
   }
+  // Inicializar notificaciones si ya está autenticado al montar el componente
+  if (authStore.isAuthenticated && !authStore.isAdmin) {
+    globalNotificationService.initialize();
+  }
+});
+
+onUnmounted(() => {
+  // Limpiar el servicio de notificaciones al desmontar la aplicación
+  globalNotificationService.cleanup();
 });
 
 </script>
