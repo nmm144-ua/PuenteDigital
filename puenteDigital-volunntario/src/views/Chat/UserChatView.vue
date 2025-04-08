@@ -69,7 +69,10 @@
             :key="solicitud.id" 
             @click="selectSolicitud(solicitud)" 
             class="solicitud-item"
-            :class="{ 'solicitud-active': selectedSolicitudId === solicitud.id }"
+            :class="{ 
+              'solicitud-active': selectedSolicitudId === solicitud.id,
+              'solicitud-finalizada': solicitud.estado === 'finalizada'
+            }"
           >
             <div 
               class="solicitud-avatar"
@@ -187,6 +190,9 @@
                   <span v-if="selectedSolicitud && selectedSolicitud.asistente_id" class="status-atendido">
                     <i class="fas fa-check-circle"></i> Atendido
                   </span>
+                  <span v-if="selectedSolicitud && selectedSolicitud.estado === 'finalizada'" class="status-finalizado">
+                    <i class="fas fa-flag-checkered"></i> Finalizado
+                  </span>
                 </div>
               </div>
             </div>
@@ -208,6 +214,16 @@
                 title="Finalizar solicitud"
               >
                 <i class="fas fa-check"></i>
+              </button>
+
+              <!-- Nuevo botón para reabrir solicitud finalizada -->
+              <button 
+                v-if="selectedSolicitud && selectedSolicitud.estado === 'finalizada'" 
+                @click="reabrirSolicitud(selectedSolicitud)" 
+                class="reopen-button"
+                title="Reabrir solicitud"
+              >
+                <i class="fas fa-redo"></i>
               </button>
               
               <!-- Nuevo botón para eliminar solicitud -->
@@ -260,6 +276,12 @@
                 </div>
               </div>
             </template>
+            
+            <!-- Banner de conversación finalizada -->
+            <div v-if="selectedSolicitud && selectedSolicitud.estado === 'finalizada'" class="finalizada-banner">
+              <i class="fas fa-info-circle"></i>
+              Esta conversación está finalizada. Puedes reabrirla para continuar la atención.
+            </div>
           </div>
 
           <!-- Pie de página del chat (entrada de mensaje) -->
@@ -274,6 +296,18 @@
                 class="asignar-button"
               >
                 <i class="fas fa-user-check"></i> Asignarme esta solicitud
+              </button>
+            </div>
+            <div v-else-if="selectedSolicitud && selectedSolicitud.estado === 'finalizada'" class="reabrir-container">
+              <div class="reabrir-mensaje">
+                <i class="fas fa-info-circle"></i>
+                Esta conversación está finalizada
+              </div>
+              <button 
+                @click="reabrirSolicitud(selectedSolicitud)"
+                class="reabrir-button"
+              >
+                <i class="fas fa-redo"></i> Reabrir conversación
               </button>
             </div>
             <div v-else class="message-input-container">
@@ -457,6 +491,39 @@ export default {
         console.error('Error al cargar solicitudes:', error);
       } finally {
         isLoading.value = false;
+      }
+    };
+
+    // Reabrir una solicitud finalizada
+    const reabrirSolicitud = async (solicitud) => {
+      if (!solicitud || !solicitud.id) return;
+      
+      // Confirmar con el usuario
+      if (!confirm('¿Estás seguro de que deseas reabrir esta conversación?')) {
+        return;
+      }
+      
+      try {
+        const solicitudActualizada = await solicitudesAsistenciaService.reabrirSolicitud(solicitud.id);
+        
+        // Actualizar el objeto de solicitud local
+        if (solicitudActualizada) {
+          console.log('Solicitud reabierta correctamente', solicitudActualizada);
+          
+          // Actualizar solicitud seleccionada
+          if (selectedSolicitudId.value === solicitud.id) {
+            selectedSolicitud.value = solicitudActualizada;
+          }
+          
+          // Recargar la lista de solicitudes
+          await loadSolicitudes();
+          
+          // Mostrar notificación de éxito
+          alert('Conversación reabierta correctamente');
+        }
+      } catch (error) {
+        console.error('Error al reabrir solicitud:', error);
+        alert('No se pudo reabrir la solicitud: ' + error.message);
       }
     };
     
@@ -1631,7 +1698,8 @@ export default {
       finalizarSolicitud,
       eliminarSolicitud,
       autoRefreshInterval,
-      esNuevaSolicitud
+      esNuevaSolicitud,
+      reabrirSolicitud
     };
   }
 };
@@ -1645,6 +1713,123 @@ export default {
   min-height: calc(100vh - 80px);
   background-color: #f8f9fa;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Botón de reabrir */
+.reopen-button {
+  background: none;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #ff9800; /* Naranja */
+}
+
+.reopen-button:hover {
+  background-color: #fff8e1; /* Naranja claro */
+  transform: scale(1.1);
+}
+
+/* Estilo para el banner de finalizada */
+.finalizada-banner {
+  padding: 10px 15px;
+  margin: 15px auto;
+  border-radius: 8px;
+  background-color: #f5f5f5;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  border-left: 3px solid #ff9800;
+  max-width: 90%;
+}
+
+.finalizada-banner i {
+  color: #ff9800;
+}
+
+/* Contenedor de reabrir en el pie de chat */
+.reabrir-container {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reabrir-mensaje {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #555;
+  font-size: 0.9rem;
+  background-color: #fff8e1;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border-left: 3px solid #ff9800;
+}
+
+.reabrir-mensaje i {
+  color: #ff9800;
+  font-size: 1.1rem;
+}
+
+.reabrir-button {
+  background: linear-gradient(135deg, #ff9800, #f57c00);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.3s ease;
+  box-shadow: 0 3px 6px rgba(255, 152, 0, 0.25);
+  width: auto;
+  margin: 0 auto;
+}
+
+.reabrir-button:hover {
+  background: linear-gradient(135deg, #f57c00, #e65100);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 12px rgba(255, 152, 0, 0.35);
+}
+
+.reabrir-button i {
+  font-size: 1.1rem;
+  transition: transform 0.3s ease;
+}
+
+.reabrir-button:hover i {
+  transform: scale(1.1);
+}
+
+.solicitud-finalizada {
+  opacity: 0.8;
+  border-left: 3px solid #ff9800;
+}
+
+.status-finalizado {
+  font-size: 0.8rem;
+  color: #ff9800;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.status-finalizado i {
+  font-size: 0.9rem;
 }
 
 .solicitud-nueva {

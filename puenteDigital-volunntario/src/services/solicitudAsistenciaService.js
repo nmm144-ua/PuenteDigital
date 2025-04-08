@@ -267,5 +267,28 @@ export const solicitudesAsistenciaService = {
       console.error('Error al eliminar la solicitud:', error);
       throw error;
     }
-  }
+  },
+
+  // Reabrir una solicitud finalizada
+  async reabrirSolicitud(solicitudId) {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .update({
+          estado: 'en_proceso',
+          finalizado_timestamp: null
+        })
+        .eq('id', solicitudId)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      console.log('Solicitud reabierta correctamente:', data);
+      return data;
+    } catch (error) {
+      console.error('Error al reabrir la solicitud:', error);
+      throw error;
+    }
+  },
 };
