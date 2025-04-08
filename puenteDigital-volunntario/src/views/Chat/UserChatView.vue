@@ -102,36 +102,45 @@
         
         <!-- Lista de solicitudes pendientes -->
         <div v-else-if="activeTab === 'solicitudes'" class="solicitudes-list">
-          <div 
-            v-for="solicitud in solicitudesPendientes" 
-            :key="solicitud.id" 
-            @click="selectSolicitud(solicitud)" 
-            class="solicitud-item"
-            :class="{ 'solicitud-active': selectedSolicitudId === solicitud.id }"
-          >
-            <div class="solicitud-avatar solicitud-pendiente">
-              {{ solicitud.usuario ? getInitials(solicitud.usuario.nombre || 'Usuario') : 'U' }}
+            <!-- Estado de carga silenciosa -->
+            <div v-if="silentLoading && solicitudesPendientes.length === 0" class="solicitudes-loading silenciosa">
+              <div class="spinner"></div>
+              <p>Cargando solicitudes...</p>
             </div>
-            <div class="solicitud-details">
-              <div class="solicitud-name">
-                {{ solicitud.usuario ? solicitud.usuario.nombre : 'Usuario' }}
-                <span class="badge badge-new">Nueva</span>
+            
+            <div 
+              v-for="solicitud in solicitudesPendientes" 
+              :key="solicitud.id" 
+              @click="selectSolicitud(solicitud)" 
+              class="solicitud-item"
+              :class="{ 
+                'solicitud-active': selectedSolicitudId === solicitud.id,
+                'solicitud-nueva': esNuevaSolicitud(solicitud.id)
+              }"
+            >
+              <div class="solicitud-avatar solicitud-pendiente">
+                {{ solicitud.usuario ? getInitials(solicitud.usuario.nombre || 'Usuario') : 'U' }}
               </div>
-              <div class="solicitud-preview">
-                {{ getPreviewText(solicitud) }}
+              <div class="solicitud-details">
+                <div class="solicitud-name">
+                  {{ solicitud.usuario ? solicitud.usuario.nombre : 'Usuario' }}
+                  <span class="badge badge-new">Nueva</span>
+                </div>
+                <div class="solicitud-preview">
+                  {{ getPreviewText(solicitud) }}
+                </div>
               </div>
-            </div>
-            <div class="solicitud-meta">
-              <div class="solicitud-time">
-                {{ formatDate(solicitud.created_at) }}
-              </div>
-              <div class="solicitud-status status-pendiente">
-                <span class="status-dot"></span>
-                Pendiente
+              <div class="solicitud-meta">
+                <div class="solicitud-time">
+                  {{ formatDate(solicitud.created_at) }}
+                </div>
+                <div class="solicitud-status status-pendiente">
+                  <span class="status-dot"></span>
+                  Pendiente
+                </div>
               </div>
             </div>
           </div>
-        </div>
       </div>
       
       <!-- Área de chat principal -->
@@ -300,6 +309,8 @@ import { asistenteService } from '../../services/asistenteService';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatStore } from '../../stores/chat.store';
 import { supabase } from '../../../supabase';
+import notificationService from '../../services/notificacion.service';
+
 
 export default {
   name: 'UserChatView',
@@ -324,6 +335,9 @@ export default {
     const typingTimeout = ref(null); // Timeout para evento de escritura
     const processedMessages = ref(new Set()); // Set para rastrear mensajes procesados
     const autoRefreshInterval = ref(null);
+    const silentLoading = ref(false);
+    const nuevasSolicitudes = ref(new Set());
+    const solicitudesConocidas = ref(new Set());
     
     // Filtrar solicitudes por estado para mis conversaciones (con asistente asignado)
     const misConversaciones = computed(() => {
@@ -980,6 +994,9 @@ export default {
     const setupRealtimeSubscription = () => {
       console.log('Configurando suscripción en tiempo real a Supabase');
       
+      // Set para rastrear notificaciones procesadas y evitar duplicados
+      const notificacionesProcesadas = new Set();
+      
       // Limpiar cualquier suscripción anterior
       if (unsubscribe.value && typeof unsubscribe.value === 'function') {
         unsubscribe.value();
@@ -1043,6 +1060,30 @@ export default {
                 // Actualizar contador de mensajes no leídos
                 loadMensajesNoLeidos();
                 
+                // Mostrar notificación solo si este chat no está actualmente abierto
+                if (payload.new.tipo === 'usuario' && 
+                    (!selectedSolicitudId.value || selectedSolicitudId.value !== payload.new.solicitud_id)) {
+                  
+                  // Buscar información de la solicitud para la notificación
+                  const { data: solicitudInfo } = await supabase
+                    .from('solicitudes_asistencia')
+                    .select('id, descripcion, usuario:usuarios!solicitudes_asistencia_usuario_id_fkey(nombre)')
+                    .eq('id', payload.new.solicitud_id)
+                    .single();
+                    
+                  if (solicitudInfo) {
+                    // Mostrar notificación usando el servicio
+                    notificationService.show(
+                      `Nuevo mensaje de ${solicitudInfo.usuario?.nombre || 'Usuario'}`,
+                      notificationService.TYPES.INFO,
+                      {
+                        description: payload.new.contenido.substring(0, 50) + 
+                                    (payload.new.contenido.length > 50 ? '...' : '')
+                      }
+                    );
+                  }
+                }
+                
                 // Desplazar al final
                 nextTick(() => {
                   scrollToBottom();
@@ -1067,12 +1108,53 @@ export default {
             schema: 'public',
             table: 'mensajes'
           },
-          (payload) => {
+          async (payload) => {
             console.log('Mensaje general detectado:', payload.new);
             
+            // Verificar si este mensaje ya ha sido procesado
+            const notificationKey = `msg_${payload.new.id}`;
+            if (notificacionesProcesadas.has(notificationKey)) {
+              console.log('Notificación ya procesada, ignorando:', notificationKey);
+              return;
+            }
+            
             // Solo procesar mensajes que no son para la solicitud actual
-            // (la solicitud actual ya está siendo manejada por specificChannel)
             if (payload.new.solicitud_id !== selectedSolicitudId.value) {
+              // Registrar como procesado
+              notificacionesProcesadas.add(notificationKey);
+              
+              // Limitar tamaño del conjunto
+              if (notificacionesProcesadas.size > 50) {
+                const firstKey = notificacionesProcesadas.values().next().value;
+                notificacionesProcesadas.delete(firstKey);
+              }
+              
+              // Mostrar notificación solo para mensajes de usuario
+              if (payload.new.tipo === 'usuario') {
+                try {
+                  // Buscar información de la solicitud para la notificación
+                  const { data: solicitudInfo } = await supabase
+                    .from('solicitudes_asistencia')
+                    .select('id, descripcion, usuario:usuarios!solicitudes_asistencia_usuario_id_fkey(nombre)')
+                    .eq('id', payload.new.solicitud_id)
+                    .single();
+                    
+                  if (solicitudInfo) {
+                    // Mostrar notificación usando el servicio
+                    notificationService.show(
+                      `Nuevo mensaje de ${solicitudInfo.usuario?.nombre || 'Usuario'}`,
+                      notificationService.TYPES.INFO,
+                      {
+                        description: payload.new.contenido.substring(0, 50) + 
+                                    (payload.new.contenido.length > 50 ? '...' : '')
+                      }
+                    );
+                  }
+                } catch (error) {
+                  console.error('Error al obtener información de solicitud:', error);
+                }
+              }
+              
               // Actualizar contador de mensajes no leídos
               loadMensajesNoLeidos();
             }
@@ -1081,22 +1163,77 @@ export default {
         .subscribe((status) => {
           console.log(`Estado de suscripción de canal general: ${status}`);
         });
-      
-      // Canal para cambios en solicitudes
+  
+      // Canal para cambios en solicitudes (nuevas solicitudes pendientes)
       const solicitudesChannel = supabase
         .channel('solicitudes_changes')
         .on(
           'postgres_changes',
           {
-            event: '*', // INSERT, UPDATE o DELETE
+            event: 'INSERT',
+            schema: 'public',
+            table: 'solicitudes_asistencia',
+            filter: 'estado=eq.pendiente'
+          },
+          (payload) => {
+            console.log('Nueva solicitud pendiente detectada:', payload.new);
+            
+            // Verificar si esta notificación ya ha sido procesada
+            const notificationKey = `new_sol_${payload.new.id}`;
+            if (notificacionesProcesadas.has(notificationKey)) {
+              console.log('Notificación de nueva solicitud ya procesada:', notificationKey);
+              return;
+            }
+            
+            // Registrar como procesada
+            notificacionesProcesadas.add(notificationKey);
+            
+            // Limitar tamaño del conjunto
+            if (notificacionesProcesadas.size > 50) {
+              const firstKey = notificacionesProcesadas.values().next().value;
+              notificacionesProcesadas.delete(firstKey);
+            }
+            
+            // Marcar como nueva solicitud para efectos visuales
+            nuevasSolicitudes.value.add(payload.new.id);
+            
+            // Mostrar notificación si estamos en la pestaña de solicitudes
+            if (activeTab.value === 'solicitudes') {
+              notificationService.show(
+                'Nueva solicitud de asistencia',
+                notificationService.TYPES.INFO,
+                {
+                  description: payload.new.descripcion || 'Un usuario necesita ayuda'
+                }
+              );
+            }
+            
+            // Actualizar lista silenciosamente si estamos en la pestaña de solicitudes
+            if (activeTab.value === 'solicitudes') {
+              silentRefresh();
+            }
+            
+            // Programar eliminación del estado "nueva" después de 30 segundos
+            setTimeout(() => {
+              nuevasSolicitudes.value.delete(payload.new.id);
+            }, 30000);
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
             schema: 'public',
             table: 'solicitudes_asistencia'
           },
           (payload) => {
-            console.log('Cambio en solicitudes detectado:', payload);
+            console.log('Solicitud actualizada detectada:', payload.new);
             
             // Actualizar la lista de solicitudes
-            loadSolicitudes();
+            if (activeTab.value === 'conversaciones' || 
+                (activeTab.value === 'solicitudes' && payload.new.estado === 'pendiente')) {
+              loadSolicitudes();
+            }
             
             // Si hay una solicitud actual seleccionada y cambió, actualizar sus datos
             if (selectedSolicitudId.value && payload.new && payload.new.id === selectedSolicitudId.value) {
@@ -1187,6 +1324,80 @@ export default {
       }
     };
 
+    const esNuevaSolicitud = (solicitudId) => {
+      return nuevasSolicitudes.value.has(solicitudId);
+    };
+
+    // Implementación simplificada del refresco silencioso
+    const silentRefresh = async () => {
+      // Solo refresca si está en la pestaña de solicitudes
+      if (activeTab.value !== 'solicitudes') return;
+      
+      silentLoading.value = true;
+      try {
+        // Verificar si el usuario es asistente
+        if (authStore.user) {
+          const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
+          
+          if (asistente) {
+            // Cargar solicitudes pendientes sin asignar
+            let pendientes = await solicitudesAsistenciaService.getPendienteSolicitudes();
+            pendientes = pendientes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            
+            // Detectar solicitudes nuevas
+            const nuevasIds = pendientes
+              .filter(s => !solicitudesConocidas.value.has(s.id))
+              .map(s => s.id);
+            
+            // Registrar todas las solicitudes como conocidas
+            pendientes.forEach(s => {
+              solicitudesConocidas.value.add(s.id);
+            });
+            
+            // Notificar nuevas solicitudes
+            if (!isLoading.value && nuevasIds.length > 0) {
+              // Destacar visualmente
+              nuevasIds.forEach(id => nuevasSolicitudes.value.add(id));
+              
+              // Mostrar notificación
+              if (nuevasIds.length === 1) {
+                const nuevaSolicitud = pendientes.find(s => s.id === nuevasIds[0]);
+                if (nuevaSolicitud) {
+                  notificationService.show(
+                    'Nueva solicitud de asistencia',
+                    notificationService.TYPES.INFO,
+                    {
+                      description: nuevaSolicitud.descripcion || 'Un usuario necesita ayuda'
+                    }
+                  );
+                }
+              } else if (nuevasIds.length > 1) {
+                notificationService.show(
+                  `${nuevasIds.length} nuevas solicitudes de asistencia`,
+                  notificationService.TYPES.INFO,
+                  {
+                    description: 'Varios usuarios están esperando atención'
+                  }
+                );
+              }
+              
+              // Programar eliminación del estado "nueva" después de 30 segundos
+              nuevasIds.forEach(id => {
+                setTimeout(() => {
+                  nuevasSolicitudes.value.delete(id);
+                }, 30000);
+              });
+            }
+            
+            solicitudesPendientes.value = pendientes;
+          }
+        }
+      } catch (error) {
+        console.error('Error al actualizar silenciosamente las solicitudes:', error);
+      } finally {
+        silentLoading.value = false;
+      }
+    };
     
     // Añadir esta función para controlar el intervalo de actualización automática
     const setupAutoRefresh = () => {
@@ -1212,7 +1423,6 @@ export default {
       // Si cambia la pestaña, configurar/limpiar el intervalo según corresponda
       setupAutoRefresh();
     });
-
 
     
     watch(chatMessages, async () => {
@@ -1395,6 +1605,7 @@ export default {
       selectedSolicitudId,
       selectedSolicitud,
       isLoading,
+      silentLoading,
       cargandoMensajes,
       sidebarOpen,
       activeTab,
@@ -1419,7 +1630,8 @@ export default {
       loadSolicitudes,
       finalizarSolicitud,
       eliminarSolicitud,
-      autoRefreshInterval
+      autoRefreshInterval,
+      esNuevaSolicitud
     };
   }
 };
@@ -1433,6 +1645,33 @@ export default {
   min-height: calc(100vh - 80px);
   background-color: #f8f9fa;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.solicitud-nueva {
+  animation: highlightNew 1.5s ease-in-out infinite alternate;
+  border-left: 3px solid #ff9800 !important;
+  background-color: #fff8e1 !important;
+}
+
+@keyframes highlightNew {
+  from { box-shadow: 0 4px 10px rgba(255, 152, 0, 0.2); }
+  to { box-shadow: 0 4px 15px rgba(255, 152, 0, 0.5); }
+}
+
+/* Estado de carga silenciosa (mostrar más discreto) */
+.solicitudes-loading.silenciosa {
+  opacity: 0.7;
+  padding: 30px 20px;
+}
+
+.solicitudes-loading.silenciosa .spinner {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 10px;
+}
+
+.solicitudes-loading.silenciosa p {
+  font-size: 0.9rem;
 }
 
 .finish-button, .delete-button {
