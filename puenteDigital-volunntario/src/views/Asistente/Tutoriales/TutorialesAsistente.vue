@@ -6,8 +6,11 @@
         <p class="lead">Aquí puedes gestionar los tutoriales que has subido para compartir con los usuarios.</p>
       </div>
       <div class="col-md-4 d-flex justify-content-md-end align-items-center">
+        <router-link to="/asistente/tutoriales" class="btn btn-outline-secondary me-2">
+          <i class="bi bi-arrow-left me-1"></i> Volver
+        </router-link>
         <router-link to="/asistente/tutoriales/nuevo" class="btn btn-primary">
-          <i class="bi bi-plus-circle me-2"></i> Subir nuevo tutorial
+          <i class="bi bi-plus-circle me-2"></i> Nuevo tutorial
         </router-link>
       </div>
     </div>

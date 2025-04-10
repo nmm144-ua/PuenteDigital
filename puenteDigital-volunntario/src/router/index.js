@@ -79,10 +79,27 @@ const routes = [
         name: 'UsuarioChat',
         component: () => import('../views/Chat/UserChatView.vue')
       },
+      // Estructura de tutoriales
       {
         path: 'tutoriales',
-        name: 'TutorialesAsistente',
+        name: 'TutorialesHub',
+        component: () => import('../views/Asistente/Tutoriales/TutorialesHub.vue')
+      },
+      {
+        path: 'mis-tutoriales',
+        name: 'MisTutoriales',
         component: () => import('../views/Asistente/Tutoriales/TutorialesAsistente.vue')
+      },
+      {
+        path: 'todos-tutoriales',
+        name: 'TodosTutoriales',
+        component: () => import('../views/Asistente/Tutoriales/TodosTutoriales.vue')
+      },
+      {
+        path: 'tutorial-detalle/:id',
+        name: 'TutorialDetallePublico',
+        component: () => import('../views/Asistente/Tutoriales/TutorialDetallePublico.vue'),
+        props: true
       },
       {
         path: 'tutoriales/nuevo',
@@ -93,12 +110,6 @@ const routes = [
         path: 'tutoriales/:id',
         name: 'DetalleTutorial',
         component: () => import('../views/Asistente/Tutoriales/DetalleTutorial.vue'),
-        props: true
-      },
-      {
-        path: '/tutoriales/ver/:id',
-        name: 'VerTutorialPublico',
-        component: () => import('../views/Asistente/Tutoriales/VerTutorialPublico.vue'),
         props: true
       },
     ]

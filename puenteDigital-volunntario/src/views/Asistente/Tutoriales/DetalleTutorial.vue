@@ -11,7 +11,7 @@
       <i class="bi bi-exclamation-triangle-fill me-2"></i>
       {{ error }}
       <div class="mt-3">
-        <router-link to="/asistente/tutoriales" class="btn btn-outline-primary">
+        <router-link to="/asistente/mis-tutoriales" class="btn btn-outline-primary">
           <i class="bi bi-arrow-left me-1"></i> Volver a mis tutoriales
         </router-link>
       </div>
@@ -19,7 +19,7 @@
 
     <div v-else-if="tutorial">
       <div class="mb-4">
-        <router-link to="/asistente/tutoriales" class="btn btn-outline-secondary mb-3">
+        <router-link to="/asistente/mis-tutoriales" class="btn btn-outline-secondary mb-3">
           <i class="bi bi-arrow-left me-1"></i> Volver a mis tutoriales
         </router-link>
         <div class="card shadow">
@@ -103,6 +103,37 @@
           </div>
         </div>
       </div>
+      
+      <!-- Sección de comentarios -->
+      <div class="card shadow mt-4">
+        <div class="card-header bg-light">
+          <h4 class="mb-0 fs-5">Comentarios de los usuarios</h4>
+        </div>
+        <div class="card-body">
+          <div v-if="comentarios.length === 0" class="text-center py-3">
+            <p class="text-muted">No hay comentarios aún para este tutorial.</p>
+          </div>
+          
+          <div v-else>
+            <div v-for="comentario in comentarios" :key="comentario.id" class="border-bottom pb-3 mb-3">
+              <div class="d-flex">
+                <div class="flex-shrink-0">
+                  <div class="bg-light rounded-circle p-2">
+                    <i class="bi bi-person fs-4"></i>
+                  </div>
+                </div>
+                <div class="flex-grow-1 ms-3">
+                  <div class="d-flex justify-content-between">
+                    <h6 class="mb-0">{{ comentario.nombre_usuario || 'Usuario' }}</h6>
+                    <small class="text-muted">{{ formatDate(comentario.created_at) }}</small>
+                  </div>
+                  <p class="mb-0 mt-1">{{ comentario.texto }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -118,6 +149,7 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const tutorial = ref(null);
+const comentarios = ref([]);
 const loading = ref(true);
 const error = ref(null);
 const asistenteId = ref(null);
@@ -127,7 +159,10 @@ onMounted(async () => {
   await obtenerAsistenteId();
   
   if (asistenteId.value) {
-    await cargarTutorial();
+    await Promise.all([
+      cargarTutorial(),
+      cargarComentarios()
+    ]);
   }
 });
 
@@ -186,17 +221,38 @@ const cargarTutorial = async () => {
     
     tutorial.value = data;
     
-    // Incrementar contador de vistas
-    await supabase
-      .from('tutoriales')
-      .update({ vistas: (data.vistas || 0) + 1 })
-      .eq('id', route.params.id);
-    
   } catch (err) {
     console.error('Error al cargar tutorial:', err);
     error.value = 'No se pudo cargar el tutorial. Por favor, intenta de nuevo más tarde.';
   } finally {
     loading.value = false;
+  }
+};
+
+const cargarComentarios = async () => {
+  try {
+    const { data, error: comentariosError } = await supabase
+      .from('comentarios_tutorial')
+      .select(`
+        *,
+        usuarios:user_id (nombre, rol)
+      `)
+      .eq('tutorial_id', route.params.id)
+      .order('created_at', { ascending: false });
+    
+    if (comentariosError) {
+      console.error('Error al cargar comentarios:', comentariosError);
+      return;
+    }
+    
+    // Procesar los datos para incluir el nombre del usuario
+    comentarios.value = data.map(comentario => ({
+      ...comentario,
+      nombre_usuario: comentario.usuarios?.nombre || 'Usuario'
+    })) || [];
+    
+  } catch (err) {
+    console.error('Error al cargar comentarios:', err);
   }
 };
 
@@ -295,7 +351,7 @@ const eliminarTutorial = async () => {
     }
     
     toast.success('Tutorial eliminado correctamente');
-    router.push('/asistente/tutoriales');
+    router.push('/asistente/mis-tutoriales');
   } catch (err) {
     console.error('Error al eliminar tutorial:', err);
     toast.error('Error al eliminar el tutorial: ' + (err.message || 'Inténtalo de nuevo.'));
