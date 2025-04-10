@@ -20,6 +20,10 @@ import VideollamadaScreen from '../screens/Asistencia/VideollamadaScreen';
 import ChatScreen from '../screens/Asistencia/ChatScreen'; 
 import MisSolicitudesScreen from '../screens/Asistencia/MisSolicitudesScreen';
 
+// Pantallas de tutoriales
+import TutorialesScreen from '../screens/Tutoriales/TutorialesScreen';
+import DetalleTutorialScreen from '../screens/Tutoriales/DetalleTutorialScreen';
+
 const Stack = createStackNavigator();
 
 // Navegador para usuarios no autenticados
@@ -54,7 +58,11 @@ const MainNavigator = () => {
     >
       <Stack.Screen name="Inicio" component={InicioScreen} />
       <Stack.Screen name="OpcionesInicio" component={OpcionesInicioScreen} />
-      <Stack.Screen name="Tutoriales" component={NoDisponibleScreen} />
+     {/* Pantallas de tutoriales */}
+     <Stack.Screen name="Tutoriales" component={TutorialesScreen} />
+      <Stack.Screen name="DetalleTutorial" component={DetalleTutorialScreen} />
+
+      
       <Stack.Screen name="Mensajes" component={NoDisponibleScreen} />
       
       {/* Pantallas de asistencia */}

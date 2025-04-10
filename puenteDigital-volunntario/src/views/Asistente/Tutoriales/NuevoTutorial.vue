@@ -284,7 +284,6 @@ const handleSubmit = async () => {
     };
     
     // Usar el servicio para subir el tutorial con los archivos seleccionados
-    // Ahora solo enviamos o el video o el PDF, nunca ambos
     const { data, error } = await tutorialService.subirTutorial(
       tutorialData, 
       form.tipoRecurso === 'video' ? form.video : null,
