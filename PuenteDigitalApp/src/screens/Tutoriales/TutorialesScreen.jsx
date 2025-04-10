@@ -11,8 +11,8 @@ import {
   StatusBar,
   RefreshControl
 } from 'react-native';
-import { supabase } from '../../../supabase';
 import { Ionicons } from '@expo/vector-icons';
+import tutorialesService from '../../services/tutorialesService'; // Importamos el servicio
 
 const TutorialesScreen = ({ navigation }) => {
   const [tutoriales, setTutoriales] = useState([]);
@@ -33,49 +33,16 @@ const TutorialesScreen = ({ navigation }) => {
       setLoading(true);
       setError(null);
       
-      // Construir la consulta base
-      let query = supabase
-        .from('tutoriales')
-        .select(`
-          *,
-          asistentes:asistente_id (nombre)
-        `);
+      // Usar el servicio para obtener tutoriales con filtros
+      const { data, error: apiError } = await tutorialesService.obtenerTutorialesConFiltros({
+        categoria: filtroCategoria,
+        tipoRecurso: tipoRecurso,
+        busqueda: busqueda
+      });
       
-      // Aplicar filtro de búsqueda si existe
-      if (busqueda.trim()) {
-        query = query.ilike('titulo', `%${busqueda.trim()}%`);
-      }
+      if (apiError) throw apiError;
       
-      // Aplicar filtro de categoría
-      if (filtroCategoria) {
-        query = query.eq('categoria', filtroCategoria);
-      }
-      
-      // Filtrar por tipo de recurso
-      if (tipoRecurso !== 'todos') {
-        // Corrección del filtro para que funcione correctamente
-        if (tipoRecurso === 'video') {
-          query = query.in('tipo_recurso', ['video', 'ambos']);
-        } else if (tipoRecurso === 'pdf') {
-          query = query.in('tipo_recurso', ['pdf', 'ambos']);
-        }
-      }
-      
-      // Ordenar por más recientes
-      query = query.order('created_at', { ascending: false });
-      
-      // Ejecutar consulta
-      const { data, error: supabaseError } = await query;
-      
-      if (supabaseError) throw supabaseError;
-      
-      // Procesar los datos para incluir el nombre del asistente
-      const tutorialesProcesados = data.map(tutorial => ({
-        ...tutorial,
-        nombre_asistente: tutorial.asistentes?.nombre || 'Asistente'
-      }));
-      
-      setTutoriales(tutorialesProcesados);
+      setTutoriales(data);
     } catch (err) {
       console.error('Error al cargar tutoriales:', err);
       setError('No se pudieron cargar los tutoriales. Intenta de nuevo.');

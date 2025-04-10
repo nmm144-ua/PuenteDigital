@@ -16,8 +16,8 @@ import {
 } from 'react-native';
 import { Video } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../../supabase';
 import * as Haptics from 'expo-haptics';
+import tutorialesService from '../../services/tutorialesService'; // Importamos el servicio
 
 const DetalleTutorialScreen = ({ route, navigation }) => {
   const { tutorial: tutorialParam } = route.params;
@@ -41,22 +41,10 @@ const DetalleTutorialScreen = ({ route, navigation }) => {
     try {
       if (!tutorial?.id) return;
 
-      const { data: tutorialActual, error: getError } = await supabase
-        .from('tutoriales')
-        .select('vistas')
-        .eq('id', tutorial.id)
-        .single();
+      // Usar el servicio para incrementar las vistas
+      const { data, error: apiError } = await tutorialesService.incrementarVistas(tutorial.id);
 
-      if (getError) throw getError;
-
-      // Incrementar contador
-      const { data, error: updateError } = await supabase
-        .from('tutoriales')
-        .update({ vistas: (tutorialActual.vistas || 0) + 1 })
-        .eq('id', tutorial.id)
-        .select();
-
-      if (updateError) throw updateError;
+      if (apiError) throw apiError;
 
       if (data && data.length > 0) {
         setTutorial(prev => ({ ...prev, vistas: data[0].vistas }));
@@ -71,9 +59,12 @@ const DetalleTutorialScreen = ({ route, navigation }) => {
       // Feedback táctil
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      // Verificar si el usuario está autenticado
-      const { data: session } = await supabase.auth.getSession();
-      if (!session?.session?.user) {
+      // Verificar si el usuario está autenticado usando el servicio
+      const { autenticado, error: authError } = await tutorialesService.verificarUsuarioAutenticado();
+      
+      if (authError) throw authError;
+      
+      if (!autenticado) {
         Alert.alert(
           "Iniciar sesión",
           "Debes iniciar sesión para dar me gusta a un tutorial.",
@@ -86,35 +77,19 @@ const DetalleTutorialScreen = ({ route, navigation }) => {
       setDioMeGusta(nuevoEstado);
 
       if (nuevoEstado) {
-        // Incrementar me gusta
-        const { data: tutorialActual } = await supabase
-          .from('tutoriales')
-          .select('me_gusta')
-          .eq('id', tutorial.id)
-          .single();
+        // Incrementar me gusta usando el servicio
+        const { data, error: likeError } = await tutorialesService.incrementarMeGusta(tutorial.id);
 
-        const { data } = await supabase
-          .from('tutoriales')
-          .update({ me_gusta: (tutorialActual.me_gusta || 0) + 1 })
-          .eq('id', tutorial.id)
-          .select();
+        if (likeError) throw likeError;
 
         if (data && data.length > 0) {
           setTutorial(prev => ({ ...prev, me_gusta: data[0].me_gusta }));
         }
       } else {
-        // Decrementar me gusta
-        const { data: tutorialActual } = await supabase
-          .from('tutoriales')
-          .select('me_gusta')
-          .eq('id', tutorial.id)
-          .single();
+        // Decrementar me gusta usando el servicio
+        const { data, error: unlikeError } = await tutorialesService.decrementarMeGusta(tutorial.id);
 
-        const { data } = await supabase
-          .from('tutoriales')
-          .update({ me_gusta: Math.max((tutorialActual.me_gusta || 0) - 1, 0) })
-          .eq('id', tutorial.id)
-          .select();
+        if (unlikeError) throw unlikeError;
 
         if (data && data.length > 0) {
           setTutorial(prev => ({ ...prev, me_gusta: data[0].me_gusta }));
@@ -148,17 +123,8 @@ const DetalleTutorialScreen = ({ route, navigation }) => {
       });
 
       if (result.action === Share.sharedAction) {
-        // Incrementar contador de compartidos
-        const { data: tutorialActual } = await supabase
-          .from('tutoriales')
-          .select('compartidos')
-          .eq('id', tutorial.id)
-          .single();
-
-        await supabase
-          .from('tutoriales')
-          .update({ compartidos: (tutorialActual.compartidos || 0) + 1 })
-          .eq('id', tutorial.id);
+        // Incrementar contador de compartidos usando el servicio
+        await tutorialesService.incrementarCompartidos(tutorial.id);
       }
     } catch (error) {
       Alert.alert("Error", "No se pudo compartir el tutorial");
@@ -192,16 +158,7 @@ const DetalleTutorialScreen = ({ route, navigation }) => {
                 await Linking.openURL(tutorial.pdf_url);
                 
                 // Incrementar contador de compartidos como medida de "descarga"
-                const { data: tutorialActual } = await supabase
-                  .from('tutoriales')
-                  .select('compartidos')
-                  .eq('id', tutorial.id)
-                  .single();
-
-                await supabase
-                  .from('tutoriales')
-                  .update({ compartidos: (tutorialActual.compartidos || 0) + 1 })
-                  .eq('id', tutorial.id);
+                await tutorialesService.incrementarCompartidos(tutorial.id);
                 
                 setDescargandoPdf(false);
               }
