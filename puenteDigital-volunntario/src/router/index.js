@@ -79,6 +79,28 @@ const routes = [
         name: 'UsuarioChat',
         component: () => import('../views/Chat/UserChatView.vue')
       },
+      {
+        path: 'tutoriales',
+        name: 'TutorialesAsistente',
+        component: () => import('../views/Asistente/Tutoriales/TutorialesAsistente.vue')
+      },
+      {
+        path: 'tutoriales/nuevo',
+        name: 'NuevoTutorial',
+        component: () => import('../views/Asistente/Tutoriales/NuevoTutorial.vue')
+      },
+      {
+        path: 'tutoriales/:id',
+        name: 'DetalleTutorial',
+        component: () => import('../views/Asistente/Tutoriales/DetalleTutorial.vue'),
+        props: true
+      },
+      {
+        path: '/tutoriales/ver/:id',
+        name: 'VerTutorialPublico',
+        component: () => import('../views/Asistente/Tutoriales/VerTutorialPublico.vue'),
+        props: true
+      },
     ]
   },
   {
