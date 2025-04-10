@@ -14,28 +14,31 @@ import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsistenciaService from '../../services/AsistenciaService';
 import ChatService from '../../services/ChatService';
 
-const MisSolicitudesScreen = ({ navigation }) => {
+const MisMensajesScreen = ({ navigation }) => {
   const [solicitudes, setSolicitudes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Cargar las solicitudes del usuario
-  const loadSolicitudes = async () => {
+  // Cargar las solicitudes de chat del usuario
+  const loadSolicitudesChat = async () => {
     try {
       setIsLoading(true);
       
       // Obtener todas las solicitudes
       const data = await AsistenciaService.obtenerMisSolicitudes();
       
+      // Filtrar solo las de tipo chat
+      const chatSolicitudes = data.filter(solicitud => solicitud.tipo_asistencia === 'chat');
+      
       // Ordenar por fecha (más reciente primero)
-      const sortedData = data.sort((a, b) => 
+      const sortedData = chatSolicitudes.sort((a, b) => 
         new Date(b.created_at) - new Date(a.created_at)
       );
       
       setSolicitudes(sortedData);
     } catch (error) {
-      console.error('Error al cargar solicitudes:', error);
-      Alert.alert('Error', 'No se pudieron cargar tus solicitudes');
+      console.error('Error al cargar solicitudes de chat:', error);
+      Alert.alert('Error', 'No se pudieron cargar tus mensajes');
     } finally {
       setIsLoading(false);
       setRefreshing(false);
@@ -45,7 +48,7 @@ const MisSolicitudesScreen = ({ navigation }) => {
   // Pull to refresh
   const onRefresh = () => {
     setRefreshing(true);
-    loadSolicitudes();
+    loadSolicitudesChat();
   };
 
   // Obtener el texto de estado de la solicitud
@@ -82,23 +85,14 @@ const MisSolicitudesScreen = ({ navigation }) => {
     return new Date(dateString).toLocaleDateString('es-ES', options);
   };
 
-  // Seleccionar una solicitud
-  const selectSolicitud = (solicitud) => {
-    // Si la solicitud está en proceso o finalizada, navegar directamente al chat o videollamada
+  // Ir al chat de una solicitud
+  const irAlChat = (solicitud) => {
+    // Si la solicitud está en proceso o finalizada, navegar directamente al chat
     if (solicitud.estado === 'en_proceso' || solicitud.estado === 'finalizada') {
-      if (solicitud.tipo_asistencia === 'chat') {
-        navigation.navigate('Chat', {
-          solicitudId: solicitud.id,
-          roomId: solicitud.room_id
-        });
-      } else {
-        navigation.navigate('Videollamada', {
-          solicitudId: solicitud.id,
-          roomId: solicitud.room_id,
-          asistenteId: solicitud.asistente_id,
-          asistenteName: solicitud.asistente?.nombre || 'Asistente'
-        });
-      }
+      navigation.navigate('Chat', {
+        solicitudId: solicitud.id,
+        roomId: solicitud.room_id
+      });
     } else if (solicitud.estado === 'pendiente') {
       // Si está pendiente, navegar a la pantalla de espera
       navigation.navigate('EsperaAsistencia', {
@@ -123,25 +117,22 @@ const MisSolicitudesScreen = ({ navigation }) => {
 
   // Renderizar un ítem de la lista
   const renderSolicitudItem = ({ item }) => {
-    const tipoIcon = item.tipo_asistencia === 'chat' 
-      ? 'chat' 
-      : 'videocam';
+    // Obtener último mensaje (esto es opcional, si tienes la funcionalidad)
+    // const ultimoMensaje = item.ultimo_mensaje || 'No hay mensajes';
     
     return (
       <TouchableOpacity 
         style={styles.solicitudItem}
-        onPress={() => selectSolicitud(item)}
+        onPress={() => irAlChat(item)}
       >
         <View style={styles.itemHeader}>
           <View style={styles.tipoContainer}>
             <MaterialIcons 
-              name={tipoIcon} 
+              name="chat" 
               size={22} 
               color="#007BFF" 
             />
-            <Text style={styles.tipoText}>
-              {item.tipo_asistencia === 'chat' ? 'Chat' : 'Videollamada'}
-            </Text>
+            <Text style={styles.tipoText}>Chat</Text>
           </View>
           
           <View style={[
@@ -169,6 +160,11 @@ const MisSolicitudesScreen = ({ navigation }) => {
           {item.descripcion}
         </Text>
         
+        {/* Aquí podrías mostrar el último mensaje si lo tuvieras */}
+        {/* <Text style={styles.ultimoMensaje} numberOfLines={1}>
+          {ultimoMensaje}
+        </Text> */}
+        
         <View style={styles.itemFooter}>
           <Text style={styles.fechaText}>
             {formatDate(item.created_at)}
@@ -190,11 +186,11 @@ const MisSolicitudesScreen = ({ navigation }) => {
 
   useEffect(() => {
     // Cargar solicitudes al montar
-    loadSolicitudes();
+    loadSolicitudesChat();
     
     // Actualizar cuando la pantalla obtenga el foco
     const unsubscribe = navigation.addListener('focus', () => {
-      loadSolicitudes();
+      loadSolicitudesChat();
     });
     
     return unsubscribe;
@@ -210,7 +206,7 @@ const MisSolicitudesScreen = ({ navigation }) => {
           <MaterialIcons name="arrow-back" size={24} color="#007BFF" />
         </TouchableOpacity>
         
-        <Text style={styles.title}>Mis solicitudes</Text>
+        <Text style={styles.title}>Mis mensajes</Text>
         
         <TouchableOpacity 
           style={styles.addButton}
@@ -223,7 +219,7 @@ const MisSolicitudesScreen = ({ navigation }) => {
       {isLoading && !refreshing ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007BFF" />
-          <Text style={styles.loadingText}>Cargando solicitudes...</Text>
+          <Text style={styles.loadingText}>Cargando conversaciones...</Text>
         </View>
       ) : (
         <FlatList
@@ -240,13 +236,13 @@ const MisSolicitudesScreen = ({ navigation }) => {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <MaterialIcons name="inbox" size={60} color="#e0e0e0" />
-              <Text style={styles.emptyText}>No tienes solicitudes</Text>
+              <MaterialIcons name="chat" size={60} color="#e0e0e0" />
+              <Text style={styles.emptyText}>No tienes conversaciones</Text>
               <TouchableOpacity 
                 style={styles.createButton}
                 onPress={() => navigation.navigate('Asistencia')}
               >
-                <Text style={styles.createButtonText}>Crear solicitud</Text>
+                <Text style={styles.createButtonText}>Iniciar chat</Text>
               </TouchableOpacity>
             </View>
           }
@@ -365,6 +361,13 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 10,
   },
+  // Estilo para el último mensaje (opcional)
+  ultimoMensaje: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 10,
+    fontStyle: 'italic',
+  },
   itemFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -384,6 +387,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6C757D',
     fontStyle: 'italic',
-  }});
-  
-  export default MisSolicitudesScreen;
+  }
+});
+
+export default MisMensajesScreen;

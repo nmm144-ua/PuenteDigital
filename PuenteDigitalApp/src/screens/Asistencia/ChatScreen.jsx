@@ -550,6 +550,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 15,
+    paddingTop: 25, // Aumentamos el padding superior
+    marginTop: 10, // Añadimos margen superior
     backgroundColor: 'white',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',

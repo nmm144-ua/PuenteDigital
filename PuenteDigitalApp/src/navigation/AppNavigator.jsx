@@ -19,6 +19,7 @@ import EsperaAsistenciaScreen from '../screens/Asistencia/EsperaAsistenciaScreen
 import VideollamadaScreen from '../screens/Asistencia/VideollamadaScreen';
 import ChatScreen from '../screens/Asistencia/ChatScreen'; 
 import MisSolicitudesScreen from '../screens/Asistencia/MisSolicitudesScreen';
+import MisMensajesScreen from '../screens/Asistencia/MisMensajesScreen'; 
 
 // Pantallas de tutoriales
 import TutorialesScreen from '../screens/Tutoriales/TutorialesScreen';
@@ -62,8 +63,8 @@ const MainNavigator = () => {
      <Stack.Screen name="Tutoriales" component={TutorialesScreen} />
       <Stack.Screen name="DetalleTutorial" component={DetalleTutorialScreen} />
 
-      
-      <Stack.Screen name="Mensajes" component={NoDisponibleScreen} />
+
+      <Stack.Screen name="Mensajes" component={MisMensajesScreen} />
       
       {/* Pantallas de asistencia */}
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} />
