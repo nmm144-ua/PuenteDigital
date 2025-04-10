@@ -72,7 +72,7 @@
                       :class="{ 'is-invalid': errors.tipoRecurso }"
                     >
                     <label class="form-check-label" for="tipo-video">
-                      <i class="bi bi-camera-video me-1"></i> Solo video
+                      <i class="bi bi-camera-video me-1"></i> Video tutorial
                     </label>
                   </div>
                   <div class="form-check">
@@ -84,27 +84,15 @@
                       value="pdf"
                     >
                     <label class="form-check-label" for="tipo-pdf">
-                      <i class="bi bi-file-pdf me-1"></i> Solo guía PDF
-                    </label>
-                  </div>
-                  <div class="form-check">
-                    <input 
-                      class="form-check-input" 
-                      type="radio" 
-                      id="tipo-ambos" 
-                      v-model="form.tipoRecurso" 
-                      value="ambos"
-                    >
-                    <label class="form-check-label" for="tipo-ambos">
-                      <i class="bi bi-collection me-1"></i> Video y guía PDF
+                      <i class="bi bi-file-pdf me-1"></i> Guía PDF
                     </label>
                   </div>
                   <div class="invalid-feedback" v-if="errors.tipoRecurso">{{ errors.tipoRecurso }}</div>
                 </div>
               </div>
 
-              <!-- Archivo de video -->
-              <div class="mb-4" v-if="form.tipoRecurso === 'video' || form.tipoRecurso === 'ambos'">
+              <!-- Archivo de video (solo visible si se selecciona video) -->
+              <div class="mb-4" v-if="form.tipoRecurso === 'video'">
                 <VideoFileInput
                   id="video"
                   label="Archivo de video"
@@ -118,8 +106,8 @@
                 <div class="invalid-feedback" v-if="errors.video">{{ errors.video }}</div>
               </div>
 
-              <!-- Archivo PDF -->
-              <div class="mb-4" v-if="form.tipoRecurso === 'pdf' || form.tipoRecurso === 'ambos'">
+              <!-- Archivo PDF (solo visible si se selecciona PDF) -->
+              <div class="mb-4" v-if="form.tipoRecurso === 'pdf'">
                 <PdfFileInput
                   id="pdf"
                   label="Archivo de guía PDF"
@@ -233,7 +221,7 @@ const validateForm = () => {
   }
   
   // Validar video según el tipo de recurso
-  if ((form.tipoRecurso === 'video' || form.tipoRecurso === 'ambos') && !form.video) {
+  if (form.tipoRecurso === 'video' && !form.video) {
     errors.video = 'Debes seleccionar un archivo de video';
     isValid = false;
   } else {
@@ -241,7 +229,7 @@ const validateForm = () => {
   }
   
   // Validar PDF según el tipo de recurso
-  if ((form.tipoRecurso === 'pdf' || form.tipoRecurso === 'ambos') && !form.pdf) {
+  if (form.tipoRecurso === 'pdf' && !form.pdf) {
     errors.pdf = 'Debes seleccionar un archivo PDF';
     isValid = false;
   } else {
@@ -296,10 +284,11 @@ const handleSubmit = async () => {
     };
     
     // Usar el servicio para subir el tutorial con los archivos seleccionados
+    // Ahora solo enviamos o el video o el PDF, nunca ambos
     const { data, error } = await tutorialService.subirTutorial(
       tutorialData, 
-      form.video,  // Puede ser null si es solo PDF
-      form.pdf,    // Puede ser null si es solo video
+      form.tipoRecurso === 'video' ? form.video : null,
+      form.tipoRecurso === 'pdf' ? form.pdf : null,
       (progress) => {
         uploadProgress.value = progress;
       }

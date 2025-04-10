@@ -213,7 +213,6 @@
     switch (tipo) {
       case 'video': return '/video-placeholder.png';
       case 'pdf': return '/pdf-placeholder.png';
-      case 'ambos': return '/video-pdf-placeholder.png';
       default: return '/video-placeholder.png';
     }
   };
@@ -244,7 +243,6 @@
     const tipos = {
       'video': 'Video',
       'pdf': 'Guía PDF',
-      'ambos': 'Video y PDF'
     };
     
     return tipos[tipo] || tipo;
@@ -254,7 +252,6 @@
     switch (tipo) {
       case 'video': return 'bg-success';
       case 'pdf': return 'bg-danger';
-      case 'ambos': return 'bg-warning text-dark';
       default: return 'bg-secondary';
     }
   };
@@ -263,7 +260,6 @@
     switch (tipo) {
       case 'video': return 'bi bi-camera-video';
       case 'pdf': return 'bi bi-file-pdf';
-      case 'ambos': return 'bi bi-collection';
       default: return 'bi bi-question-circle';
     }
   };

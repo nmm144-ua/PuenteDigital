@@ -170,13 +170,13 @@ const asistenteId = ref(null);
 const tieneVideo = computed(() => {
   if (!tutorial.value) return false;
   const tipoRecurso = tutorial.value.tipo_recurso || 'video';
-  return tipoRecurso === 'video' || tipoRecurso === 'ambos';
+  return tipoRecurso === 'video';
 });
 
 const tienePdf = computed(() => {
   if (!tutorial.value) return false;
   const tipoRecurso = tutorial.value.tipo_recurso || 'video';
-  return tipoRecurso === 'pdf' || tipoRecurso === 'ambos';
+  return tipoRecurso === 'pdf';
 });
 
 // Computed properties para estilos según tipo de recurso
@@ -187,7 +187,6 @@ const tipoRecursoBadgeClass = computed(() => {
   switch (tipo) {
     case 'video': return 'bg-success';
     case 'pdf': return 'bg-danger';
-    case 'ambos': return 'bg-warning text-dark';
     default: return 'bg-secondary';
   }
 });
@@ -199,7 +198,6 @@ const tipoRecursoIconClass = computed(() => {
   switch (tipo) {
     case 'video': return 'bi bi-camera-video';
     case 'pdf': return 'bi bi-file-pdf';
-    case 'ambos': return 'bi bi-collection';
     default: return 'bi bi-question-circle';
   }
 });
@@ -308,7 +306,6 @@ const formatTipoRecurso = (tipo) => {
   const tipos = {
     'video': 'Video',
     'pdf': 'Guía PDF',
-    'ambos': 'Video y PDF'
   };
   
   return tipos[tipo] || tipo;

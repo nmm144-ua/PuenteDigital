@@ -47,9 +47,7 @@ export const tutorialService = {
       if (tipoRecurso !== 'todos') {
         if (tipoRecurso === 'video' || tipoRecurso === 'pdf') {
           query = query.eq('tipo_recurso', tipoRecurso).or(`tipo_recurso.eq.ambos`);
-        } else if (tipoRecurso === 'ambos') {
-          query = query.eq('tipo_recurso', tipoRecurso);
-        }
+        } 
       }
       
       // Ordenar resultados
