@@ -33,6 +33,12 @@
                 <i class="bi bi-person me-1"></i> 
                 {{ tutorial.nombre_asistente || 'Asistente' }}
               </span>
+              <span class="badge" 
+                :class="tipoRecursoBadgeClass" 
+                me-2 mb-2>
+                <i :class="tipoRecursoIconClass" me-1></i> 
+                {{ formatTipoRecurso(tutorial.tipo_recurso || 'video') }}
+              </span>
             </div>
             
             <div class="mb-4">
@@ -40,17 +46,54 @@
               <p>{{ tutorial.descripcion }}</p>
             </div>
             
-            <div class="video-container mb-4">
-              <div class="ratio ratio-16x9">
-                <video 
-                  controls 
-                  class="rounded shadow-sm"
-                  :src="tutorial.video_url" 
-                  preload="metadata"
-                  autoplay
-                >
-                  Tu navegador no soporta la reproducción de videos.
-                </video>
+            <!-- Contenedor de video, mostrar si tiene video -->
+            <div v-if="tieneVideo" class="mb-4">
+              <h5>Video:</h5>
+              <div class="video-container mb-4">
+                <div class="ratio ratio-16x9">
+                  <video 
+                    controls 
+                    class="rounded shadow-sm"
+                    :src="tutorial.video_url" 
+                    preload="metadata"
+                    autoplay
+                  >
+                    Tu navegador no soporta la reproducción de videos.
+                  </video>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Contenedor de PDF, mostrar si tiene PDF -->
+            <div v-if="tienePdf" class="mb-4">
+              <h5>Guía PDF:</h5>
+              <div class="pdf-container mb-3 p-3 border rounded bg-light">
+                <div class="d-flex align-items-center">
+                  <i class="bi bi-file-pdf fs-1 text-danger me-3"></i>
+                  <div class="flex-grow-1">
+                    <h6 class="mb-1">Guía en formato PDF</h6>
+                    <p class="mb-0 text-muted">{{ formatFileSize(tutorial.pdf_tamanio || 0) }}</p>
+                  </div>
+                  <a 
+                    :href="tutorial.pdf_url" 
+                    target="_blank" 
+                    class="btn btn-primary"
+                    download
+                  >
+                    <i class="bi bi-download me-1"></i> Descargar PDF
+                  </a>
+                </div>
+              </div>
+              
+              <!-- Vista previa del PDF, si está disponible -->
+              <div class="pdf-preview border rounded mb-4">
+                <iframe 
+                  :src="tutorial.pdf_url" 
+                  width="100%" 
+                  height="500" 
+                  class="rounded"
+                  v-if="tutorial.pdf_url"
+                ></iframe>
               </div>
             </div>
             
@@ -96,6 +139,44 @@
   const procesandoMeGusta = ref(false);
   
   const isAuthenticated = computed(() => authStore.isAuthenticated);
+
+  // Computed properties para determinar qué recursos mostrar
+  const tieneVideo = computed(() => {
+    if (!tutorial.value) return false;
+    const tipoRecurso = tutorial.value.tipo_recurso || 'video';
+    return tipoRecurso === 'video' || tipoRecurso === 'ambos';
+  });
+
+  const tienePdf = computed(() => {
+    if (!tutorial.value) return false;
+    const tipoRecurso = tutorial.value.tipo_recurso || 'video';
+    return tipoRecurso === 'pdf' || tipoRecurso === 'ambos';
+  });
+
+  // Computed properties para estilos según tipo de recurso
+  const tipoRecursoBadgeClass = computed(() => {
+    if (!tutorial.value) return 'bg-secondary';
+    
+    const tipo = tutorial.value.tipo_recurso || 'video';
+    switch (tipo) {
+      case 'video': return 'bg-success';
+      case 'pdf': return 'bg-danger';
+      case 'ambos': return 'bg-warning text-dark';
+      default: return 'bg-secondary';
+    }
+  });
+
+  const tipoRecursoIconClass = computed(() => {
+    if (!tutorial.value) return 'bi bi-question-circle';
+    
+    const tipo = tutorial.value.tipo_recurso || 'video';
+    switch (tipo) {
+      case 'video': return 'bi bi-camera-video';
+      case 'pdf': return 'bi bi-file-pdf';
+      case 'ambos': return 'bi bi-collection';
+      default: return 'bi bi-question-circle';
+    }
+  });
   
   onMounted(async () => {
     await cargarTutorial();
@@ -239,6 +320,16 @@
     
     return categorias[categoria] || categoria;
   };
+  
+  const formatTipoRecurso = (tipo) => {
+    const tipos = {
+      'video': 'Video',
+      'pdf': 'Guía PDF',
+      'ambos': 'Video y PDF'
+    };
+    
+    return tipos[tipo] || tipo;
+  };
   </script>
   
   <style scoped>
@@ -248,6 +339,19 @@
     padding: 10px;
   }
   
+  .pdf-container {
+    transition: all 0.3s ease;
+  }
+
+  .pdf-container:hover {
+    background-color: #e9ecef;
+  }
+
+  .pdf-preview {
+    background-color: #f8f9fa;
+    overflow: hidden;
+  }
+  
   .tutorial-description {
     display: -webkit-box;
     -webkit-line-clamp: 3;
@@ -255,4 +359,4 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  </style>
+</style>

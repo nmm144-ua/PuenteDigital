@@ -12,49 +12,6 @@
         </div>
       </div>
   
-      <!-- Filtros -->
-      <div class="card shadow-sm mb-4">
-        <div class="card-body">
-          <div class="row g-3">
-            <div class="col-md-4">
-              <label for="categoriaFiltro" class="form-label">Categoría</label>
-              <select class="form-select" id="categoriaFiltro" v-model="filtros.categoria">
-                <option value="">Todas las categorías</option>
-                <option value="tecnologia">Tecnología</option>
-                <option value="educacion">Educación</option>
-                <option value="salud">Salud</option>
-                <option value="tramites">Trámites</option>
-                <option value="comunicacion">Comunicación</option>
-                <option value="otro">Otro</option>
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label for="ordenFiltro" class="form-label">Ordenar por</label>
-              <select class="form-select" id="ordenFiltro" v-model="filtros.orden">
-                <option value="recientes">Más recientes</option>
-                <option value="populares">Más populares</option>
-                <option value="vistos">Más vistos</option>
-              </select>
-            </div>
-            <div class="col-md-4">
-              <label for="busqueda" class="form-label">Buscar</label>
-              <div class="input-group">
-                <input 
-                  type="text" 
-                  class="form-control" 
-                  id="busqueda" 
-                  placeholder="Buscar por título..."
-                  v-model="filtros.busqueda"
-                >
-                <button class="btn btn-primary" type="button" @click="aplicarFiltros">
-                  <i class="bi bi-search"></i>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-  
       <!-- Estado de carga -->
       <div v-if="loading" class="text-center py-5">
         <div class="spinner-border text-primary" role="status">
@@ -82,10 +39,19 @@
           <div v-for="tutorial in tutoriales" :key="tutorial.id" class="col">
             <div class="card h-100 shadow-sm">
               <div class="ratio ratio-16x9">
-                <img src="/video-placeholder.png" 
+                <!-- Imagen de placeholder según el tipo de recurso -->
+                <img 
+                  :src="getPlaceholderImage(tutorial.tipo_recurso || 'video')" 
                   class="card-img-top" 
-                  alt="Miniatura del tutorial"
+                  :alt="`Miniatura de ${formatTipoRecurso(tutorial.tipo_recurso || 'video')}`"
                   style="object-fit: cover;">
+                <!-- Indicador de tipo de recurso -->
+                <div class="position-absolute top-0 end-0 m-2">
+                  <span class="badge" :class="getBadgeClass(tutorial.tipo_recurso || 'video')">
+                    <i :class="getIconClass(tutorial.tipo_recurso || 'video')" class="me-1"></i>
+                    {{ formatTipoRecurso(tutorial.tipo_recurso || 'video') }}
+                  </span>
+                </div>
               </div>
               <div class="card-body">
                 <h5 class="card-title">{{ tutorial.titulo }}</h5>
@@ -154,6 +120,7 @@
   
   const filtros = reactive({
     categoria: '',
+    tipoRecurso: 'todos',
     orden: 'recientes',
     busqueda: ''
   });
@@ -202,6 +169,7 @@
         categoria: filtros.categoria,
         orden: filtros.orden,
         busqueda: filtros.busqueda,
+        tipoRecurso: filtros.tipoRecurso,
         pagina: paginaActual.value,
         porPagina: tutorialesPorPagina
       });
@@ -240,6 +208,16 @@
     });
   };
   
+  // Función para obtener la imagen de placeholder según el tipo de recurso
+  const getPlaceholderImage = (tipo) => {
+    switch (tipo) {
+      case 'video': return '/video-placeholder.png';
+      case 'pdf': return '/pdf-placeholder.png';
+      case 'ambos': return '/video-pdf-placeholder.png';
+      default: return '/video-placeholder.png';
+    }
+  };
+  
   const formatDate = (dateString) => {
     const date = new Date(dateString);
     return new Intl.DateTimeFormat('es-ES', {
@@ -260,6 +238,34 @@
     };
     
     return categorias[categoria] || categoria;
+  };
+
+  const formatTipoRecurso = (tipo) => {
+    const tipos = {
+      'video': 'Video',
+      'pdf': 'Guía PDF',
+      'ambos': 'Video y PDF'
+    };
+    
+    return tipos[tipo] || tipo;
+  };
+
+  const getBadgeClass = (tipo) => {
+    switch (tipo) {
+      case 'video': return 'bg-success';
+      case 'pdf': return 'bg-danger';
+      case 'ambos': return 'bg-warning text-dark';
+      default: return 'bg-secondary';
+    }
+  };
+
+  const getIconClass = (tipo) => {
+    switch (tipo) {
+      case 'video': return 'bi bi-camera-video';
+      case 'pdf': return 'bi bi-file-pdf';
+      case 'ambos': return 'bi bi-collection';
+      default: return 'bi bi-question-circle';
+    }
   };
   </script>
   

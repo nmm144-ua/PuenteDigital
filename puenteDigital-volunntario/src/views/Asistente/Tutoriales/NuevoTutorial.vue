@@ -58,26 +58,79 @@
                 <div class="invalid-feedback" v-if="errors.categoria">{{ errors.categoria }}</div>
               </div>
 
+              <!-- Tipo de recurso -->
+              <div class="mb-3">
+                <label class="form-label">Tipo de recurso <span class="text-danger">*</span></label>
+                <div class="border rounded p-3">
+                  <div class="form-check">
+                    <input 
+                      class="form-check-input" 
+                      type="radio" 
+                      id="tipo-video" 
+                      v-model="form.tipoRecurso" 
+                      value="video"
+                      :class="{ 'is-invalid': errors.tipoRecurso }"
+                    >
+                    <label class="form-check-label" for="tipo-video">
+                      <i class="bi bi-camera-video me-1"></i> Solo video
+                    </label>
+                  </div>
+                  <div class="form-check">
+                    <input 
+                      class="form-check-input" 
+                      type="radio" 
+                      id="tipo-pdf" 
+                      v-model="form.tipoRecurso" 
+                      value="pdf"
+                    >
+                    <label class="form-check-label" for="tipo-pdf">
+                      <i class="bi bi-file-pdf me-1"></i> Solo guía PDF
+                    </label>
+                  </div>
+                  <div class="form-check">
+                    <input 
+                      class="form-check-input" 
+                      type="radio" 
+                      id="tipo-ambos" 
+                      v-model="form.tipoRecurso" 
+                      value="ambos"
+                    >
+                    <label class="form-check-label" for="tipo-ambos">
+                      <i class="bi bi-collection me-1"></i> Video y guía PDF
+                    </label>
+                  </div>
+                  <div class="invalid-feedback" v-if="errors.tipoRecurso">{{ errors.tipoRecurso }}</div>
+                </div>
+              </div>
+
               <!-- Archivo de video -->
-              <div class="mb-4">
-                <label for="video" class="form-label">Archivo de video <span class="text-danger">*</span></label>
-                <input 
-                  type="file" 
-                  class="form-control" 
-                  id="video" 
-                  @change="handleFileChange" 
-                  accept=".mp4,.mov,.avi"
-                  :class="{ 'is-invalid': errors.video }"
-                >
+              <div class="mb-4" v-if="form.tipoRecurso === 'video' || form.tipoRecurso === 'ambos'">
+                <VideoFileInput
+                  id="video"
+                  label="Archivo de video"
+                  :required="true"
+                  helpText="Formatos aceptados: .mp4, .mov, .avi. Tamaño máximo: 500 MB."
+                  :maxSizeMB="500"
+                  :value="form.video"
+                  @update:value="(file) => form.video = file"
+                  @error="(msg) => errors.video = msg"
+                />
                 <div class="invalid-feedback" v-if="errors.video">{{ errors.video }}</div>
-                <div class="form-text">
-                  Formatos aceptados: .mp4, .mov, .avi. Tamaño máximo: 500 MB.
-                </div>
-                <div v-if="fileInfo.name" class="mt-2 p-2 bg-light rounded">
-                  <div><strong>Nombre:</strong> {{ fileInfo.name }}</div>
-                  <div><strong>Tamaño:</strong> {{ formatFileSize(fileInfo.size) }}</div>
-                  <div><strong>Tipo:</strong> {{ fileInfo.type }}</div>
-                </div>
+              </div>
+
+              <!-- Archivo PDF -->
+              <div class="mb-4" v-if="form.tipoRecurso === 'pdf' || form.tipoRecurso === 'ambos'">
+                <PdfFileInput
+                  id="pdf"
+                  label="Archivo de guía PDF"
+                  :required="true"
+                  helpText="Formato aceptado: PDF. Tamaño máximo: 20 MB."
+                  :maxSizeMB="20"
+                  :value="form.pdf"
+                  @update:value="(file) => form.pdf = file"
+                  @error="(msg) => errors.pdf = msg"
+                />
+                <div class="invalid-feedback" v-if="errors.pdf">{{ errors.pdf }}</div>
               </div>
 
               <!-- Botones de acción -->
@@ -114,6 +167,8 @@ import { useAuthStore } from '../../../stores/authStore';
 import { useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
 import tutorialService from '../../../services/tutorialService';
+import VideoFileInput from '../../../components/Asistente/Tutoriales/VideoFileInput.vue';
+import PdfFileInput from '../../../components/Asistente/Tutoriales/PdfFileInput.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -122,75 +177,22 @@ const form = reactive({
   titulo: '',
   descripcion: '',
   categoria: '',
-  video: null
+  tipoRecurso: 'video',
+  video: null,
+  pdf: null
 });
 
 const errors = reactive({
   titulo: '',
   descripcion: '',
   categoria: '',
-  video: ''
-});
-
-const fileInfo = reactive({
-  name: '',
-  size: 0,
-  type: ''
+  tipoRecurso: '',
+  video: '',
+  pdf: ''
 });
 
 const uploading = ref(false);
 const uploadProgress = ref(0);
-
-// Validar archivo seleccionado
-const handleFileChange = (event) => {
-  const file = event.target.files[0];
-  
-  if (!file) {
-    fileInfo.name = '';
-    fileInfo.size = 0;
-    fileInfo.type = '';
-    form.video = null;
-    return;
-  }
-  
-  // Validar formato
-  const allowedFormats = [
-    'video/mp4',
-    'video/quicktime', // .mov
-    'video/x-msvideo' // .avi
-  ];
-  
-  if (!allowedFormats.includes(file.type)) {
-    errors.video = 'Formato no válido. Por favor, sube un archivo .mp4, .mov o .avi.';
-    form.video = null;
-    return;
-  }
-  
-  // Validar tamaño (500 MB = 524,288,000 bytes)
-  const MAX_SIZE = 524288000;
-  if (file.size > MAX_SIZE) {
-    errors.video = `El archivo excede el tamaño máximo permitido (500 MB). Tu archivo pesa ${formatFileSize(file.size)}.`;
-    form.video = null;
-    return;
-  }
-  
-  // Archivo válido
-  errors.video = '';
-  form.video = file;
-  fileInfo.name = file.name;
-  fileInfo.size = file.size;
-  fileInfo.type = file.type;
-};
-
-const formatFileSize = (bytes) => {
-  if (bytes === 0) return '0 Bytes';
-  
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
 
 const validateForm = () => {
   let isValid = true;
@@ -222,12 +224,28 @@ const validateForm = () => {
     errors.categoria = '';
   }
   
-  // Validar video
-  if (!form.video) {
+  // Validar tipo de recurso
+  if (!form.tipoRecurso) {
+    errors.tipoRecurso = 'Debes seleccionar un tipo de recurso';
+    isValid = false;
+  } else {
+    errors.tipoRecurso = '';
+  }
+  
+  // Validar video según el tipo de recurso
+  if ((form.tipoRecurso === 'video' || form.tipoRecurso === 'ambos') && !form.video) {
     errors.video = 'Debes seleccionar un archivo de video';
     isValid = false;
   } else {
     errors.video = '';
+  }
+  
+  // Validar PDF según el tipo de recurso
+  if ((form.tipoRecurso === 'pdf' || form.tipoRecurso === 'ambos') && !form.pdf) {
+    errors.pdf = 'Debes seleccionar un archivo PDF';
+    isValid = false;
+  } else {
+    errors.pdf = '';
   }
   
   return isValid;
@@ -277,10 +295,11 @@ const handleSubmit = async () => {
       user_id: authStore.user.id, // Necesario para el servicio
     };
     
-    // Usar el servicio para subir el tutorial
+    // Usar el servicio para subir el tutorial con los archivos seleccionados
     const { data, error } = await tutorialService.subirTutorial(
       tutorialData, 
-      form.video,
+      form.video,  // Puede ser null si es solo PDF
+      form.pdf,    // Puede ser null si es solo video
       (progress) => {
         uploadProgress.value = progress;
       }

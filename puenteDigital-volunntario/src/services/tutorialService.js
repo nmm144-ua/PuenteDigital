@@ -21,6 +21,7 @@ export const tutorialService = {
         categoria = '',
         orden = 'recientes',
         busqueda = '',
+        tipoRecurso = 'todos',
         pagina = 1,
         porPagina = 9
       } = opciones;
@@ -40,6 +41,15 @@ export const tutorialService = {
       
       if (busqueda) {
         query = query.ilike('titulo', `%${busqueda}%`);
+      }
+
+      // Filtrar por tipo de recurso
+      if (tipoRecurso !== 'todos') {
+        if (tipoRecurso === 'video' || tipoRecurso === 'pdf') {
+          query = query.eq('tipo_recurso', tipoRecurso).or(`tipo_recurso.eq.ambos`);
+        } else if (tipoRecurso === 'ambos') {
+          query = query.eq('tipo_recurso', tipoRecurso);
+        }
       }
       
       // Ordenar resultados
@@ -129,51 +139,131 @@ export const tutorialService = {
    * @param {Function} onProgress - Función para seguimiento del progreso
    * @returns {Promise<Object>} Resultado de la operación
    */
-  async subirTutorial(tutorialData, archivo, onProgress = () => {}) {
+  async subirTutorial(tutorialData, videoArchivo = null, pdfArchivo = null, onProgress = () => {}) {
     try {
       // Verificar que tenemos el user_id
       if (!tutorialData.user_id) {
         throw new Error('Se requiere el ID de usuario para subir un tutorial');
       }
 
+      // Verificar que al menos se ha proporcionado un archivo
+      if (!videoArchivo && !pdfArchivo) {
+        throw new Error('Debes proporcionar al menos un archivo (video o PDF)');
+      }
+
       // Extraer user_id para no incluirlo en la inserción
       const { user_id, ...datosParaInsertar } = tutorialData;
       
-      // Generar nombre único para el archivo
-      const extension = archivo.name.split('.').pop().toLowerCase();
-      const timestamp = Date.now();
-      const random = Math.floor(Math.random() * 1000);
-      const filePath = `videos/${tutorialData.asistente_id}_${timestamp}_${random}.${extension}`;
-      
-      // Subir el archivo a Supabase Storage
-      const { data: fileData, error: uploadError } = await supabase.storage
-        .from('tutoriales')
-        .upload(filePath, archivo, {
-          cacheControl: '3600',
-          upsert: false,
-          onUploadProgress: (progress) => {
-            const porcentaje = Math.round((progress.loaded / progress.total) * 100);
-            onProgress(porcentaje);
-          }
-        });
-      
-      if (uploadError) throw uploadError;
-      
-      // Obtener URL pública del archivo
-      const { data: { publicUrl } } = supabase.storage
-        .from('tutoriales')
-        .getPublicUrl(filePath);
-      
+      // Determinar el tipo de recurso
+      let tipoRecurso = 'video';
+      if (videoArchivo && pdfArchivo) {
+        tipoRecurso = 'ambos';
+      } else if (pdfArchivo && !videoArchivo) {
+        tipoRecurso = 'pdf';
+      }
+
+      // Objeto para almacenar información de archivos
+      const archivosInfo = {};
+      let progreso = 0;
+      const totalArchivos = (videoArchivo ? 1 : 0) + (pdfArchivo ? 1 : 0);
+      const incrementoProgreso = 100 / totalArchivos;
+
+      // Subir archivo de video si existe
+      if (videoArchivo) {
+        const extension = videoArchivo.name.split('.').pop().toLowerCase();
+        const timestamp = Date.now();
+        const random = Math.floor(Math.random() * 1000);
+        const videoPath = `videos/${tutorialData.asistente_id}_${timestamp}_${random}.${extension}`;
+        
+        // Subir el archivo a Supabase Storage
+        const { data: videoData, error: videoError } = await supabase.storage
+          .from('tutoriales')
+          .upload(videoPath, videoArchivo, {
+            cacheControl: '3600',
+            upsert: false,
+            onUploadProgress: (progress) => {
+              if (totalArchivos === 1) {
+                // Si solo hay un archivo, reportamos directamente el progreso
+                onProgress(Math.round((progress.loaded / progress.total) * 100));
+              } else {
+                // Si hay múltiples archivos, calculamos el progreso parcial
+                const archivoProgreso = Math.round((progress.loaded / progress.total) * incrementoProgreso);
+                onProgress(progreso + archivoProgreso);
+              }
+            }
+          });
+        
+        if (videoError) throw videoError;
+        
+        // Obtener URL pública del archivo
+        const { data: { publicUrl: videoUrl } } = supabase.storage
+          .from('tutoriales')
+          .getPublicUrl(videoPath);
+        
+        // Guardar información del video
+        archivosInfo.video_path = videoPath;
+        archivosInfo.video_url = videoUrl;
+        archivosInfo.tamanio = videoArchivo.size;
+        archivosInfo.formato = videoArchivo.type;
+
+        // Actualizar progreso total
+        progreso += incrementoProgreso;
+        onProgress(progreso);
+      }
+
+      // Subir archivo PDF si existe
+      if (pdfArchivo) {
+        const timestamp = Date.now();
+        const random = Math.floor(Math.random() * 1000);
+        const pdfPath = `pdfs/${tutorialData.asistente_id}_${timestamp}_${random}.pdf`;
+        
+        // Subir el archivo a Supabase Storage
+        const { data: pdfData, error: pdfError } = await supabase.storage
+          .from('tutoriales')
+          .upload(pdfPath, pdfArchivo, {
+            cacheControl: '3600',
+            upsert: false,
+            onUploadProgress: (progress) => {
+              if (totalArchivos === 1) {
+                // Si solo hay un archivo, reportamos directamente el progreso
+                onProgress(Math.round((progress.loaded / progress.total) * 100));
+              } else {
+                // Si hay múltiples archivos, calculamos el progreso parcial
+                const archivoProgreso = Math.round((progress.loaded / progress.total) * incrementoProgreso);
+                onProgress(progreso + archivoProgreso);
+              }
+            }
+          });
+        
+        if (pdfError) throw pdfError;
+        
+        // Obtener URL pública del archivo
+        const { data: { publicUrl: pdfUrl } } = supabase.storage
+          .from('tutoriales')
+          .getPublicUrl(pdfPath);
+        
+        // Guardar información del PDF
+        archivosInfo.pdf_path = pdfPath;
+        archivosInfo.pdf_url = pdfUrl;
+        archivosInfo.pdf_tamanio = pdfArchivo.size;
+      }
+
+      // Si es solo PDF y no video, establecer valores por defecto para campos requeridos de video
+      if (tipoRecurso === 'pdf') {
+        archivosInfo.video_path = 'no-video';
+        archivosInfo.video_url = '';
+        archivosInfo.tamanio = 0;
+        archivosInfo.formato = 'application/pdf';
+      }
+
       // Guardar la información en la base de datos
       const { data, error: insertError } = await supabase
         .from('tutoriales')
         .insert([
           {
             ...datosParaInsertar,
-            video_path: filePath,
-            video_url: publicUrl,
-            tamanio: archivo.size,
-            formato: archivo.type
+            ...archivosInfo,
+            tipo_recurso: tipoRecurso
           }
         ])
         .select();
@@ -194,18 +284,27 @@ export const tutorialService = {
    */
   async eliminarTutorial(tutorialId) {
     try {
-      // Primero obtener la info del tutorial para eliminar el archivo
+      // Primero obtener la info del tutorial para eliminar los archivos
       const { data: tutorial, error: getError } = await this.obtenerTutorialPorId(tutorialId);
       
       if (getError) throw getError;
       
-      if (tutorial?.video_path) {
-        // Eliminar el archivo de storage
-        const { error: storageError } = await supabase.storage
+      // Eliminar archivo de video si existe
+      if (tutorial?.video_path && tutorial.video_path !== 'no-video') {
+        const { error: videoStorageError } = await supabase.storage
           .from('tutoriales')
           .remove([tutorial.video_path]);
         
-        if (storageError) throw storageError;
+        if (videoStorageError) console.error('Error al eliminar video:', videoStorageError);
+      }
+      
+      // Eliminar archivo PDF si existe
+      if (tutorial?.pdf_path) {
+        const { error: pdfStorageError } = await supabase.storage
+          .from('tutoriales')
+          .remove([tutorial.pdf_path]);
+        
+        if (pdfStorageError) console.error('Error al eliminar PDF:', pdfStorageError);
       }
       
       // Eliminar el registro de la base de datos
@@ -394,7 +493,32 @@ export const tutorialService = {
         error 
       };
     }
-  }
+  },
+
+  // Métodos para descargar PDF
+  async obtenerUrlDescargaPdf(tutorialId) {
+    try {
+      const { data: tutorial, error: getError } = await this.obtenerTutorialPorId(tutorialId);
+      
+      if (getError) throw getError;
+      
+      if (!tutorial?.pdf_path) {
+        throw new Error('Este tutorial no tiene un PDF asociado');
+      }
+      
+      // Generar URL de descarga con tiempo limitado (1 hora)
+      const { data, error: signedUrlError } = await supabase.storage
+        .from('tutoriales')
+        .createSignedUrl(tutorial.pdf_path, 3600);
+      
+      if (signedUrlError) throw signedUrlError;
+      
+      return { url: data.signedUrl, error: null };
+    } catch (error) {
+      console.error('Error al obtener URL de descarga:', error);
+      return { url: null, error };
+    }
+  },
 };
 
 export default tutorialService;

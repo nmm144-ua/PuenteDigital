@@ -40,10 +40,18 @@
       <div v-for="tutorial in tutoriales" :key="tutorial.id" class="col">
         <div class="card h-100 shadow-sm">
           <div class="ratio ratio-16x9">
-            <img src="/video-placeholder.png" 
+            <img 
+              :src="getPlaceholderImage(tutorial.tipo_recurso || 'video')" 
               class="card-img-top" 
-              alt="Miniatura del tutorial"
+              :alt="`Miniatura de ${formatTipoRecurso(tutorial.tipo_recurso || 'video')}`"
               style="object-fit: cover;">
+            <!-- Indicador de tipo de recurso -->
+            <div class="position-absolute top-0 end-0 m-2">
+              <span class="badge" :class="getBadgeClass(tutorial.tipo_recurso || 'video')">
+                <i :class="getIconClass(tutorial.tipo_recurso || 'video')" class="me-1"></i>
+                {{ formatTipoRecurso(tutorial.tipo_recurso || 'video') }}
+              </span>
+            </div>
           </div>
           <div class="card-body">
             <h5 class="card-title">{{ tutorial.titulo }}</h5>
@@ -189,6 +197,42 @@ const formatDate = (dateString) => {
     year: 'numeric'
   }).format(date);
 };
+
+const formatTipoRecurso = (tipo) => {
+    const tipos = {
+      'video': 'Video',
+      'pdf': 'Guía PDF',
+      'ambos': 'Video y PDF'
+    };
+    
+    return tipos[tipo] || tipo;
+  };
+
+  const getBadgeClass = (tipo) => {
+    switch (tipo) {
+      case 'video': return 'bg-success';
+      case 'pdf': return 'bg-danger';
+      case 'ambos': return 'bg-warning text-dark';
+      default: return 'bg-secondary';
+    }
+  };
+  const getIconClass = (tipo) => {
+    switch (tipo) {
+      case 'video': return 'bi bi-camera-video';
+      case 'pdf': return 'bi bi-file-pdf';
+      case 'ambos': return 'bi bi-collection';
+      default: return 'bi bi-question-circle';
+    }
+  };
+  // Función para obtener la imagen de placeholder según el tipo de recurso
+  const getPlaceholderImage = (tipo) => {
+    switch (tipo) {
+      case 'video': return '/video-placeholder.png';
+      case 'pdf': return '/pdf-placeholder.png';
+      case 'ambos': return '/video-pdf-placeholder.png';
+      default: return '/video-placeholder.png';
+    }
+  };
 </script>
 
 <style scoped>
