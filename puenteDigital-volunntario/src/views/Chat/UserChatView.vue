@@ -739,6 +739,7 @@ export default {
     };
     
     // Enviar un mensaje
+    
     const enviarMensaje = async () => {
       if (!nuevoMensaje.value.trim() || !selectedSolicitudId.value) return;
       
@@ -760,89 +761,60 @@ export default {
         const mensajeTexto = nuevoMensaje.value.trim();
         nuevoMensaje.value = '';
         
-        // Crear mensaje temporal para UI inmediata
+        // Generar un ID único para este mensaje temporal
+        const tempId = `temp-${Date.now()}`;
+        
+        // Añadir mensaje temporal a la lista local
         const mensajeTemporal = {
-          id: `temp-${Date.now()}`,
+          id: tempId,
           contenido: mensajeTexto,
           created_at: new Date().toISOString(),
           tipo: 'asistente',
           leido: false,
-          temporal: true
+          temporal: true,
+          _enviado: true // Marcar como ya enviado para evitar procesamiento duplicado
         };
         
-        // Añadir mensaje temporal a la lista local
+        // Añadir a la lista de mensajes
         chatMessages.value.push(mensajeTemporal);
+        
+        // Para evitar duplicados, agregar este ID a un conjunto de IDs procesados
+        processedMessages.value.add(tempId);
         
         // Scroll inmediato
         nextTick(() => {
           scrollToBottom();
         });
         
-        // ENFOQUE 1: Insertar directamente en Supabase
-        try {
-          console.log('Enviando mensaje directo a Supabase');
+        // SOLO usar UN método para enviar el mensaje - usar mensajesService 
+        const mensaje = {
+          solicitud_id: selectedSolicitudId.value,
+          contenido: mensajeTexto,
+          tipo: 'asistente',
+          leido: false,
+          _esAsistente: true,
+          _asistenteId: asistente.id
+        };
+        
+        // Enviar mensaje usando el servicio
+        const mensajeGuardado = await mensajesService.enviarMensaje(mensaje);
+        
+        if (mensajeGuardado) {
+          console.log('Mensaje guardado con éxito:', mensajeGuardado);
           
-          // Datos para inserción
-          const mensajeData = {
-            solicitud_id: selectedSolicitudId.value,
-            contenido: mensajeTexto,
-            tipo: 'asistente',
-            leido: false,
-            asistente_id: asistente.id,
-            created_at: new Date().toISOString()
-          };
-          
-          // Insertar en la tabla mensajes
-          const { data, error } = await supabase
-            .from('mensajes')
-            .insert(mensajeData)
-            .select();
-          
-          if (error) throw error;
-          
-          if (data && data[0]) {
-            console.log('Mensaje guardado exitosamente en Supabase:', data[0]);
-            
-            // Reemplazar mensaje temporal con el real si no lo ha hecho la suscripción
-            setTimeout(() => {
-              const index = chatMessages.value.findIndex(m => m.id === mensajeTemporal.id);
-              if (index !== -1) {
-                chatMessages.value[index] = {
-                  ...data[0],
-                  contenido: data[0].contenido // Asegurar contenido correcto
-                };
-              }
-            }, 500);
+          // Marcar el ID real como procesado para evitar duplicados en las suscripciones
+          if (mensajeGuardado.id) {
+            processedMessages.value.add(`id_${mensajeGuardado.id}`);
           }
-        } catch (supabaseError) {
-          console.error('Error enviando mensaje a Supabase:', supabaseError);
           
-          // ENFOQUE 2: Fallback a método anterior
-          console.log('Intentando enviar mensaje con método de respaldo');
-          
-          // Preparar datos del mensaje para el servicio
-          const mensaje = {
-            solicitud_id: selectedSolicitudId.value,
-            contenido: mensajeTexto,
-            tipo: 'asistente',
-            leido: false,
-            _esAsistente: true,
-            _asistenteId: asistente.id,
-            _usuarioId: null
-          };
-          
-          // Enviar mensaje usando el servicio
-          const mensajeGuardado = await mensajesService.enviarMensaje(mensaje);
-          
-          // Reemplazar mensaje temporal con real
-          if (mensajeGuardado) {
-            const index = chatMessages.value.findIndex(m => m.id === mensajeTemporal.id);
-            if (index !== -1) {
-              chatMessages.value[index] = {
-                ...mensajeGuardado,
-                contenido: mensajeGuardado.contenido
-              };
-            }
+          // Reemplazar mensaje temporal con el real
+          const index = chatMessages.value.findIndex(m => m.id === tempId);
+          if (index !== -1) {
+            chatMessages.value[index] = {
+              ...mensajeGuardado,
+              contenido: mensajeGuardado.contenido,
+              _enviado: true // Mantener esta propiedad
+            };
           }
         }
       } catch (error) {
@@ -850,10 +822,10 @@ export default {
         alert('No se pudo enviar el mensaje. Inténtalo de nuevo.');
         
         // Eliminar mensaje temporal en caso de error
-        chatMessages.value = chatMessages.value.filter(m => !m.temporal);
+        chatMessages.value = chatMessages.value.filter(m => m.id !== tempId);
       }
     };
-    
+        
     // Manejar eventos de escritura
     const handleTyping = () => {
       // Si hay texto, indicar que está escribiendo
@@ -1059,22 +1031,21 @@ export default {
     
     // Configurar suscripción en tiempo real
     const setupRealtimeSubscription = () => {
-      console.log('Configurando suscripción en tiempo real a Supabase');
+      console.log('Configurando suscripción en tiempo real simplificada');
       
-      // Set para rastrear notificaciones procesadas y evitar duplicados
-      const notificacionesProcesadas = new Set();
-      
-      // Limpiar cualquier suscripción anterior
+      // Limpiar suscripciones previas
       if (unsubscribe.value && typeof unsubscribe.value === 'function') {
         unsubscribe.value();
       }
       
-      // Suscripción específica para mensajes de la solicitud actual
-      let specificChannel = null;
+      const channels = [];
+      
+      // Suscripción específica SOLO para mensajes de la solicitud actual
       if (selectedSolicitudId.value) {
-        console.log(`Creando canal específico para solicitud ${selectedSolicitudId.value}`);
-        specificChannel = supabase
-          .channel(`messages-${selectedSolicitudId.value}`)
+        console.log(`Creando canal único para solicitud ${selectedSolicitudId.value}`);
+        
+        const specificChannel = supabase
+          .channel(`unified-messages-${selectedSolicitudId.value}`)
           .on(
             'postgres_changes',
             {
@@ -1084,208 +1055,71 @@ export default {
               filter: `solicitud_id=eq.${selectedSolicitudId.value}`
             },
             async (payload) => {
-              console.log('Nuevo mensaje específico detectado:', payload.new);
+              console.log('Nuevo mensaje recibido en canal unificado:', payload.new);
               
-              // Verificar si este mensaje ya existe en la lista
-              const yaExiste = chatMessages.value.some(m => 
+              // Verificar si este mensaje ya ha sido procesado o es uno que nosotros enviamos
+              const messageKey = `id_${payload.new.id}`;
+              if (processedMessages.value.has(messageKey)) {
+                console.log('Mensaje ya procesado, ignorando duplicado:', payload.new.id);
+                return;
+              }
+              
+              // Verificar si ya existe en nuestra lista local
+              const existeLocal = chatMessages.value.some(m => 
                 (m.id && m.id === payload.new.id) || 
                 (m.contenido === payload.new.contenido && 
-                  m.created_at && new Date(m.created_at).getTime() === new Date(payload.new.created_at).getTime())
+                Math.abs(new Date(m.created_at).getTime() - new Date(payload.new.created_at).getTime()) < 2000)
               );
               
-              if (!yaExiste) {
-                // Crear objeto normalizado con todos los campos necesarios
-                const nuevoMensaje = {
-                  id: payload.new.id || Date.now() + Math.floor(Math.random() * 1000),
-                  contenido: payload.new.contenido,
-                  created_at: payload.new.created_at || new Date().toISOString(),
-                  tipo: payload.new.tipo || 'usuario',
-                  leido: payload.new.leido || false,
-                  asistente_id: payload.new.asistente_id,
-                  usuario_id: payload.new.usuario_id,
-                  source: 'supabase_specific_channel' // Para debugging
-                };
-                
-                console.log('Añadiendo mensaje a chatMessages:', nuevoMensaje);
-                
-                // Añadir mensaje a la lista usando spread para garantizar reactividad
-                chatMessages.value = [...chatMessages.value, nuevoMensaje];
-                
-                // Si el mensaje no es del asistente (no es nuestro), marcarlo como leído
-                if (payload.new.tipo === 'usuario') {
-                  // Marcar como leído mediante Supabase directamente
-                  const { error } = await supabase
+              if (existeLocal) {
+                console.log('Mensaje ya existe localmente, ignorando');
+                return;
+              }
+              
+              // Marcar este mensaje como procesado
+              processedMessages.value.add(messageKey);
+              
+              // Añadir el mensaje a la lista
+              const nuevoMensaje = {
+                id: payload.new.id,
+                contenido: payload.new.contenido,
+                created_at: payload.new.created_at,
+                tipo: payload.new.tipo,
+                leido: payload.new.leido || false,
+                source: 'supabase_unified'
+              };
+              
+              // Añadir a la lista
+              chatMessages.value.push(nuevoMensaje);
+              
+              // Si no es nuestro mensaje, marcarlo como leído
+              if (payload.new.tipo === 'usuario') {
+                try {
+                  // Marcar como leído
+                  await supabase
                     .from('mensajes')
                     .update({ leido: true })
                     .eq('id', payload.new.id);
-                    
-                  if (error) {
-                    console.error('Error al marcar mensaje como leído:', error);
-                  }
+                } catch (error) {
+                  console.error('Error al marcar mensaje como leído:', error);
                 }
-                
-                // Actualizar contador de mensajes no leídos
-                loadMensajesNoLeidos();
-                
-                // Mostrar notificación solo si este chat no está actualmente abierto
-                if (payload.new.tipo === 'usuario' && 
-                    (!selectedSolicitudId.value || selectedSolicitudId.value !== payload.new.solicitud_id)) {
-                  
-                  // Buscar información de la solicitud para la notificación
-                  const { data: solicitudInfo } = await supabase
-                    .from('solicitudes_asistencia')
-                    .select('id, descripcion, usuario:usuarios!solicitudes_asistencia_usuario_id_fkey(nombre)')
-                    .eq('id', payload.new.solicitud_id)
-                    .single();
-                    
-                  if (solicitudInfo) {
-                    // Mostrar notificación usando el servicio
-                    notificationService.show(
-                      `Nuevo mensaje de ${solicitudInfo.usuario?.nombre || 'Usuario'}`,
-                      notificationService.TYPES.INFO,
-                      {
-                        description: payload.new.contenido.substring(0, 50) + 
-                                    (payload.new.contenido.length > 50 ? '...' : '')
-                      }
-                    );
-                  }
-                }
-                
-                // Desplazar al final
-                nextTick(() => {
-                  scrollToBottom();
-                });
-              } else {
-                console.log('Mensaje ya existe en la lista, ignorando');
               }
+              
+              // Actualizar contadores
+              loadMensajesNoLeidos();
+              
+              // Desplazar al final
+              nextTick(() => scrollToBottom());
             }
           )
-          .subscribe((status) => {
-            console.log(`Estado de suscripción de canal específico: ${status}`);
-          });
+          .subscribe();
+        
+        channels.push(specificChannel);
       }
       
-      // Canal general para mensajes (cualquier mensaje nuevo en la tabla)
-      const generalChannel = supabase
-        .channel('general_messages')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'mensajes'
-          },
-          async (payload) => {
-            console.log('Mensaje general detectado:', payload.new);
-            
-            // Verificar si este mensaje ya ha sido procesado
-            const notificationKey = `msg_${payload.new.id}`;
-            if (notificacionesProcesadas.has(notificationKey)) {
-              console.log('Notificación ya procesada, ignorando:', notificationKey);
-              return;
-            }
-            
-            // Solo procesar mensajes que no son para la solicitud actual
-            if (payload.new.solicitud_id !== selectedSolicitudId.value) {
-              // Registrar como procesado
-              notificacionesProcesadas.add(notificationKey);
-              
-              // Limitar tamaño del conjunto
-              if (notificacionesProcesadas.size > 50) {
-                const firstKey = notificacionesProcesadas.values().next().value;
-                notificacionesProcesadas.delete(firstKey);
-              }
-              
-              // Mostrar notificación solo para mensajes de usuario
-              if (payload.new.tipo === 'usuario') {
-                try {
-                  // Buscar información de la solicitud para la notificación
-                  const { data: solicitudInfo } = await supabase
-                    .from('solicitudes_asistencia')
-                    .select('id, descripcion, usuario:usuarios!solicitudes_asistencia_usuario_id_fkey(nombre)')
-                    .eq('id', payload.new.solicitud_id)
-                    .single();
-                    
-                  if (solicitudInfo) {
-                    // Mostrar notificación usando el servicio
-                    notificationService.show(
-                      `Nuevo mensaje de ${solicitudInfo.usuario?.nombre || 'Usuario'}`,
-                      notificationService.TYPES.INFO,
-                      {
-                        description: payload.new.contenido.substring(0, 50) + 
-                                    (payload.new.contenido.length > 50 ? '...' : '')
-                      }
-                    );
-                  }
-                } catch (error) {
-                  console.error('Error al obtener información de solicitud:', error);
-                }
-              }
-              
-              // Actualizar contador de mensajes no leídos
-              loadMensajesNoLeidos();
-            }
-          }
-        )
-        .subscribe((status) => {
-          console.log(`Estado de suscripción de canal general: ${status}`);
-        });
-  
-      // Canal para cambios en solicitudes (nuevas solicitudes pendientes)
+      // Canal para actualizaciones de solicitudes
       const solicitudesChannel = supabase
-        .channel('solicitudes_changes')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'solicitudes_asistencia',
-            filter: 'estado=eq.pendiente'
-          },
-          (payload) => {
-            console.log('Nueva solicitud pendiente detectada:', payload.new);
-            
-            // Verificar si esta notificación ya ha sido procesada
-            const notificationKey = `new_sol_${payload.new.id}`;
-            if (notificacionesProcesadas.has(notificationKey)) {
-              console.log('Notificación de nueva solicitud ya procesada:', notificationKey);
-              return;
-            }
-            
-            // Registrar como procesada
-            notificacionesProcesadas.add(notificationKey);
-            
-            // Limitar tamaño del conjunto
-            if (notificacionesProcesadas.size > 50) {
-              const firstKey = notificacionesProcesadas.values().next().value;
-              notificacionesProcesadas.delete(firstKey);
-            }
-            
-            // Marcar como nueva solicitud para efectos visuales
-            nuevasSolicitudes.value.add(payload.new.id);
-            
-            // Mostrar notificación si estamos en la pestaña de solicitudes
-            if (activeTab.value === 'solicitudes') {
-              notificationService.show(
-                'Nueva solicitud de asistencia',
-                notificationService.TYPES.INFO,
-                {
-                  description: payload.new.descripcion || 'Un usuario necesita ayuda'
-                }
-              );
-            }
-            
-            // Actualizar lista silenciosamente si estamos en la pestaña de solicitudes
-            if (activeTab.value === 'solicitudes') {
-              silentRefresh();
-            }
-            
-            // Programar eliminación del estado "nueva" después de 30 segundos
-            setTimeout(() => {
-              nuevasSolicitudes.value.delete(payload.new.id);
-            }, 30000);
-          }
-        )
+        .channel('solicitudes_updates')
         .on(
           'postgres_changes',
           {
@@ -1294,32 +1128,22 @@ export default {
             table: 'solicitudes_asistencia'
           },
           (payload) => {
-            console.log('Solicitud actualizada detectada:', payload.new);
-            
-            // Actualizar la lista de solicitudes
-            if (activeTab.value === 'conversaciones' || 
-                (activeTab.value === 'solicitudes' && payload.new.estado === 'pendiente')) {
-              loadSolicitudes();
-            }
-            
-            // Si hay una solicitud actual seleccionada y cambió, actualizar sus datos
+            // Solo actualizar si es la solicitud actual
             if (selectedSolicitudId.value && payload.new && payload.new.id === selectedSolicitudId.value) {
               cargarSolicitud(selectedSolicitudId.value);
             }
           }
         )
-        .subscribe((status) => {
-          console.log(`Estado de suscripción de canal solicitudes: ${status}`);
-        });
+        .subscribe();
       
-      // Devolver función para limpiar todas las suscripciones
+      channels.push(solicitudesChannel);
+      
+      // Retornar función de limpieza
       return () => {
-        console.log('Limpiando suscripciones de Supabase');
-        if (specificChannel) {
-          supabase.removeChannel(specificChannel);
-        }
-        supabase.removeChannel(generalChannel);
-        supabase.removeChannel(solicitudesChannel);
+        console.log('Limpiando suscripciones a canales');
+        channels.forEach(channel => {
+          supabase.removeChannel(channel);
+        });
       };
     };
 
@@ -1484,6 +1308,7 @@ export default {
         }, 3000); // Actualizar cada 3 segundos
       }
     };
+
 
     // Modificar el watch para activeTab
     watch(activeTab, (newTab) => {

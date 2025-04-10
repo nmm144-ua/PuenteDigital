@@ -193,42 +193,46 @@ export default {
       if (storeMessages.length > 0) {
         console.log('ChatComponent: Mensajes desde store detectados', storeMessages);
         
-        // Procesar todos los mensajes para asegurar consistencia
+        // Reemplazar la lógica de actualización por una que verifique duplicados cuidadosamente
+        const procesados = new Set(); // Para rastrear los mensajes ya procesados
+        
+        // Procesamos primero los mensajes existentes
+        mensajes.value.forEach(m => {
+          const key = m.id || 
+                    `${m.created_at || m.timestamp}_${m.tipo || m.sender}_${m.contenido || m.message}`;
+          procesados.add(key);
+        });
+        
+        // Solo añadir mensajes nuevos que no existan
+        const mensajesNuevos = [];
         for (const message of storeMessages) {
-          // Verificar si este mensaje ya existe usando una clave única
           const messageKey = message.id || 
-                          `${message.timestamp || message.created_at}_${message.sender || message.tipo}_${message.message || message.contenido}`;
+                        `${message.timestamp || message.created_at}_${message.sender || message.tipo}_${message.message || message.contenido}`;
           
-          // Verificar si ya tenemos este mensaje exacto en la lista
-          const exists = mensajes.value.some(m => {
-            if (m.id && m.id === message.id) return true;
-            
-            const mKey = `${m.created_at || m.timestamp}_${m.sender || m.tipo}_${m.contenido || m.message}`;
-            return messageKey === mKey;
-          });
+          // Si ya fue procesado, omitirlo
+          if (procesados.has(messageKey)) continue;
           
-          if (!exists) {
-            // Generar un ID si no existe
-            const generatedId = message.id || Date.now() + Math.floor(Math.random() * 1000);
-            
-            // Formatear el mensaje para la vista de manera uniforme
-            const formattedMessage = {
-              id: generatedId,
-              contenido: message.message || message.contenido,
-              created_at: message.timestamp || message.created_at || new Date().toISOString(),
-              tipo: message.sender === authStore.user.nombre ? 'asistente' : 'usuario',
-              leido: message.leido || false,
-              // Conservar isLocal para determinar si es mensaje propio
-              isLocal: message.isLocal
-            };
-            
-            console.log('Añadiendo mensaje a ChatComponent:', formattedMessage);
-            mensajes.value.push(formattedMessage);
-          }
+          // Marcar como procesado
+          procesados.add(messageKey);
+          
+          // Formatear el mensaje para la vista
+          const formattedMessage = {
+            id: message.id || Date.now() + Math.floor(Math.random() * 1000),
+            contenido: message.message || message.contenido,
+            created_at: message.timestamp || message.created_at || new Date().toISOString(),
+            tipo: message.sender === authStore.user.nombre ? 'asistente' : 'usuario',
+            leido: message.leido || false,
+            isLocal: message.isLocal
+          };
+          
+          mensajesNuevos.push(formattedMessage);
         }
         
-        // Desplazar al final del chat
-        nextTick(() => scrollToBottom());
+        // Si hay mensajes nuevos, añadirlos todos juntos (más eficiente que uno por uno)
+        if (mensajesNuevos.length > 0) {
+          console.log(`Añadiendo ${mensajesNuevos.length} mensajes nuevos desde store`);
+          mensajes.value = [...mensajes.value, ...mensajesNuevos];
+        }
       }
     };
 
@@ -320,25 +324,72 @@ export default {
       if (!nuevoMensaje.value.trim()) return;
       
       try {
-        // Enviar mensaje usando el chat store
-        await chatStore.sendMessage(nuevoMensaje.value.trim());
-        
-        // Limpiar campo de entrada
-        nuevoMensaje.value = '';
-        
-        // Reiniciar estado de escritura
-        chatStore.setTypingStatus(false);
-        
-        // Enfocar el campo de entrada
-        if (messageInput.value) {
-          messageInput.value.focus();
+        // Obtener información del asistente si somos asistente
+        let asistenteId = null;
+        if (props.isAsistente) {
+          const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
+          if (!asistente) {
+            console.error('No se pudo obtener información del asistente');
+            return;
+          }
+          asistenteId = asistente.id;
         }
         
-        // Desplazar al final del chat
+        // Guardar mensaje original y limpiar input
+        const mensajeTexto = nuevoMensaje.value.trim();
+        nuevoMensaje.value = '';
+        
+        // Generar ID único temporal
+        const tempId = `temp-${Date.now()}`;
+        
+        // Añadir mensaje temporal
+        const mensajeTemporal = {
+          id: tempId,
+          contenido: mensajeTexto,
+          created_at: new Date().toISOString(),
+          tipo: props.isAsistente ? 'asistente' : 'usuario',
+          leido: false,
+          _enviado: true
+        };
+        
+        // Añadir a lista local
+        mensajes.value.push(mensajeTemporal);
+        
+        // Desplazar al final
         await scrollToBottom();
+        
+        // Crear objeto para el mensaje real
+        const mensaje = {
+          solicitud_id: props.solicitudId,
+          contenido: mensajeTexto,
+          tipo: props.isAsistente ? 'asistente' : 'usuario',
+          leido: false,
+          _esAsistente: props.isAsistente,
+          _asistenteId: props.isAsistente ? asistenteId : null
+        };
+        
+        // Enviar usando el servicio de mensajes (un solo método)
+        const mensajeGuardado = await mensajesService.enviarMensaje(mensaje);
+        
+        if (mensajeGuardado) {
+          console.log('Mensaje guardado con éxito:', mensajeGuardado);
+          
+          // Reemplazar mensaje temporal con el real
+          const index = mensajes.value.findIndex(m => m.id === tempId);
+          if (index !== -1) {
+            mensajes.value[index] = {
+              ...mensajeGuardado,
+              contenido: mensajeGuardado.contenido,
+              _enviado: true 
+            };
+          }
+        }
       } catch (error) {
         console.error('Error al enviar mensaje:', error);
         alert('No se pudo enviar el mensaje. Inténtalo de nuevo.');
+        
+        // Eliminar mensaje temporal en caso de error
+        mensajes.value = mensajes.value.filter(m => m.id !== tempId);
       }
     };
     
