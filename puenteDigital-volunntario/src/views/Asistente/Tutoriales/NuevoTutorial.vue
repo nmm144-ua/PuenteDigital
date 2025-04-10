@@ -113,6 +113,7 @@ import { supabase } from '../../../../supabase';
 import { useAuthStore } from '../../../stores/authStore';
 import { useRouter } from 'vue-router';
 import { toast } from 'vue-sonner';
+import tutorialService from '../../../services/tutorialService';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -232,15 +233,6 @@ const validateForm = () => {
   return isValid;
 };
 
-const generateUniqueFileName = (originalName) => {
-  const extension = originalName.split('.').pop().toLowerCase();
-  const timestamp = Date.now();
-  const random = Math.floor(Math.random() * 1000);
-  const userId = authStore.user.id;
-  
-  return `${userId}_${timestamp}_${random}.${extension}`;
-};
-
 const handleSubmit = async () => {
   if (!validateForm()) {
     toast.error('Por favor, corrige los errores en el formulario');
@@ -276,76 +268,27 @@ const handleSubmit = async () => {
     
     console.log('ID del asistente encontrado:', asistenteData.id);
     
-    const asistenteId = asistenteData.id;
-    
-    // Generar nombre único para el archivo
-    const uniqueFileName = generateUniqueFileName(form.video.name);
-    const filePath = `videos/${uniqueFileName}`;
-    
-    console.log('Intentando subir archivo a:', filePath);
-    
-    // Subir el archivo a Supabase Storage - con manejo de errores detallado
-    let fileResponse;
-    try {
-      fileResponse = await supabase.storage
-        .from('tutoriales')
-        .upload(filePath, form.video, {
-          cacheControl: '3600',
-          upsert: false,
-          onUploadProgress: (progress) => {
-            uploadProgress.value = Math.round((progress.loaded / progress.total) * 100);
-          }
-        });
-        
-      if (fileResponse.error) {
-        console.error('Error al subir archivo:', fileResponse.error);
-        throw fileResponse.error;
-      }
-    } catch (uploadError) {
-      console.error('Excepción en la subida de archivo:', uploadError);
-      throw new Error(`Error al subir el archivo: ${uploadError.message || 'Comprueba que el bucket de almacenamiento existe'}`);
-    }
-    
-    // Obtener URL pública del archivo
-    const { data: urlData } = supabase.storage
-      .from('tutoriales')
-      .getPublicUrl(filePath);
-      
-    if (!urlData || !urlData.publicUrl) {
-      throw new Error('No se pudo obtener la URL pública del archivo');
-    }
-    
-    const publicUrl = urlData.publicUrl;
-    console.log('URL pública:', publicUrl);
-    
-    // Preparar los datos para insertar - SIN user_id ya que no lo necesitas
+    // Preparar los datos para el tutorial
     const tutorialData = {
       titulo: form.titulo,
       descripcion: form.descripcion,
       categoria: form.categoria,
-      asistente_id: asistenteId,
-      video_path: filePath,
-      video_url: publicUrl,
-      tamanio: form.video.size,
-      formato: form.video.type
+      asistente_id: asistenteData.id,
+      user_id: authStore.user.id, // Necesario para el servicio
     };
     
-    console.log('Datos a insertar:', tutorialData);
+    // Usar el servicio para subir el tutorial
+    const { data, error } = await tutorialService.subirTutorial(
+      tutorialData, 
+      form.video,
+      (progress) => {
+        uploadProgress.value = progress;
+      }
+    );
     
-    // Guardar la información en la base de datos
-    const { data: insertData, error: insertError } = await supabase
-      .from('tutoriales')
-      .insert([tutorialData])
-      .select();
-    
-    if (insertError) {
-      console.error('Error al insertar en BD:', insertError);
-      // Si falla la inserción, eliminar el archivo subido para no dejar huérfanos
-      await supabase.storage
-        .from('tutoriales')
-        .remove([filePath]);
-        
-      throw insertError;
+    if (error) {
+      console.error('Error al subir tutorial:', error);
+      throw error;
     }
     
     toast.success('Tutorial subido correctamente');

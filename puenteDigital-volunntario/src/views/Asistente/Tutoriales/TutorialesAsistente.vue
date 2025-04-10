@@ -76,6 +76,7 @@ import { ref, onMounted } from 'vue';
 import { supabase } from '../../../../supabase';
 import { useAuthStore } from '../../../stores/authStore';
 import { toast } from 'vue-sonner';
+import tutorialService from '../../../services/tutorialService';
 
 const tutoriales = ref([]);
 const loading = ref(true);
@@ -110,16 +111,12 @@ const cargarTutoriales = async () => {
     const asistenteId = asistenteData.id;
     console.log('ID del asistente para cargar tutoriales:', asistenteId);
     
-    // Obtener los tutoriales del asistente
-    const { data, error: supabaseError } = await supabase
-      .from('tutoriales')
-      .select('*')
-      .eq('asistente_id', asistenteId)
-      .order('created_at', { ascending: false });
+    // Usar el servicio para obtener los tutoriales del asistente
+    const { data, error: tutorialesError } = await tutorialService.obtenerTutorialesPorAsistente(asistenteId);
     
-    if (supabaseError) {
-      console.error('Error al consultar tutoriales:', supabaseError);
-      throw supabaseError;
+    if (tutorialesError) {
+      console.error('Error al consultar tutoriales:', tutorialesError);
+      throw tutorialesError;
     }
     
     console.log('Tutoriales cargados:', data?.length || 0);
@@ -140,12 +137,8 @@ const eliminarTutorial = async (id) => {
   try {
     loading.value = true;
     
-    // Primero obtener la info del tutorial para eliminar el archivo
-    const { data: tutorial, error: getTutorialError } = await supabase
-      .from('tutoriales')
-      .select('video_path, asistente_id')
-      .eq('id', id)
-      .single();
+    // Primero obtener la info del tutorial para verificar permisos
+    const { data: tutorial, error: getTutorialError } = await tutorialService.obtenerTutorialPorId(id);
     
     if (getTutorialError) {
       console.error('Error al obtener información del tutorial:', getTutorialError);
@@ -164,28 +157,16 @@ const eliminarTutorial = async (id) => {
       throw new Error('No tienes permiso para eliminar este tutorial');
     }
     
-    if (tutorial?.video_path) {
-      console.log('Eliminando archivo:', tutorial.video_path);
-      // Eliminar el archivo de storage
-      const { error: storageError } = await supabase.storage
-        .from('tutoriales')
-        .remove([tutorial.video_path]);
-      
-      if (storageError) {
-        console.error('Error al eliminar archivo:', storageError);
-        throw storageError;
-      }
+    // Usar el servicio para eliminar el tutorial
+    const { success, error: eliminarError } = await tutorialService.eliminarTutorial(id);
+    
+    if (eliminarError) {
+      console.error('Error al eliminar tutorial:', eliminarError);
+      throw eliminarError;
     }
     
-    // Eliminar el registro de la base de datos
-    const { error: deleteError } = await supabase
-      .from('tutoriales')
-      .delete()
-      .eq('id', id);
-    
-    if (deleteError) {
-      console.error('Error al eliminar registro:', deleteError);
-      throw deleteError;
+    if (!success) {
+      throw new Error('No se pudo eliminar el tutorial');
     }
     
     // Actualizar la lista

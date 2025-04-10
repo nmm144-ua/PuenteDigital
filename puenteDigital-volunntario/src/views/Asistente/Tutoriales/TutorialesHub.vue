@@ -79,8 +79,8 @@
   
   <script setup>
   import { ref, onMounted } from 'vue';
-  import { supabase } from '../../../../supabase';
   import { useAuthStore } from '../../../stores/authStore';
+  import tutorialService from '../../../services/tutorialService';
   
   const authStore = useAuthStore();
   const estadisticas = ref({
@@ -95,20 +95,16 @@
   
   const cargarEstadisticas = async () => {
     try {
-      // Obtener estadísticas generales
-      const { data: tutorialesData, error: tutorialesError } = await supabase
-        .from('tutoriales')
-        .select('id, vistas, me_gusta');
+      // Obtener estadísticas generales usando el servicio
+      const { data, error } = await tutorialService.obtenerEstadisticasGenerales();
       
-      if (tutorialesError) {
-        console.error('Error al obtener estadísticas:', tutorialesError);
+      if (error) {
+        console.error('Error al obtener estadísticas:', error);
         return;
       }
       
-      if (tutorialesData) {
-        estadisticas.value.totalTutoriales = tutorialesData.length;
-        estadisticas.value.totalVistas = tutorialesData.reduce((sum, tutorial) => sum + (tutorial.vistas || 0), 0);
-        estadisticas.value.totalMeGusta = tutorialesData.reduce((sum, tutorial) => sum + (tutorial.me_gusta || 0), 0);
+      if (data) {
+        estadisticas.value = data;
       }
     } catch (err) {
       console.error('Error al cargar estadísticas:', err);

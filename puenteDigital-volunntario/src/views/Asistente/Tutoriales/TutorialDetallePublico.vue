@@ -80,92 +80,6 @@
             </div>
           </div>
         </div>
-        
-        <!-- Sección de comentarios -->
-        <div class="card shadow mt-4">
-          <div class="card-header bg-light">
-            <h4 class="mb-0 fs-5">Comentarios</h4>
-          </div>
-          <div class="card-body">
-            <form @submit.prevent="agregarComentario" class="mb-4">
-              <div class="mb-3">
-                <textarea 
-                  v-model="nuevoComentario" 
-                  class="form-control" 
-                  rows="3" 
-                  placeholder="Deja tu comentario sobre este tutorial..."
-                  required
-                ></textarea>
-              </div>
-              <div class="text-end">
-                <button 
-                  type="submit" 
-                  class="btn btn-primary" 
-                  :disabled="procesandoComentario"
-                >
-                  <i class="bi bi-send me-1"></i> Enviar comentario
-                </button>
-              </div>
-            </form>
-            
-            <div v-if="comentarios.length === 0" class="text-center py-3">
-              <p class="text-muted">No hay comentarios aún. ¡Sé el primero en comentar!</p>
-            </div>
-            
-            <div v-else>
-              <div v-for="comentario in comentarios" :key="comentario.id" class="border-bottom pb-3 mb-3">
-                <div class="d-flex">
-                  <div class="flex-shrink-0">
-                    <div class="bg-light rounded-circle p-2">
-                      <i class="bi bi-person fs-4"></i>
-                    </div>
-                  </div>
-                  <div class="flex-grow-1 ms-3">
-                    <div class="d-flex justify-content-between">
-                      <h6 class="mb-0">{{ comentario.nombre_usuario || 'Usuario' }}</h6>
-                      <small class="text-muted">{{ formatDate(comentario.created_at) }}</small>
-                    </div>
-                    <p class="mb-0 mt-1">{{ comentario.texto }}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Sección de tutoriales relacionados -->
-        <div class="card shadow mt-4">
-          <div class="card-header bg-light">
-            <h4 class="mb-0 fs-5">Tutoriales relacionados</h4>
-          </div>
-          <div class="card-body">
-            <div v-if="tutorialesRelacionados.length === 0" class="text-center py-3">
-              <p class="text-muted">No hay tutoriales relacionados disponibles.</p>
-            </div>
-            
-            <div v-else class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
-              <div v-for="tutorialRelacionado in tutorialesRelacionados" :key="tutorialRelacionado.id" class="col">
-                <div class="card h-100 shadow-sm">
-                  <div class="ratio ratio-16x9">
-                    <img src="/video-placeholder.png" 
-                      class="card-img-top" 
-                      alt="Miniatura del tutorial"
-                      style="object-fit: cover;">
-                  </div>
-                  <div class="card-body">
-                    <h6 class="card-title">{{ tutorialRelacionado.titulo }}</h6>
-                    <p class="card-text tutorial-description">{{ tutorialRelacionado.descripcion }}</p>
-                  </div>
-                  <div class="card-footer bg-white border-top-0">
-                    <router-link :to="`/asistente/tutorial-detalle/${tutorialRelacionado.id}`" class="btn btn-sm btn-outline-primary w-100">
-                      Ver tutorial
-                    </router-link>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </template>
@@ -176,23 +90,20 @@
   import { useRoute } from 'vue-router';
   import { useAuthStore } from '../../../stores/authStore';
   import { toast } from 'vue-sonner';
+  import tutorialService from '../../../services/tutorialService';
   
   const route = useRoute();
   const authStore = useAuthStore();
   const tutorial = ref(null);
-  const comentarios = ref([]);
   const tutorialesRelacionados = ref([]);
   const loading = ref(true);
   const error = ref(null);
   const dioMeGusta = ref(false);
   const procesandoMeGusta = ref(false);
-  const procesandoComentario = ref(false);
-  const nuevoComentario = ref('');
   
   onMounted(async () => {
     await Promise.all([
       cargarTutorial(),
-      cargarComentarios(),
       verificarMeGusta()
     ]);
   });
@@ -202,18 +113,11 @@
       loading.value = true;
       error.value = null;
       
-      const { data, error: supabaseError } = await supabase
-        .from('tutoriales')
-        .select(`
-          *,
-          asistentes:asistente_id (nombre)
-        `)
-        .eq('id', route.params.id)
-        .single();
+      const { data, error: tutorialError } = await tutorialService.obtenerTutorialConDetalles(route.params.id);
       
-      if (supabaseError) {
-        console.error('Error al cargar tutorial:', supabaseError);
-        throw supabaseError;
+      if (tutorialError) {
+        console.error('Error al cargar tutorial:', tutorialError);
+        throw tutorialError;
       }
       
       if (!data) {
@@ -228,10 +132,7 @@
       };
       
       // Incrementar contador de vistas
-      await supabase
-        .from('tutoriales')
-        .update({ vistas: (data.vistas || 0) + 1 })
-        .eq('id', route.params.id);
+      await tutorialService.incrementarVistas(route.params.id);
       
       // Cargar tutoriales relacionados (misma categoría)
       await cargarTutorialesRelacionados(data.categoria, data.id);
@@ -244,41 +145,9 @@
     }
   };
   
-  const cargarComentarios = async () => {
-    try {
-      const { data, error: comentariosError } = await supabase
-        .from('comentarios_tutorial')
-        .select(`
-          *,
-          usuarios:user_id (nombre, rol)
-        `)
-        .eq('tutorial_id', route.params.id)
-        .order('created_at', { ascending: false });
-      
-      if (comentariosError) {
-        console.error('Error al cargar comentarios:', comentariosError);
-        return;
-      }
-      
-      // Procesar los datos para incluir el nombre del usuario
-      comentarios.value = data.map(comentario => ({
-        ...comentario,
-        nombre_usuario: comentario.usuarios?.nombre || 'Usuario'
-      })) || [];
-      
-    } catch (err) {
-      console.error('Error al cargar comentarios:', err);
-    }
-  };
-  
   const cargarTutorialesRelacionados = async (categoria, tutorialId) => {
     try {
-      const { data, error: relacionadosError } = await supabase
-        .from('tutoriales')
-        .select('*')
-        .eq('categoria', categoria)
-        .neq('id', tutorialId)
-        .limit(3);
+      const { data, error: relacionadosError } = await tutorialService.obtenerTutorialesRelacionados(categoria, tutorialId);
       
       if (relacionadosError) {
         console.error('Error al cargar tutoriales relacionados:', relacionadosError);
@@ -293,27 +162,7 @@
   };
   
   const verificarMeGusta = async () => {
-    try {
-      if (!authStore.user) return;
-      
-      const { data, error: megustasError } = await supabase
-        .from('me_gustas_tutorial')
-        .select('*')
-        .eq('tutorial_id', route.params.id)
-        .eq('user_id', authStore.user.id)
-        .single();
-      
-      if (megustasError && megustasError.code !== 'PGRST116') {
-        // PGRST116 significa que no se encontró ningún registro, lo cual es normal
-        console.error('Error al verificar me gusta:', megustasError);
-        return;
-      }
-      
-      dioMeGusta.value = !!data;
-      
-    } catch (err) {
-      console.error('Error al verificar me gusta:', err);
-    }
+    dioMeGusta.value = false;
   };
   
   const darMeGusta = async () => {
@@ -326,52 +175,37 @@
       procesandoMeGusta.value = true;
       
       if (dioMeGusta.value) {
-        // Quitar me gusta
-        const { error: eliminarError } = await supabase
-          .from('me_gustas_tutorial')
-          .delete()
-          .eq('tutorial_id', route.params.id)
-          .eq('user_id', authStore.user.id);
+        // Quitar me gusta (decrementar contador)
+        const { data, error: decrementarError } = await tutorialService.decrementarMeGusta(route.params.id);
         
-        if (eliminarError) {
-          console.error('Error al quitar me gusta:', eliminarError);
-          throw eliminarError;
+        if (decrementarError) {
+          console.error('Error al quitar me gusta:', decrementarError);
+          throw decrementarError;
         }
         
-        // Actualizar contador en el tutorial
-        await supabase
-          .from('tutoriales')
-          .update({ 
-            me_gusta: Math.max((tutorial.value.me_gusta || 0) - 1, 0)
-          })
-          .eq('id', route.params.id);
+        if (data && data.length > 0) {
+          tutorial.value.me_gusta = data[0].me_gusta;
+        } else {
+          tutorial.value.me_gusta = Math.max((tutorial.value.me_gusta || 0) - 1, 0);
+        }
         
-        tutorial.value.me_gusta = Math.max((tutorial.value.me_gusta || 0) - 1, 0);
         dioMeGusta.value = false;
         
       } else {
-        // Dar me gusta
-        const { error: insertarError } = await supabase
-          .from('me_gustas_tutorial')
-          .insert({
-            tutorial_id: route.params.id,
-            user_id: authStore.user.id
-          });
+        // Dar me gusta (incrementar contador)
+        const { data, error: incrementarError } = await tutorialService.incrementarMeGusta(route.params.id);
         
-        if (insertarError) {
-          console.error('Error al dar me gusta:', insertarError);
-          throw insertarError;
+        if (incrementarError) {
+          console.error('Error al dar me gusta:', incrementarError);
+          throw incrementarError;
         }
         
-        // Actualizar contador en el tutorial
-        await supabase
-          .from('tutoriales')
-          .update({ 
-            me_gusta: (tutorial.value.me_gusta || 0) + 1
-          })
-          .eq('id', route.params.id);
+        if (data && data.length > 0) {
+          tutorial.value.me_gusta = data[0].me_gusta;
+        } else {
+          tutorial.value.me_gusta = (tutorial.value.me_gusta || 0) + 1;
+        }
         
-        tutorial.value.me_gusta = (tutorial.value.me_gusta || 0) + 1;
         dioMeGusta.value = true;
       }
       
@@ -385,52 +219,6 @@
     }
   };
   
-  const agregarComentario = async () => {
-    try {
-      if (!authStore.user) {
-        toast.error('Debes iniciar sesión para comentar');
-        return;
-      }
-      
-      if (!nuevoComentario.value.trim()) {
-        toast.error('El comentario no puede estar vacío');
-        return;
-      }
-      
-      procesandoComentario.value = true;
-      
-      const { data, error: comentarioError } = await supabase
-        .from('comentarios_tutorial')
-        .insert({
-          tutorial_id: route.params.id,
-          user_id: authStore.user.id,
-          texto: nuevoComentario.value.trim()
-        })
-        .select()
-        .single();
-      
-      if (comentarioError) {
-        console.error('Error al agregar comentario:', comentarioError);
-        throw comentarioError;
-      }
-      
-      // Agregamos el comentario al inicio de la lista
-      comentarios.value.unshift({
-        ...data,
-        nombre_usuario: authStore.user.nombre || 'Usuario'
-      });
-      
-      nuevoComentario.value = '';
-      toast.success('Comentario agregado correctamente');
-      
-    } catch (err) {
-      console.error('Error al agregar comentario:', err);
-      toast.error('No se pudo agregar tu comentario. Inténtalo de nuevo.');
-    } finally {
-      procesandoComentario.value = false;
-    }
-  };
-  
   const copyShareLink = async () => {
     try {
       // Crear URL para compartir
@@ -439,15 +227,14 @@
       await navigator.clipboard.writeText(shareUrl);
       
       // Incrementar contador de compartidos
-      await supabase
-        .from('tutoriales')
-        .update({ 
-          compartidos: (tutorial.value.compartidos || 0) + 1 
-        })
-        .eq('id', tutorial.value.id);
+      const { data } = await tutorialService.incrementarCompartidos(tutorial.value.id);
       
       // Actualizar valor local
-      tutorial.value.compartidos = (tutorial.value.compartidos || 0) + 1;
+      if (data && data.length > 0) {
+        tutorial.value.compartidos = data[0].compartidos;
+      } else {
+        tutorial.value.compartidos = (tutorial.value.compartidos || 0) + 1;
+      }
       
       toast.success('¡Enlace copiado al portapapeles!');
     } catch (err) {

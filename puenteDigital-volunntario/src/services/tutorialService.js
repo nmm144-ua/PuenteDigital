@@ -1,10 +1,85 @@
 // src/services/tutorialService.js
-import { supabase } from '../supabase';
+import { supabase } from '../../supabase';
 
 /**
  * Servicio para gestionar tutoriales
  */
 export const tutorialService = {
+  /**
+   * Obtiene tutoriales con filtros y paginación
+   * @param {Object} opciones - Opciones de filtrado y paginación
+   * @param {string} opciones.categoria - Categoría para filtrar
+   * @param {string} opciones.orden - Criterio de ordenación (recientes, populares, vistos)
+   * @param {string} opciones.busqueda - Texto para buscar en el título
+   * @param {number} opciones.pagina - Número de página actual
+   * @param {number} opciones.porPagina - Número de tutoriales por página
+   * @returns {Promise<Object>} Resultado de la consulta con tutoriales y total
+   */
+  async obtenerTutorialesConFiltros(opciones = {}) {
+    try {
+      const {
+        categoria = '',
+        orden = 'recientes',
+        busqueda = '',
+        pagina = 1,
+        porPagina = 9
+      } = opciones;
+      
+      // Construir la consulta base
+      let query = supabase
+        .from('tutoriales')
+        .select(`
+          *,
+          asistentes:asistente_id (nombre)
+        `, { count: 'exact' });
+      
+      // Aplicar filtros
+      if (categoria) {
+        query = query.eq('categoria', categoria);
+      }
+      
+      if (busqueda) {
+        query = query.ilike('titulo', `%${busqueda}%`);
+      }
+      
+      // Ordenar resultados
+      switch (orden) {
+        case 'recientes':
+          query = query.order('created_at', { ascending: false });
+          break;
+        case 'populares':
+          query = query.order('me_gusta', { ascending: false });
+          break;
+        case 'vistos':
+          query = query.order('vistas', { ascending: false });
+          break;
+      }
+      
+      // Paginación
+      const desde = (pagina - 1) * porPagina;
+      query = query.range(desde, desde + porPagina - 1);
+      
+      // Ejecutar consulta
+      const { data, error, count } = await query;
+      
+      if (error) throw error;
+      
+      // Procesar los datos para incluir el nombre del asistente
+      const tutorialesProcesados = data.map(tutorial => ({
+        ...tutorial,
+        nombre_asistente: tutorial.asistentes?.nombre || 'Asistente'
+      }));
+      
+      return { 
+        data: tutorialesProcesados, 
+        total: count || 0,
+        error: null 
+      };
+    } catch (error) {
+      console.error('Error en obtenerTutorialesConFiltros:', error);
+      return { data: [], total: 0, error };
+    }
+  },
   /**
    * Obtiene todos los tutoriales de un asistente
    * @param {number} asistenteId - ID del asistente
@@ -32,6 +107,22 @@ export const tutorialService = {
   },
 
   /**
+   * Obtiene un tutorial por su ID junto con el nombre del asistente
+   * @param {string} tutorialId - ID del tutorial
+   * @returns {Promise<Object>} Resultado de la consulta
+   */
+  async obtenerTutorialConDetalles(tutorialId) {
+    return await supabase
+      .from('tutoriales')
+      .select(`
+        *,
+        asistentes:asistente_id (nombre)
+      `)
+      .eq('id', tutorialId)
+      .single();
+  },
+
+  /**
    * Sube un tutorial a Supabase
    * @param {Object} tutorialData - Datos del tutorial
    * @param {File} archivo - Archivo de video
@@ -44,6 +135,9 @@ export const tutorialService = {
       if (!tutorialData.user_id) {
         throw new Error('Se requiere el ID de usuario para subir un tutorial');
       }
+
+      // Extraer user_id para no incluirlo en la inserción
+      const { user_id, ...datosParaInsertar } = tutorialData;
       
       // Generar nombre único para el archivo
       const extension = archivo.name.split('.').pop().toLowerCase();
@@ -75,7 +169,7 @@ export const tutorialService = {
         .from('tutoriales')
         .insert([
           {
-            ...tutorialData,
+            ...datosParaInsertar,
             video_path: filePath,
             video_url: publicUrl,
             tamanio: archivo.size,
@@ -132,40 +226,52 @@ export const tutorialService = {
   /**
    * Actualiza el contador de vistas de un tutorial
    * @param {string} tutorialId - ID del tutorial
-   * @returns {Promise<void>}
+   * @returns {Promise<Object>} Resultado de la operación
    */
   async incrementarVistas(tutorialId) {
     try {
-      const { data: tutorial } = await this.obtenerTutorialPorId(tutorialId);
+      const { data: tutorial, error: getError } = await this.obtenerTutorialPorId(tutorialId);
+      
+      if (getError) throw getError;
       
       if (tutorial) {
-        await supabase
+        const { data, error: updateError } = await supabase
           .from('tutoriales')
           .update({ vistas: (tutorial.vistas || 0) + 1 })
-          .eq('id', tutorialId);
+          .eq('id', tutorialId)
+          .select();
+        
+        if (updateError) throw updateError;
+        
+        return { data, error: null };
       }
+      
+      throw new Error('Tutorial no encontrado');
     } catch (error) {
       console.error('Error al incrementar vistas:', error);
+      return { data: null, error };
     }
   },
 
   /**
-   * Actualiza el contador de "me gusta" de un tutorial
+   * Actualiza el contador de "me gusta" de un tutorial (incrementando)
    * @param {string} tutorialId - ID del tutorial
-   * @returns {Promise<Object>}
+   * @returns {Promise<Object>} Resultado de la operación
    */
   async incrementarMeGusta(tutorialId) {
     try {
-      const { data: tutorial } = await this.obtenerTutorialPorId(tutorialId);
+      const { data: tutorial, error: getError } = await this.obtenerTutorialPorId(tutorialId);
+      
+      if (getError) throw getError;
       
       if (tutorial) {
-        const { data, error } = await supabase
+        const { data, error: updateError } = await supabase
           .from('tutoriales')
           .update({ me_gusta: (tutorial.me_gusta || 0) + 1 })
           .eq('id', tutorialId)
           .select();
         
-        if (error) throw error;
+        if (updateError) throw updateError;
         
         return { data, error: null };
       }
@@ -178,22 +284,115 @@ export const tutorialService = {
   },
 
   /**
+   * Actualiza el contador de "me gusta" de un tutorial (decrementando)
+   * @param {string} tutorialId - ID del tutorial
+   * @returns {Promise<Object>} Resultado de la operación
+   */
+  async decrementarMeGusta(tutorialId) {
+    try {
+      const { data: tutorial, error: getError } = await this.obtenerTutorialPorId(tutorialId);
+      
+      if (getError) throw getError;
+      
+      if (tutorial) {
+        const { data, error: updateError } = await supabase
+          .from('tutoriales')
+          .update({ me_gusta: Math.max((tutorial.me_gusta || 0) - 1, 0) })
+          .eq('id', tutorialId)
+          .select();
+        
+        if (updateError) throw updateError;
+        
+        return { data, error: null };
+      }
+      
+      throw new Error('Tutorial no encontrado');
+    } catch (error) {
+      console.error('Error al decrementar me gusta:', error);
+      return { data: null, error };
+    }
+  },
+
+  /**
    * Actualiza el contador de compartidos de un tutorial
    * @param {string} tutorialId - ID del tutorial
-   * @returns {Promise<void>}
+   * @returns {Promise<Object>} Resultado de la operación
    */
   async incrementarCompartidos(tutorialId) {
     try {
-      const { data: tutorial } = await this.obtenerTutorialPorId(tutorialId);
+      const { data: tutorial, error: getError } = await this.obtenerTutorialPorId(tutorialId);
+      
+      if (getError) throw getError;
       
       if (tutorial) {
-        await supabase
+        const { data, error: updateError } = await supabase
           .from('tutoriales')
           .update({ compartidos: (tutorial.compartidos || 0) + 1 })
-          .eq('id', tutorialId);
+          .eq('id', tutorialId)
+          .select();
+        
+        if (updateError) throw updateError;
+        
+        return { data, error: null };
       }
+      
+      throw new Error('Tutorial no encontrado');
     } catch (error) {
       console.error('Error al incrementar compartidos:', error);
+      return { data: null, error };
+    }
+  },
+
+  /**
+   * Obtiene tutoriales relacionados (misma categoría)
+   * @param {string} categoria - Categoría para buscar tutoriales similares
+   * @param {string} tutorialId - ID del tutorial actual para excluirlo
+   * @param {number} limite - Cantidad máxima de tutoriales a devolver
+   * @returns {Promise<Object>} Resultado de la consulta
+   */
+  async obtenerTutorialesRelacionados(categoria, tutorialId, limite = 3) {
+    try {
+      const { data, error } = await supabase
+        .from('tutoriales')
+        .select('*')
+        .eq('categoria', categoria)
+        .neq('id', tutorialId)
+        .limit(limite);
+      
+      if (error) throw error;
+      
+      return { data, error: null };
+    } catch (error) {
+      console.error('Error al obtener tutoriales relacionados:', error);
+      return { data: [], error };
+    }
+  },
+  
+  /**
+   * Obtiene estadísticas generales de todos los tutoriales
+   * @returns {Promise<Object>} Estadísticas generales (total tutoriales, vistas y me gusta)
+   */
+  async obtenerEstadisticasGenerales() {
+    try {
+      const { data, error } = await supabase
+        .from('tutoriales')
+        .select('id, vistas, me_gusta');
+      
+      if (error) throw error;
+      
+      const estadisticas = {
+        totalTutoriales: data.length,
+        totalVistas: data.reduce((sum, tutorial) => sum + (tutorial.vistas || 0), 0),
+        totalMeGusta: data.reduce((sum, tutorial) => sum + (tutorial.me_gusta || 0), 0)
+      };
+      
+      return { data: estadisticas, error: null };
+    } catch (error) {
+      console.error('Error al obtener estadísticas generales:', error);
+      return { 
+        data: { totalTutoriales: 0, totalVistas: 0, totalMeGusta: 0 }, 
+        error 
+      };
     }
   }
 };

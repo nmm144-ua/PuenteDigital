@@ -143,7 +143,7 @@
   
   <script setup>
   import { ref, reactive, computed, onMounted, watch } from 'vue';
-  import { supabase } from '../../../../supabase';
+  import tutorialService from '../../../services/tutorialService';
   
   const tutoriales = ref([]);
   const loading = ref(true);
@@ -197,55 +197,22 @@
       loading.value = true;
       error.value = null;
       
-      // Construir la consulta base
-      let query = supabase
-        .from('tutoriales')
-        .select(`
-          *,
-          asistentes:asistente_id (nombre)
-        `, { count: 'exact' });
+      // Usar el servicio para obtener tutoriales con filtros
+      const { data, total, error: tutorialesError } = await tutorialService.obtenerTutorialesConFiltros({
+        categoria: filtros.categoria,
+        orden: filtros.orden,
+        busqueda: filtros.busqueda,
+        pagina: paginaActual.value,
+        porPagina: tutorialesPorPagina
+      });
       
-      // Aplicar filtros
-      if (filtros.categoria) {
-        query = query.eq('categoria', filtros.categoria);
+      if (tutorialesError) {
+        console.error('Error al cargar tutoriales:', tutorialesError);
+        throw tutorialesError;
       }
       
-      if (filtros.busqueda) {
-        query = query.ilike('titulo', `%${filtros.busqueda}%`);
-      }
-      
-      // Ordenar resultados
-      switch (filtros.orden) {
-        case 'recientes':
-          query = query.order('created_at', { ascending: false });
-          break;
-        case 'populares':
-          query = query.order('me_gusta', { ascending: false });
-          break;
-        case 'vistos':
-          query = query.order('vistas', { ascending: false });
-          break;
-      }
-      
-      // Paginación
-      const desde = (paginaActual.value - 1) * tutorialesPorPagina;
-      query = query.range(desde, desde + tutorialesPorPagina - 1);
-      
-      // Ejecutar consulta
-      const { data, error: supabaseError, count } = await query;
-      
-      if (supabaseError) {
-        console.error('Error al cargar tutoriales:', supabaseError);
-        throw supabaseError;
-      }
-      
-      // Procesar los datos para incluir el nombre del asistente
-      tutoriales.value = data.map(tutorial => ({
-        ...tutorial,
-        nombre_asistente: tutorial.asistentes?.nombre || 'Asistente'
-      }));
-      
-      totalTutoriales.value = count || 0;
+      tutoriales.value = data;
+      totalTutoriales.value = total;
       
     } catch (err) {
       console.error('Error al cargar tutoriales:', err);

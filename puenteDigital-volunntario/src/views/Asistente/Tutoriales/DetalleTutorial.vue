@@ -103,37 +103,6 @@
           </div>
         </div>
       </div>
-      
-      <!-- Sección de comentarios -->
-      <div class="card shadow mt-4">
-        <div class="card-header bg-light">
-          <h4 class="mb-0 fs-5">Comentarios de los usuarios</h4>
-        </div>
-        <div class="card-body">
-          <div v-if="comentarios.length === 0" class="text-center py-3">
-            <p class="text-muted">No hay comentarios aún para este tutorial.</p>
-          </div>
-          
-          <div v-else>
-            <div v-for="comentario in comentarios" :key="comentario.id" class="border-bottom pb-3 mb-3">
-              <div class="d-flex">
-                <div class="flex-shrink-0">
-                  <div class="bg-light rounded-circle p-2">
-                    <i class="bi bi-person fs-4"></i>
-                  </div>
-                </div>
-                <div class="flex-grow-1 ms-3">
-                  <div class="d-flex justify-content-between">
-                    <h6 class="mb-0">{{ comentario.nombre_usuario || 'Usuario' }}</h6>
-                    <small class="text-muted">{{ formatDate(comentario.created_at) }}</small>
-                  </div>
-                  <p class="mb-0 mt-1">{{ comentario.texto }}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -144,12 +113,12 @@ import { supabase } from '../../../../supabase';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../../stores/authStore';
 import { toast } from 'vue-sonner';
+import tutorialService from '../../../services/tutorialService';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const tutorial = ref(null);
-const comentarios = ref([]);
 const loading = ref(true);
 const error = ref(null);
 const asistenteId = ref(null);
@@ -159,10 +128,7 @@ onMounted(async () => {
   await obtenerAsistenteId();
   
   if (asistenteId.value) {
-    await Promise.all([
-      cargarTutorial(),
-      cargarComentarios()
-    ]);
+    await cargarTutorial();
   }
 });
 
@@ -197,15 +163,11 @@ const cargarTutorial = async () => {
     loading.value = true;
     error.value = null;
     
-    const { data, error: supabaseError } = await supabase
-      .from('tutoriales')
-      .select('*')
-      .eq('id', route.params.id)
-      .single();
+    const { data, error: tutorialError } = await tutorialService.obtenerTutorialPorId(route.params.id);
     
-    if (supabaseError) {
-      console.error('Error al cargar tutorial:', supabaseError);
-      throw supabaseError;
+    if (tutorialError) {
+      console.error('Error al cargar tutorial:', tutorialError);
+      throw tutorialError;
     }
     
     if (!data) {
@@ -226,33 +188,6 @@ const cargarTutorial = async () => {
     error.value = 'No se pudo cargar el tutorial. Por favor, intenta de nuevo más tarde.';
   } finally {
     loading.value = false;
-  }
-};
-
-const cargarComentarios = async () => {
-  try {
-    const { data, error: comentariosError } = await supabase
-      .from('comentarios_tutorial')
-      .select(`
-        *,
-        usuarios:user_id (nombre, rol)
-      `)
-      .eq('tutorial_id', route.params.id)
-      .order('created_at', { ascending: false });
-    
-    if (comentariosError) {
-      console.error('Error al cargar comentarios:', comentariosError);
-      return;
-    }
-    
-    // Procesar los datos para incluir el nombre del usuario
-    comentarios.value = data.map(comentario => ({
-      ...comentario,
-      nombre_usuario: comentario.usuarios?.nombre || 'Usuario'
-    })) || [];
-    
-  } catch (err) {
-    console.error('Error al cargar comentarios:', err);
   }
 };
 
@@ -295,16 +230,15 @@ const copyShareLink = async () => {
     
     await navigator.clipboard.writeText(shareUrl);
     
-    // Incrementar contador de compartidos
-    await supabase
-      .from('tutoriales')
-      .update({ 
-        compartidos: (tutorial.value.compartidos || 0) + 1 
-      })
-      .eq('id', tutorial.value.id);
+    // Incrementar contador de compartidos usando el servicio
+    const { data } = await tutorialService.incrementarCompartidos(tutorial.value.id);
     
     // Actualizar valor local
-    tutorial.value.compartidos = (tutorial.value.compartidos || 0) + 1;
+    if (data && data.length > 0) {
+      tutorial.value.compartidos = data[0].compartidos;
+    } else {
+      tutorial.value.compartidos = (tutorial.value.compartidos || 0) + 1;
+    }
     
     toast.success('¡Enlace copiado al portapapeles!');
   } catch (err) {
@@ -326,32 +260,20 @@ const eliminarTutorial = async () => {
       throw new Error('No tienes permiso para eliminar este tutorial');
     }
     
-    // Eliminar el archivo de storage
-    if (tutorial.value.video_path) {
-      console.log('Eliminando archivo:', tutorial.value.video_path);
-      const { error: storageError } = await supabase.storage
-        .from('tutoriales')
-        .remove([tutorial.value.video_path]);
-      
-      if (storageError) {
-        console.error('Error al eliminar archivo:', storageError);
-        throw storageError;
-      }
+    // Utilizar el servicio para eliminar el tutorial
+    const { success, error: eliminarError } = await tutorialService.eliminarTutorial(tutorial.value.id);
+    
+    if (eliminarError) {
+      console.error('Error al eliminar tutorial:', eliminarError);
+      throw eliminarError;
     }
     
-    // Eliminar el registro de la base de datos
-    const { error: deleteError } = await supabase
-      .from('tutoriales')
-      .delete()
-      .eq('id', tutorial.value.id);
-    
-    if (deleteError) {
-      console.error('Error al eliminar registro:', deleteError);
-      throw deleteError;
+    if (success) {
+      toast.success('Tutorial eliminado correctamente');
+      router.push('/asistente/mis-tutoriales');
+    } else {
+      throw new Error('No se pudo eliminar el tutorial');
     }
-    
-    toast.success('Tutorial eliminado correctamente');
-    router.push('/asistente/mis-tutoriales');
   } catch (err) {
     console.error('Error al eliminar tutorial:', err);
     toast.error('Error al eliminar el tutorial: ' + (err.message || 'Inténtalo de nuevo.'));
