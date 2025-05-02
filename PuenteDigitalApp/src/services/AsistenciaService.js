@@ -482,6 +482,29 @@ class AsistenciaService {
       throw error;
     }
   }
+
+  async guardarValoracion(solicitudId, valoracion) {
+    try {
+      console.log('Guardando valoración:', { solicitudId, valoracion });
+      
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .update({ valoracion })
+        .eq('id', solicitudId)
+        .select();
+      
+      if (error) {
+        console.error('Error al guardar valoración:', error);
+        throw error;
+      }
+      
+      console.log('Valoración guardada con éxito');
+      return data[0];
+    } catch (error) {
+      console.error('Error al guardar valoración:', error);
+      throw error;
+    }
+  }
 }
 
 export default new AsistenciaService();

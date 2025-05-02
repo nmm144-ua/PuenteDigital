@@ -17,6 +17,7 @@ import WebRTCService from '../../services/WebRTCService';
 import PermissionsService from '../../services/permissions.service';
 import { RTCView } from 'react-native-webrtc';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import RatingModal from '../../components/RatingModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -32,6 +33,7 @@ const VideollamadaScreen = ({ route, navigation }) => {
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [callStatus, setCallStatus] = useState('connecting'); // 'connecting', 'connected', 'ended'
   const [callDuration, setCallDuration] = useState(0);
+  const [showRatingModal, setShowRatingModal] = useState(false);
   
   const durationTimerRef = useRef(null);
   const initialized = useRef(false);
@@ -80,10 +82,7 @@ const VideollamadaScreen = ({ route, navigation }) => {
       // Limpiar recursos WebRTC
       WebRTCService.cleanup();
       
-      // Navegar de vuelta a la pantalla anterior después de un breve retraso
-      setTimeout(() => {
-        navigation.navigate('OpcionesInicio');
-      }, 500);
+      setShowRatingModal(true);
     } catch (error) {
       console.error('Error al finalizar la llamada:', error);
       navigation.navigate('OpcionesInicio');
@@ -127,7 +126,16 @@ const VideollamadaScreen = ({ route, navigation }) => {
     WebRTCService.toggleSpeaker(!isSpeakerOn);
     setIsSpeakerOn(!isSpeakerOn);
   };
-  
+
+  // Función para manejar el cierre del modal de valoración
+  const handleRatingClose = () => {
+    setShowRatingModal(false);
+    // Navegar a la pantalla de inicio después de un breve retraso
+    setTimeout(() => {
+      navigation.navigate('OpcionesInicio');
+    }, 300);
+  };
+    
   useEffect(() => {
     console.log("Montando VideollamadaScreen...");
     
@@ -437,6 +445,13 @@ const VideollamadaScreen = ({ route, navigation }) => {
       <TouchableOpacity style={styles.endCallButton} onPress={endCall}>
         <MaterialIcons name="call-end" size={36} color="#fff" />
       </TouchableOpacity>
+      
+      {/* Modal de valoración */}
+      <RatingModal
+        visible={showRatingModal}
+        solicitudId={route.params.solicitudId}
+        onClose={handleRatingClose}
+      />
     </SafeAreaView>
   );
 };
