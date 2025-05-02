@@ -138,7 +138,7 @@ import { useCallStore } from '../../stores/call.store';
 import { useChatStore } from '../../stores/chat.store';
 import { asistenteService } from '@/services/asistenteService';
 import { supabase } from '../../../supabase';
-import InformeModal from '../Asistente/InformeModal.vue';
+import InformeModal from './InformeModal.vue';
 
 export default {
   name: 'ChatComponent',
@@ -507,9 +507,7 @@ export default {
       }
       
       // Si es un asistente, mostrar el modal para el informe
-      if (props.isAsistente) {
-        mostrarInformeModal.value = true;
-      } else {
+      mostrarInformeModal.value = true;
         // Si es un usuario, finalizar directamente
         try {
           const solicitudActualizada = await solicitudesAsistenciaService.finalizarSolicitud(solicitud.value.id);
@@ -532,7 +530,7 @@ export default {
           console.error('Error al finalizar solicitud:', error);
           alert('No se pudo finalizar la solicitud: ' + error.message);
         }
-      }
+      
     };
 
     // Método para manejar cuando se guarda el informe

@@ -332,6 +332,14 @@
         </div>
       </div>
     </div>
+    
+    <!-- Modal de informe -->
+    <informe-modal 
+      v-if="mostrarInformeModal" 
+      :solicitud-id="selectedSolicitudId" 
+      @close="mostrarInformeModal = false" 
+      @saved="onInformeGuardado"
+    />
   </div>
 </template>
 
@@ -344,10 +352,14 @@ import { useAuthStore } from '../../stores/authStore';
 import { useChatStore } from '../../stores/chat.store';
 import { supabase } from '../../../supabase';
 import notificationService from '../../services/notificacion.service';
+import InformeModal from '../../components/Chat/InformeModal.vue';
 
 
 export default {
   name: 'UserChatView',
+  components: {
+    InformeModal
+  },
   setup() {
     const authStore = useAuthStore();
     const chatStore = useChatStore();
@@ -372,6 +384,7 @@ export default {
     const silentLoading = ref(false);
     const nuevasSolicitudes = ref(new Set());
     const solicitudesConocidas = ref(new Set());
+    const mostrarInformeModal = ref(false);
     
     // Filtrar solicitudes por estado para mis conversaciones (con asistente asignado)
     const misConversaciones = computed(() => {
@@ -1148,37 +1161,42 @@ export default {
     };
 
 
-    // Finalizar una solicitud
-    const finalizarSolicitud = async (solicitud) => {
-      if (!solicitud || !solicitud.id) return;
-      
-      // Confirmar con el usuario
-      if (!confirm('¿Estás seguro de que deseas finalizar esta solicitud? Esta acción marcará la asistencia como completada.')) {
-        return;
-      }
-      
+        // Finalizar una solicitud - MÉTODO MODIFICADO
+      const finalizarSolicitud = async (solicitud) => {
+        if (!solicitud || !solicitud.id) return;
+        
+        // Confirmar con el usuario
+        if (!confirm('¿Estás seguro de que deseas finalizar esta solicitud? Esta acción marcará la asistencia como completada.')) {
+          return;
+        }
+        
+        // Mostrar el modal para el informe
+        mostrarInformeModal.value = true;
+    };
+
+    // Método para manejar cuando se guarda el informe - NUEVO MÉTODO
+    const onInformeGuardado = async () => {
       try {
-        const solicitudActualizada = await solicitudesAsistenciaService.finalizarSolicitud(solicitud.id);
+        const solicitudActualizada = await solicitudesAsistenciaService.finalizarSolicitud(selectedSolicitudId.value);
         
         // Actualizar el objeto de solicitud local
         if (solicitudActualizada) {
-          console.log('Solicitud finalizada correctamente', solicitudActualizada);
-          
-          // Actualizar solicitud seleccionada
-          if (selectedSolicitudId.value === solicitud.id) {
-            selectedSolicitud.value = solicitudActualizada;
-          }
+          console.log('Solicitud finalizada correctamente con informe', solicitudActualizada);
+          selectedSolicitud.value = solicitudActualizada;
           
           // Recargar la lista de solicitudes
           await loadSolicitudes();
           
           // Mostrar notificación de éxito
-          alert('Solicitud finalizada correctamente');
+          alert('Informe guardado y solicitud finalizada correctamente');
         }
       } catch (error) {
         console.error('Error al finalizar solicitud:', error);
         alert('No se pudo finalizar la solicitud: ' + error.message);
       }
+      
+      // Cerrar el modal
+      mostrarInformeModal.value = false;
     };
 
     // Eliminar una solicitud
@@ -1524,7 +1542,9 @@ export default {
       eliminarSolicitud,
       autoRefreshInterval,
       esNuevaSolicitud,
-      reabrirSolicitud
+      reabrirSolicitud,
+      mostrarInformeModal,
+      onInformeGuardado
     };
   }
 };
