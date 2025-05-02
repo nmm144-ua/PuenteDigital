@@ -252,8 +252,37 @@ export default {
       if (this.$refs.videoGrid) {
         this.$refs.videoGrid.stopAllVideoPlayback();
       }
+       // Asegurarnos de que tenemos la información de la solicitud actual
+      const solicitudId = this.callStore.currentRequest?.id;
+      console.log('ID de solicitud antes de finalizar llamada:', solicitudId);
+      
+      // Si no tenemos ID pero estamos en una ruta con ID
+      if (!solicitudId && this.$route.params.id) {
+        // Intentar actualizar la solicitud desde los parámetros de ruta
+        const routeId = parseInt(this.$route.params.id);
+        if (routeId) {
+          console.log('Usando ID de la ruta como respaldo:', routeId);
+          // Actualizar manualmente el store con el ID de la ruta
+          this.callStore.setCurrentRequest({
+            id: routeId,
+            roomId: this.roomId,
+            userName: this.userName
+          });
+        }
+      }
       
       this.callStore.endCall();
+      
+
+      // Redirigir a la vista de finalización con el ID como parámetro
+        const finalId = this.callStore.currentRequest?.id;
+        if (finalId) {
+          this.$router.push(`/finalizacion-llamada/${finalId}`);
+        } else {
+          // Sin ID, enviamos sin parámetro
+          this.$router.push('/finalizacion-llamada');
+        }
+      
     },
     
     leaveRoom() {

@@ -13,7 +13,7 @@ class SocketService {
     this.connectionAttempts = 0;
     
     // Server URL - cambiar a la URL real de tu servidor
-    this.serverUrl = 'http://192.168.1.49:3001';
+    this.serverUrl = 'http://192.168.1.50:3001';
     
     // Evitar duplicación de listeners
     this.registeredEvents = new Set();

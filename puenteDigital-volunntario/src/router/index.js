@@ -70,8 +70,15 @@ const routes = [
         })
       },
       {
+        path: '/finalizacion-llamada/:id?',
+        name: 'FinalizacionLlamada',
+        props: true,
+        component: () => import('../views/VideoCall/FinalizacionLlamadaView.vue'),
+      
+      },
+      {
         path: 'gestion-llamadas',
-        name: 'GestionLlamadas',
+        name: 'GestionLlamadas',  
         component: () => import('../views/Asistente/GestionLlamadas.vue')
       },
       {
@@ -85,6 +92,7 @@ const routes = [
         name: 'TutorialesHub',
         component: () => import('../views/Asistente/Tutoriales/TutorialesHub.vue')
       },
+      
       {
         path: 'mis-tutoriales',
         name: 'MisTutoriales',

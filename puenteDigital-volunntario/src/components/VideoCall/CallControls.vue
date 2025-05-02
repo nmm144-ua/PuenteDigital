@@ -22,7 +22,7 @@
       <button 
         class="control-button end-call"
         @click="$emit('end-call')"
-        title="Finalizar llamada"
+        title="Finalizar llamada y redactar informe"
       >
         <i class="fas fa-phone-slash"></i>
       </button>

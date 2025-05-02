@@ -291,4 +291,19 @@ export const solicitudesAsistenciaService = {
       throw error;
     }
   },
+
+  async guardarInforme(solicitudId, informe) {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .update({ informe: informe })
+        .eq('id', solicitudId);
+        
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error al guardar el informe:', error);
+      return false;
+    }
+  }
 };

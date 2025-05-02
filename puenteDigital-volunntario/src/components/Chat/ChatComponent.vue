@@ -21,32 +21,32 @@
       </div>
       <div class="header-actions">
         <button 
-        v-if="solicitud && !solicitud.asistente_id" 
-        @click="asignarSolicitud" 
-        class="assign-button"
-        title="Asignarme esta solicitud"
+          v-if="solicitud && !solicitud.asistente_id" 
+          @click="asignarSolicitud" 
+          class="assign-button"
+          title="Asignarme esta solicitud"
         >
-        <i class="fas fa-user-check"></i>
-      </button>
-      <!-- Finalizar solicitud-->
-      <button 
-        v-if="solicitud && solicitud.asistente_id && solicitud.estado !== 'finalizada'" 
-        @click="finalizarSolicitud" 
-        class="finish-button"
-        title="Finalizar solicitud"
-      >
-        <i class="fas fa-check"></i>
-      </button>
-      
-      <!-- Eliminar solicitud (visible solo si está finalizada) -->
-      <button 
-        v-if="solicitud && solicitud.estado === 'finalizada'" 
-        @click="eliminarSolicitud" 
-        class="delete-button"
-        title="Eliminar solicitud"
-      >
-        <i class="fas fa-trash"></i>
-      </button>
+          <i class="fas fa-user-check"></i>
+        </button>
+        <!-- Finalizar solicitud-->
+        <button 
+          v-if="solicitud && solicitud.asistente_id && solicitud.estado !== 'finalizada'" 
+          @click="finalizarSolicitud" 
+          class="finish-button"
+          title="Finalizar solicitud"
+        >
+          <i class="fas fa-check"></i>
+        </button>
+        
+        <!-- Eliminar solicitud (visible solo si está finalizada) -->
+        <button 
+          v-if="solicitud && solicitud.estado === 'finalizada'" 
+          @click="eliminarSolicitud" 
+          class="delete-button"
+          title="Eliminar solicitud"
+        >
+          <i class="fas fa-trash"></i>
+        </button>
         <button 
           v-if="!chatStore.isInCall && solicitud" 
           @click="iniciarLlamada" 
@@ -118,6 +118,14 @@
         </button>
       </div>
     </div>
+
+    <!-- Modal de informe -->
+    <informe-modal 
+      v-if="mostrarInformeModal" 
+      :solicitud-id="solicitudId" 
+      @close="mostrarInformeModal = false" 
+      @saved="onInformeGuardado"
+    />
   </div>
 </template>
 
@@ -130,9 +138,13 @@ import { useCallStore } from '../../stores/call.store';
 import { useChatStore } from '../../stores/chat.store';
 import { asistenteService } from '@/services/asistenteService';
 import { supabase } from '../../../supabase';
+import InformeModal from '../Asistente/InformeModal.vue';
 
 export default {
   name: 'ChatComponent',
+  components: {
+    InformeModal
+  },
   props: {
     solicitudId: {
       type: [String, Number],
@@ -157,6 +169,7 @@ export default {
     const solicitud = ref(null);
     const isActive = ref(false);
     const typingTimeout = ref(null);
+    const mostrarInformeModal = ref(false);
     
     // Computar mensajes del chat store
     const mensajes = ref([]);
@@ -176,9 +189,6 @@ export default {
           
           // Establecer la solicitud actual en el chat store
           chatStore.setCurrentRequest(solicitud.value);
-
-
-          //AQUI DEBERIA PONER ALGO DE ACTUALIZAR ESTADO Y ASIGNAR
         }
       } catch (error) {
         console.error('Error al cargar la solicitud:', error);
@@ -253,7 +263,7 @@ export default {
           // Inicializar el store
           chatStore.initialize();
           
-          // Si no estamos en la sala, unirnos ACTUALIZAR COSAS AQUÍ
+          // Si no estamos en la sala, unirnos
           if (!chatStore.isInRoom || chatStore.roomId !== solicitud.value.room_id) {
             await chatStore.joinRoom(
               solicitud.value.room_id,
@@ -422,7 +432,7 @@ export default {
       return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
     
-  // Mejora de la función esMensajePropio en ambos componentes
+    // Mejora de la función esMensajePropio en ambos componentes
     const esMensajePropio = (mensaje) => {
       // Si el mensaje tiene campo isLocal, usarlo
       if (mensaje.isLocal !== undefined) {
@@ -496,27 +506,61 @@ export default {
         return;
       }
       
+      // Si es un asistente, mostrar el modal para el informe
+      if (props.isAsistente) {
+        mostrarInformeModal.value = true;
+      } else {
+        // Si es un usuario, finalizar directamente
+        try {
+          const solicitudActualizada = await solicitudesAsistenciaService.finalizarSolicitud(solicitud.value.id);
+          
+          // Actualizar el objeto de solicitud local
+          if (solicitudActualizada) {
+            console.log('Solicitud finalizada correctamente', solicitudActualizada);
+            solicitud.value = solicitudActualizada;
+            
+            // Actualizar el estado en chatStore
+            chatStore.setCurrentRequest(solicitudActualizada);
+            
+            // Mostrar notificación de éxito
+            alert('Solicitud finalizada correctamente');
+            
+            // Emitir evento para actualizar lista de solicitudes en el componente padre
+            emit('solicitud-actualizada');
+          }
+        } catch (error) {
+          console.error('Error al finalizar solicitud:', error);
+          alert('No se pudo finalizar la solicitud: ' + error.message);
+        }
+      }
+    };
+
+    // Método para manejar cuando se guarda el informe
+    const onInformeGuardado = async () => {
       try {
         const solicitudActualizada = await solicitudesAsistenciaService.finalizarSolicitud(solicitud.value.id);
         
         // Actualizar el objeto de solicitud local
         if (solicitudActualizada) {
-          console.log('Solicitud finalizada correctamente', solicitudActualizada);
+          console.log('Solicitud finalizada correctamente con informe', solicitudActualizada);
           solicitud.value = solicitudActualizada;
           
           // Actualizar el estado en chatStore
           chatStore.setCurrentRequest(solicitudActualizada);
           
           // Mostrar notificación de éxito
-          alert('Solicitud finalizada correctamente');
+          alert('Informe guardado y solicitud finalizada correctamente');
           
-          // Opcional: Emitir evento para actualizar lista de solicitudes en el componente padre
+          // Emitir evento para actualizar lista de solicitudes en el componente padre
           emit('solicitud-actualizada');
         }
       } catch (error) {
         console.error('Error al finalizar solicitud:', error);
         alert('No se pudo finalizar la solicitud: ' + error.message);
       }
+      
+      // Cerrar el modal
+      mostrarInformeModal.value = false;
     };
 
     // Eliminar una solicitud
@@ -603,7 +647,10 @@ export default {
       iniciarLlamada,
       asignarSolicitud,
       finalizarSolicitud,
-      eliminarSolicitud
+      eliminarSolicitud,
+      mostrarInformeModal,
+      onInformeGuardado,
+      solicitudId: props.solicitudId
     };
   }
 };
