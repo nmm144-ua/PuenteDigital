@@ -305,5 +305,110 @@ export const solicitudesAsistenciaService = {
       console.error('Error al guardar el informe:', error);
       return false;
     }
+  },
+
+  // Obtener valoraciones de un asistente
+  async getValoracionesByAsistente(asistenteId) {
+    try {
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select(`
+          id,
+          valoracion,
+          finalizado_timestamp,
+          usuario:usuario_id(id, nombre)
+        `)
+        .eq('asistente_id', asistenteId)
+        .eq('estado', 'finalizada')
+        .gt('valoracion', 0)
+        .order('finalizado_timestamp', { ascending: false });
+      
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error al obtener valoraciones del asistente:', error);
+      throw error;
+    }
+  },
+
+  // Obtener estadísticas de valoraciones de un asistente
+  async getEstadisticasValoraciones(asistenteId) {
+    try {
+      // Obtener todas las solicitudes finalizadas del asistente
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select(`
+          id,
+          valoracion
+        `)
+        .eq('asistente_id', asistenteId)
+        .eq('estado', 'finalizada');
+      
+      if (error) throw error;
+      
+      // Calcular estadísticas
+      const valoraciones = data.filter(s => s.valoracion > 0);
+      const totalValoraciones = valoraciones.length;
+      
+      if (totalValoraciones === 0) {
+        return {
+          media: 0,
+          total: 0,
+          distribucion: {
+            1: 0,
+            2: 0,
+            3: 0,
+            4: 0,
+            5: 0
+          }
+        };
+      }
+      
+      // Calcular la media
+      const suma = valoraciones.reduce((acc, item) => acc + item.valoracion, 0);
+      const media = suma / totalValoraciones;
+      
+      // Calcular la distribución
+      const distribucion = {
+        1: 0,
+        2: 0,
+        3: 0,
+        4: 0,
+        5: 0
+      };
+      
+      valoraciones.forEach(item => {
+        if (item.valoracion >= 1 && item.valoracion <= 5) {
+          distribucion[item.valoracion]++;
+        }
+      });
+      
+      return {
+        media,
+        total: totalValoraciones,
+        distribucion
+      };
+    } catch (error) {
+      console.error('Error al obtener estadísticas de valoraciones:', error);
+      throw error;
+    }
+  },
+
+  // Obtener el total de asistencias completadas por un asistente
+  async getTotalAsistenciasCompletadas(asistenteId) {
+    try {
+      const { count, error } = await supabase
+        .from('solicitudes_asistencia')
+        .select('id', { count: 'exact' })
+        .eq('asistente_id', asistenteId)
+        .eq('estado', 'finalizada');
+      
+      if (error) throw error;
+      return count;
+    } catch (error) {
+      console.error('Error al obtener total de asistencias completadas:', error);
+      throw error;
+    }
   }
+
 };

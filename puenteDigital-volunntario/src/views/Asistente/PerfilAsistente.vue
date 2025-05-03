@@ -2,7 +2,8 @@
   <div class="perfil-container">
     <div class="container py-5">
       <div class="row justify-content-center">
-        <div class="col-md-10 col-lg-8">
+        <!-- Columna principal del perfil -->
+        <div class="col-lg-8 mb-4">
           <div class="card profile-card">
             <div class="card-header">
               <div class="profile-header">
@@ -202,6 +203,11 @@
             </div>
           </div>
         </div>
+        
+        <!-- Columna del widget de valoraciones -->
+        <div class="col-lg-4">
+          <ValoracionesWidget :asistenteId="form.id" />
+        </div>
       </div>
     </div>
 
@@ -240,8 +246,14 @@ import { useAuthStore } from '@/stores/authStore';
 import { asistenteService } from '@/services/asistenteService';
 import { supabase } from '../../../supabase';
 import * as bootstrap from 'bootstrap';
+// Importar el widget de valoraciones
+import ValoracionesWidget from '@/components/Asistente/ValoracionesWidget.vue';
 
 export default {
+  // Registrar el componente
+  components: {
+    ValoracionesWidget
+  },
   setup() {
     const router = useRouter();
     const authStore = useAuthStore();

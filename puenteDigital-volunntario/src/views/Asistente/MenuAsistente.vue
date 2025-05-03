@@ -1,4 +1,3 @@
-<!-- MenuAsistente.vue -->
 <template>
   <div class="dashboard-container">
     <div class="dashboard-background"></div>
@@ -53,6 +52,11 @@
             :estadoInicial="estadoInicial"
             @estadoCambiado="onEstadoCambiado"
           />
+        </div>
+        
+        <!-- NUEVO: Widget de Valoraciones -->
+        <div class="widget-container widget-valoraciones">
+          <ValoracionesWidget :asistenteId="asistenteId" />
         </div>
         
         <!-- Widget de Chat -->
@@ -111,11 +115,15 @@ import { asistenteService } from '@/services/asistenteService';
 import ToggleActivacionWidget from '@/components/Asistente/ToggleActivacion.vue';
 import ChatWidget from '@/components/Asistente/ChatWidget.vue';
 import VideoLlamadaWidget from '@/components/Asistente/VideoLlamadaWidget.vue';
+// NUEVO: Importar el widget de valoraciones
+import ValoracionesWidget from '@/components/Asistente/ValoracionesWidget.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
 const nombreAsistente = ref('');
 const estadoInicial = ref(false);
+// NUEVO: Variable para almacenar el ID del asistente
+const asistenteId = ref(null);
 const estadisticas = ref({
   usuariosConectados: 0,
   asistentesActivos: 0
@@ -134,6 +142,8 @@ const cargarDatosAsistente = async () => {
     const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
     nombreAsistente.value = asistente.nombre;
     estadoInicial.value = asistente.activo;
+    // NUEVO: Guardar el ID del asistente para pasarlo al widget de valoraciones
+    asistenteId.value = asistente.id;
     
     // Simulación de datos de estadísticas (reemplazar con datos reales cuando estén disponibles)
     cargarEstadisticas();
@@ -175,7 +185,7 @@ const navegarA = (ruta) => {
       router.push('/asistente/chat');
       break;
     case 'videollamadas':
-      router.push('/asistente/videollamadas');
+      router.push('/asistente/gestion-llamadas');
       break;
     case 'historial':
       router.push('/asistente/historial');
@@ -196,6 +206,39 @@ onMounted(cargarDatosAsistente);
   overflow: hidden;
   color: #2d3748;
   background-color: #f7fafc;
+}
+
+
+.widgets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 2rem;
+  margin-bottom: 3rem;
+}
+
+/* Podrías ajustar el diseño para ordenar los widgets específicamente */
+@media (min-width: 1200px) {
+  .widgets-grid {
+    grid-template-areas:
+      "activation valoraciones"
+      "chat videollamada";
+  }
+  
+  .widget-activation {
+    grid-area: activation;
+  }
+  
+  .widget-valoraciones {
+    grid-area: valoraciones;
+  }
+  
+  .widget-chat {
+    grid-area: chat;
+  }
+  
+  .widget-videollamada {
+    grid-area: videollamada;
+  }
 }
 
 .dashboard-background {
