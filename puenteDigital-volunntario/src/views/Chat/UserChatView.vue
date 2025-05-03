@@ -69,7 +69,10 @@
             :key="solicitud.id" 
             @click="selectSolicitud(solicitud)" 
             class="solicitud-item"
-            :class="{ 'solicitud-active': selectedSolicitudId === solicitud.id }"
+            :class="{ 
+              'solicitud-active': selectedSolicitudId === solicitud.id,
+              'solicitud-finalizada': solicitud.estado === 'finalizada'
+            }"
           >
             <div 
               class="solicitud-avatar"
@@ -102,36 +105,45 @@
         
         <!-- Lista de solicitudes pendientes -->
         <div v-else-if="activeTab === 'solicitudes'" class="solicitudes-list">
-          <div 
-            v-for="solicitud in solicitudesPendientes" 
-            :key="solicitud.id" 
-            @click="selectSolicitud(solicitud)" 
-            class="solicitud-item"
-            :class="{ 'solicitud-active': selectedSolicitudId === solicitud.id }"
-          >
-            <div class="solicitud-avatar solicitud-pendiente">
-              {{ solicitud.usuario ? getInitials(solicitud.usuario.nombre || 'Usuario') : 'U' }}
+            <!-- Estado de carga silenciosa -->
+            <div v-if="silentLoading && solicitudesPendientes.length === 0" class="solicitudes-loading silenciosa">
+              <div class="spinner"></div>
+              <p>Cargando solicitudes...</p>
             </div>
-            <div class="solicitud-details">
-              <div class="solicitud-name">
-                {{ solicitud.usuario ? solicitud.usuario.nombre : 'Usuario' }}
-                <span class="badge badge-new">Nueva</span>
+            
+            <div 
+              v-for="solicitud in solicitudesPendientes" 
+              :key="solicitud.id" 
+              @click="selectSolicitud(solicitud)" 
+              class="solicitud-item"
+              :class="{ 
+                'solicitud-active': selectedSolicitudId === solicitud.id,
+                'solicitud-nueva': esNuevaSolicitud(solicitud.id)
+              }"
+            >
+              <div class="solicitud-avatar solicitud-pendiente">
+                {{ solicitud.usuario ? getInitials(solicitud.usuario.nombre || 'Usuario') : 'U' }}
               </div>
-              <div class="solicitud-preview">
-                {{ getPreviewText(solicitud) }}
+              <div class="solicitud-details">
+                <div class="solicitud-name">
+                  {{ solicitud.usuario ? solicitud.usuario.nombre : 'Usuario' }}
+                  <span class="badge badge-new">Nueva</span>
+                </div>
+                <div class="solicitud-preview">
+                  {{ getPreviewText(solicitud) }}
+                </div>
               </div>
-            </div>
-            <div class="solicitud-meta">
-              <div class="solicitud-time">
-                {{ formatDate(solicitud.created_at) }}
-              </div>
-              <div class="solicitud-status status-pendiente">
-                <span class="status-dot"></span>
-                Pendiente
+              <div class="solicitud-meta">
+                <div class="solicitud-time">
+                  {{ formatDate(solicitud.created_at) }}
+                </div>
+                <div class="solicitud-status status-pendiente">
+                  <span class="status-dot"></span>
+                  Pendiente
+                </div>
               </div>
             </div>
           </div>
-        </div>
       </div>
       
       <!-- Área de chat principal -->
@@ -178,6 +190,9 @@
                   <span v-if="selectedSolicitud && selectedSolicitud.asistente_id" class="status-atendido">
                     <i class="fas fa-check-circle"></i> Atendido
                   </span>
+                  <span v-if="selectedSolicitud && selectedSolicitud.estado === 'finalizada'" class="status-finalizado">
+                    <i class="fas fa-flag-checkered"></i> Finalizado
+                  </span>
                 </div>
               </div>
             </div>
@@ -199,6 +214,16 @@
                 title="Finalizar solicitud"
               >
                 <i class="fas fa-check"></i>
+              </button>
+
+              <!-- Nuevo botón para reabrir solicitud finalizada -->
+              <button 
+                v-if="selectedSolicitud && selectedSolicitud.estado === 'finalizada'" 
+                @click="reabrirSolicitud(selectedSolicitud)" 
+                class="reopen-button"
+                title="Reabrir solicitud"
+              >
+                <i class="fas fa-redo"></i>
               </button>
               
               <!-- Nuevo botón para eliminar solicitud -->
@@ -251,6 +276,12 @@
                 </div>
               </div>
             </template>
+            
+            <!-- Banner de conversación finalizada -->
+            <div v-if="selectedSolicitud && selectedSolicitud.estado === 'finalizada'" class="finalizada-banner">
+              <i class="fas fa-info-circle"></i>
+              Esta conversación está finalizada. Puedes reabrirla para continuar la atención.
+            </div>
           </div>
 
           <!-- Pie de página del chat (entrada de mensaje) -->
@@ -265,6 +296,18 @@
                 class="asignar-button"
               >
                 <i class="fas fa-user-check"></i> Asignarme esta solicitud
+              </button>
+            </div>
+            <div v-else-if="selectedSolicitud && selectedSolicitud.estado === 'finalizada'" class="reabrir-container">
+              <div class="reabrir-mensaje">
+                <i class="fas fa-info-circle"></i>
+                Esta conversación está finalizada
+              </div>
+              <button 
+                @click="reabrirSolicitud(selectedSolicitud)"
+                class="reabrir-button"
+              >
+                <i class="fas fa-redo"></i> Reabrir conversación
               </button>
             </div>
             <div v-else class="message-input-container">
@@ -289,6 +332,14 @@
         </div>
       </div>
     </div>
+    
+    <!-- Modal de informe -->
+    <informe-modal 
+      v-if="mostrarInformeModal" 
+      :solicitud-id="selectedSolicitudId" 
+      @close="mostrarInformeModal = false" 
+      @saved="onInformeGuardado"
+    />
   </div>
 </template>
 
@@ -300,9 +351,15 @@ import { asistenteService } from '../../services/asistenteService';
 import { useAuthStore } from '../../stores/authStore';
 import { useChatStore } from '../../stores/chat.store';
 import { supabase } from '../../../supabase';
+import notificationService from '../../services/notificacion.service';
+import InformeModal from '../../components/Chat/InformeModal.vue';
+
 
 export default {
   name: 'UserChatView',
+  components: {
+    InformeModal
+  },
   setup() {
     const authStore = useAuthStore();
     const chatStore = useChatStore();
@@ -323,6 +380,11 @@ export default {
     const messageInput = ref(null); // Referencia al input de mensaje
     const typingTimeout = ref(null); // Timeout para evento de escritura
     const processedMessages = ref(new Set()); // Set para rastrear mensajes procesados
+    const autoRefreshInterval = ref(null);
+    const silentLoading = ref(false);
+    const nuevasSolicitudes = ref(new Set());
+    const solicitudesConocidas = ref(new Set());
+    const mostrarInformeModal = ref(false);
     
     // Filtrar solicitudes por estado para mis conversaciones (con asistente asignado)
     const misConversaciones = computed(() => {
@@ -442,6 +504,39 @@ export default {
         console.error('Error al cargar solicitudes:', error);
       } finally {
         isLoading.value = false;
+      }
+    };
+
+    // Reabrir una solicitud finalizada
+    const reabrirSolicitud = async (solicitud) => {
+      if (!solicitud || !solicitud.id) return;
+      
+      // Confirmar con el usuario
+      if (!confirm('¿Estás seguro de que deseas reabrir esta conversación?')) {
+        return;
+      }
+      
+      try {
+        const solicitudActualizada = await solicitudesAsistenciaService.reabrirSolicitud(solicitud.id);
+        
+        // Actualizar el objeto de solicitud local
+        if (solicitudActualizada) {
+          console.log('Solicitud reabierta correctamente', solicitudActualizada);
+          
+          // Actualizar solicitud seleccionada
+          if (selectedSolicitudId.value === solicitud.id) {
+            selectedSolicitud.value = solicitudActualizada;
+          }
+          
+          // Recargar la lista de solicitudes
+          await loadSolicitudes();
+          
+          // Mostrar notificación de éxito
+          alert('Conversación reabierta correctamente');
+        }
+      } catch (error) {
+        console.error('Error al reabrir solicitud:', error);
+        alert('No se pudo reabrir la solicitud: ' + error.message);
       }
     };
     
@@ -657,6 +752,7 @@ export default {
     };
     
     // Enviar un mensaje
+    
     const enviarMensaje = async () => {
       if (!nuevoMensaje.value.trim() || !selectedSolicitudId.value) return;
       
@@ -678,89 +774,60 @@ export default {
         const mensajeTexto = nuevoMensaje.value.trim();
         nuevoMensaje.value = '';
         
-        // Crear mensaje temporal para UI inmediata
+        // Generar un ID único para este mensaje temporal
+        const tempId = `temp-${Date.now()}`;
+        
+        // Añadir mensaje temporal a la lista local
         const mensajeTemporal = {
-          id: `temp-${Date.now()}`,
+          id: tempId,
           contenido: mensajeTexto,
           created_at: new Date().toISOString(),
           tipo: 'asistente',
           leido: false,
-          temporal: true
+          temporal: true,
+          _enviado: true // Marcar como ya enviado para evitar procesamiento duplicado
         };
         
-        // Añadir mensaje temporal a la lista local
+        // Añadir a la lista de mensajes
         chatMessages.value.push(mensajeTemporal);
+        
+        // Para evitar duplicados, agregar este ID a un conjunto de IDs procesados
+        processedMessages.value.add(tempId);
         
         // Scroll inmediato
         nextTick(() => {
           scrollToBottom();
         });
         
-        // ENFOQUE 1: Insertar directamente en Supabase
-        try {
-          console.log('Enviando mensaje directo a Supabase');
+        // SOLO usar UN método para enviar el mensaje - usar mensajesService 
+        const mensaje = {
+          solicitud_id: selectedSolicitudId.value,
+          contenido: mensajeTexto,
+          tipo: 'asistente',
+          leido: false,
+          _esAsistente: true,
+          _asistenteId: asistente.id
+        };
+        
+        // Enviar mensaje usando el servicio
+        const mensajeGuardado = await mensajesService.enviarMensaje(mensaje);
+        
+        if (mensajeGuardado) {
+          console.log('Mensaje guardado con éxito:', mensajeGuardado);
           
-          // Datos para inserción
-          const mensajeData = {
-            solicitud_id: selectedSolicitudId.value,
-            contenido: mensajeTexto,
-            tipo: 'asistente',
-            leido: false,
-            asistente_id: asistente.id,
-            created_at: new Date().toISOString()
-          };
-          
-          // Insertar en la tabla mensajes
-          const { data, error } = await supabase
-            .from('mensajes')
-            .insert(mensajeData)
-            .select();
-          
-          if (error) throw error;
-          
-          if (data && data[0]) {
-            console.log('Mensaje guardado exitosamente en Supabase:', data[0]);
-            
-            // Reemplazar mensaje temporal con el real si no lo ha hecho la suscripción
-            setTimeout(() => {
-              const index = chatMessages.value.findIndex(m => m.id === mensajeTemporal.id);
-              if (index !== -1) {
-                chatMessages.value[index] = {
-                  ...data[0],
-                  contenido: data[0].contenido // Asegurar contenido correcto
-                };
-              }
-            }, 500);
+          // Marcar el ID real como procesado para evitar duplicados en las suscripciones
+          if (mensajeGuardado.id) {
+            processedMessages.value.add(`id_${mensajeGuardado.id}`);
           }
-        } catch (supabaseError) {
-          console.error('Error enviando mensaje a Supabase:', supabaseError);
           
-          // ENFOQUE 2: Fallback a método anterior
-          console.log('Intentando enviar mensaje con método de respaldo');
-          
-          // Preparar datos del mensaje para el servicio
-          const mensaje = {
-            solicitud_id: selectedSolicitudId.value,
-            contenido: mensajeTexto,
-            tipo: 'asistente',
-            leido: false,
-            _esAsistente: true,
-            _asistenteId: asistente.id,
-            _usuarioId: null
-          };
-          
-          // Enviar mensaje usando el servicio
-          const mensajeGuardado = await mensajesService.enviarMensaje(mensaje);
-          
-          // Reemplazar mensaje temporal con real
-          if (mensajeGuardado) {
-            const index = chatMessages.value.findIndex(m => m.id === mensajeTemporal.id);
-            if (index !== -1) {
-              chatMessages.value[index] = {
-                ...mensajeGuardado,
-                contenido: mensajeGuardado.contenido
-              };
-            }
+          // Reemplazar mensaje temporal con el real
+          const index = chatMessages.value.findIndex(m => m.id === tempId);
+          if (index !== -1) {
+            chatMessages.value[index] = {
+              ...mensajeGuardado,
+              contenido: mensajeGuardado.contenido,
+              _enviado: true // Mantener esta propiedad
+            };
           }
         }
       } catch (error) {
@@ -768,10 +835,10 @@ export default {
         alert('No se pudo enviar el mensaje. Inténtalo de nuevo.');
         
         // Eliminar mensaje temporal en caso de error
-        chatMessages.value = chatMessages.value.filter(m => !m.temporal);
+        chatMessages.value = chatMessages.value.filter(m => m.id !== tempId);
       }
     };
-    
+        
     // Manejar eventos de escritura
     const handleTyping = () => {
       // Si hay texto, indicar que está escribiendo
@@ -977,19 +1044,21 @@ export default {
     
     // Configurar suscripción en tiempo real
     const setupRealtimeSubscription = () => {
-      console.log('Configurando suscripción en tiempo real a Supabase');
+      console.log('Configurando suscripción en tiempo real simplificada');
       
-      // Limpiar cualquier suscripción anterior
+      // Limpiar suscripciones previas
       if (unsubscribe.value && typeof unsubscribe.value === 'function') {
         unsubscribe.value();
       }
       
-      // Suscripción específica para mensajes de la solicitud actual
-      let specificChannel = null;
+      const channels = [];
+      
+      // Suscripción específica SOLO para mensajes de la solicitud actual
       if (selectedSolicitudId.value) {
-        console.log(`Creando canal específico para solicitud ${selectedSolicitudId.value}`);
-        specificChannel = supabase
-          .channel(`messages-${selectedSolicitudId.value}`)
+        console.log(`Creando canal único para solicitud ${selectedSolicitudId.value}`);
+        
+        const specificChannel = supabase
+          .channel(`unified-messages-${selectedSolicitudId.value}`)
           .on(
             'postgres_changes',
             {
@@ -999,157 +1068,135 @@ export default {
               filter: `solicitud_id=eq.${selectedSolicitudId.value}`
             },
             async (payload) => {
-              console.log('Nuevo mensaje específico detectado:', payload.new);
+              console.log('Nuevo mensaje recibido en canal unificado:', payload.new);
               
-              // Verificar si este mensaje ya existe en la lista
-              const yaExiste = chatMessages.value.some(m => 
+              // Verificar si este mensaje ya ha sido procesado o es uno que nosotros enviamos
+              const messageKey = `id_${payload.new.id}`;
+              if (processedMessages.value.has(messageKey)) {
+                console.log('Mensaje ya procesado, ignorando duplicado:', payload.new.id);
+                return;
+              }
+              
+              // Verificar si ya existe en nuestra lista local
+              const existeLocal = chatMessages.value.some(m => 
                 (m.id && m.id === payload.new.id) || 
                 (m.contenido === payload.new.contenido && 
-                  m.created_at && new Date(m.created_at).getTime() === new Date(payload.new.created_at).getTime())
+                Math.abs(new Date(m.created_at).getTime() - new Date(payload.new.created_at).getTime()) < 2000)
               );
               
-              if (!yaExiste) {
-                // Crear objeto normalizado con todos los campos necesarios
-                const nuevoMensaje = {
-                  id: payload.new.id || Date.now() + Math.floor(Math.random() * 1000),
-                  contenido: payload.new.contenido,
-                  created_at: payload.new.created_at || new Date().toISOString(),
-                  tipo: payload.new.tipo || 'usuario',
-                  leido: payload.new.leido || false,
-                  asistente_id: payload.new.asistente_id,
-                  usuario_id: payload.new.usuario_id,
-                  source: 'supabase_specific_channel' // Para debugging
-                };
-                
-                console.log('Añadiendo mensaje a chatMessages:', nuevoMensaje);
-                
-                // Añadir mensaje a la lista usando spread para garantizar reactividad
-                chatMessages.value = [...chatMessages.value, nuevoMensaje];
-                
-                // Si el mensaje no es del asistente (no es nuestro), marcarlo como leído
-                if (payload.new.tipo === 'usuario') {
-                  // Marcar como leído mediante Supabase directamente
-                  const { error } = await supabase
+              if (existeLocal) {
+                console.log('Mensaje ya existe localmente, ignorando');
+                return;
+              }
+              
+              // Marcar este mensaje como procesado
+              processedMessages.value.add(messageKey);
+              
+              // Añadir el mensaje a la lista
+              const nuevoMensaje = {
+                id: payload.new.id,
+                contenido: payload.new.contenido,
+                created_at: payload.new.created_at,
+                tipo: payload.new.tipo,
+                leido: payload.new.leido || false,
+                source: 'supabase_unified'
+              };
+              
+              // Añadir a la lista
+              chatMessages.value.push(nuevoMensaje);
+              
+              // Si no es nuestro mensaje, marcarlo como leído
+              if (payload.new.tipo === 'usuario') {
+                try {
+                  // Marcar como leído
+                  await supabase
                     .from('mensajes')
                     .update({ leido: true })
                     .eq('id', payload.new.id);
-                    
-                  if (error) {
-                    console.error('Error al marcar mensaje como leído:', error);
-                  }
+                } catch (error) {
+                  console.error('Error al marcar mensaje como leído:', error);
                 }
-                
-                // Actualizar contador de mensajes no leídos
-                loadMensajesNoLeidos();
-                
-                // Desplazar al final
-                nextTick(() => {
-                  scrollToBottom();
-                });
-              } else {
-                console.log('Mensaje ya existe en la lista, ignorando');
               }
+              
+              // Actualizar contadores
+              loadMensajesNoLeidos();
+              
+              // Desplazar al final
+              nextTick(() => scrollToBottom());
             }
           )
-          .subscribe((status) => {
-            console.log(`Estado de suscripción de canal específico: ${status}`);
-          });
+          .subscribe();
+        
+        channels.push(specificChannel);
       }
       
-      // Canal general para mensajes (cualquier mensaje nuevo en la tabla)
-      const generalChannel = supabase
-        .channel('general_messages')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'mensajes'
-          },
-          (payload) => {
-            console.log('Mensaje general detectado:', payload.new);
-            
-            // Solo procesar mensajes que no son para la solicitud actual
-            // (la solicitud actual ya está siendo manejada por specificChannel)
-            if (payload.new.solicitud_id !== selectedSolicitudId.value) {
-              // Actualizar contador de mensajes no leídos
-              loadMensajesNoLeidos();
-            }
-          }
-        )
-        .subscribe((status) => {
-          console.log(`Estado de suscripción de canal general: ${status}`);
-        });
-      
-      // Canal para cambios en solicitudes
+      // Canal para actualizaciones de solicitudes
       const solicitudesChannel = supabase
-        .channel('solicitudes_changes')
+        .channel('solicitudes_updates')
         .on(
           'postgres_changes',
           {
-            event: '*', // INSERT, UPDATE o DELETE
+            event: 'UPDATE',
             schema: 'public',
             table: 'solicitudes_asistencia'
           },
           (payload) => {
-            console.log('Cambio en solicitudes detectado:', payload);
-            
-            // Actualizar la lista de solicitudes
-            loadSolicitudes();
-            
-            // Si hay una solicitud actual seleccionada y cambió, actualizar sus datos
+            // Solo actualizar si es la solicitud actual
             if (selectedSolicitudId.value && payload.new && payload.new.id === selectedSolicitudId.value) {
               cargarSolicitud(selectedSolicitudId.value);
             }
           }
         )
-        .subscribe((status) => {
-          console.log(`Estado de suscripción de canal solicitudes: ${status}`);
-        });
+        .subscribe();
       
-      // Devolver función para limpiar todas las suscripciones
+      channels.push(solicitudesChannel);
+      
+      // Retornar función de limpieza
       return () => {
-        console.log('Limpiando suscripciones de Supabase');
-        if (specificChannel) {
-          supabase.removeChannel(specificChannel);
-        }
-        supabase.removeChannel(generalChannel);
-        supabase.removeChannel(solicitudesChannel);
+        console.log('Limpiando suscripciones a canales');
+        channels.forEach(channel => {
+          supabase.removeChannel(channel);
+        });
       };
     };
 
 
-    // Finalizar una solicitud
-    const finalizarSolicitud = async (solicitud) => {
-      if (!solicitud || !solicitud.id) return;
-      
-      // Confirmar con el usuario
-      if (!confirm('¿Estás seguro de que deseas finalizar esta solicitud? Esta acción marcará la asistencia como completada.')) {
-        return;
-      }
-      
+        // Finalizar una solicitud - MÉTODO MODIFICADO
+      const finalizarSolicitud = async (solicitud) => {
+        if (!solicitud || !solicitud.id) return;
+        
+        // Confirmar con el usuario
+        if (!confirm('¿Estás seguro de que deseas finalizar esta solicitud? Esta acción marcará la asistencia como completada.')) {
+          return;
+        }
+        
+        // Mostrar el modal para el informe
+        mostrarInformeModal.value = true;
+    };
+
+    // Método para manejar cuando se guarda el informe - NUEVO MÉTODO
+    const onInformeGuardado = async () => {
       try {
-        const solicitudActualizada = await solicitudesAsistenciaService.finalizarSolicitud(solicitud.id);
+        const solicitudActualizada = await solicitudesAsistenciaService.finalizarSolicitud(selectedSolicitudId.value);
         
         // Actualizar el objeto de solicitud local
         if (solicitudActualizada) {
-          console.log('Solicitud finalizada correctamente', solicitudActualizada);
-          
-          // Actualizar solicitud seleccionada
-          if (selectedSolicitudId.value === solicitud.id) {
-            selectedSolicitud.value = solicitudActualizada;
-          }
+          console.log('Solicitud finalizada correctamente con informe', solicitudActualizada);
+          selectedSolicitud.value = solicitudActualizada;
           
           // Recargar la lista de solicitudes
           await loadSolicitudes();
           
           // Mostrar notificación de éxito
-          alert('Solicitud finalizada correctamente');
+          alert('Informe guardado y solicitud finalizada correctamente');
         }
       } catch (error) {
         console.error('Error al finalizar solicitud:', error);
         alert('No se pudo finalizar la solicitud: ' + error.message);
       }
+      
+      // Cerrar el modal
+      mostrarInformeModal.value = false;
     };
 
     // Eliminar una solicitud
@@ -1185,6 +1232,107 @@ export default {
         alert('No se pudo eliminar la solicitud: ' + error.message);
       }
     };
+
+    const esNuevaSolicitud = (solicitudId) => {
+      return nuevasSolicitudes.value.has(solicitudId);
+    };
+
+    // Implementación simplificada del refresco silencioso
+    const silentRefresh = async () => {
+      // Solo refresca si está en la pestaña de solicitudes
+      if (activeTab.value !== 'solicitudes') return;
+      
+      silentLoading.value = true;
+      try {
+        // Verificar si el usuario es asistente
+        if (authStore.user) {
+          const asistente = await asistenteService.getAsistenteByUserId(authStore.user.id);
+          
+          if (asistente) {
+            // Cargar solicitudes pendientes sin asignar
+            let pendientes = await solicitudesAsistenciaService.getPendienteSolicitudes();
+            pendientes = pendientes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            
+            // Detectar solicitudes nuevas
+            const nuevasIds = pendientes
+              .filter(s => !solicitudesConocidas.value.has(s.id))
+              .map(s => s.id);
+            
+            // Registrar todas las solicitudes como conocidas
+            pendientes.forEach(s => {
+              solicitudesConocidas.value.add(s.id);
+            });
+            
+            // Notificar nuevas solicitudes
+            if (!isLoading.value && nuevasIds.length > 0) {
+              // Destacar visualmente
+              nuevasIds.forEach(id => nuevasSolicitudes.value.add(id));
+              
+              // Mostrar notificación
+              if (nuevasIds.length === 1) {
+                const nuevaSolicitud = pendientes.find(s => s.id === nuevasIds[0]);
+                if (nuevaSolicitud) {
+                  notificationService.show(
+                    'Nueva solicitud de asistencia',
+                    notificationService.TYPES.INFO,
+                    {
+                      description: nuevaSolicitud.descripcion || 'Un usuario necesita ayuda'
+                    }
+                  );
+                }
+              } else if (nuevasIds.length > 1) {
+                notificationService.show(
+                  `${nuevasIds.length} nuevas solicitudes de asistencia`,
+                  notificationService.TYPES.INFO,
+                  {
+                    description: 'Varios usuarios están esperando atención'
+                  }
+                );
+              }
+              
+              // Programar eliminación del estado "nueva" después de 30 segundos
+              nuevasIds.forEach(id => {
+                setTimeout(() => {
+                  nuevasSolicitudes.value.delete(id);
+                }, 30000);
+              });
+            }
+            
+            solicitudesPendientes.value = pendientes;
+          }
+        }
+      } catch (error) {
+        console.error('Error al actualizar silenciosamente las solicitudes:', error);
+      } finally {
+        silentLoading.value = false;
+      }
+    };
+    
+    // Añadir esta función para controlar el intervalo de actualización automática
+    const setupAutoRefresh = () => {
+      // Limpiar cualquier intervalo existente
+      if (autoRefreshInterval.value) {
+        clearInterval(autoRefreshInterval.value);
+        autoRefreshInterval.value = null;
+      }
+      
+      // Solo crear intervalo si estamos en la pestaña 'solicitudes'
+      if (activeTab.value === 'solicitudes') {
+        autoRefreshInterval.value = setInterval(() => {
+          // Solo actualizar si no está cargando ya
+          if (!isLoading.value) {
+            loadSolicitudes();
+          }
+        }, 3000); // Actualizar cada 3 segundos
+      }
+    };
+
+
+    // Modificar el watch para activeTab
+    watch(activeTab, (newTab) => {
+      // Si cambia la pestaña, configurar/limpiar el intervalo según corresponda
+      setupAutoRefresh();
+    });
 
     
     watch(chatMessages, async () => {
@@ -1259,6 +1407,8 @@ export default {
       if (authStore.user) {
         unsubscribe.value = setupRealtimeSubscription();
       }
+
+      setupAutoRefresh();
       
       // Registrar cambios manuales cada 5 segundos (respaldo adicional)
       const intervalId = setInterval(async () => {
@@ -1346,6 +1496,13 @@ export default {
       if (typingTimeout.value) {
         clearTimeout(typingTimeout.value);
       }
+
+
+      // Limpiar intervalo de actualización automática
+      if (autoRefreshInterval.value) {
+        clearInterval(autoRefreshInterval.value);
+        autoRefreshInterval.value = null;
+      }
       
       // Limpiar el set de mensajes procesados
       processedMessages.value.clear();
@@ -1358,6 +1515,7 @@ export default {
       selectedSolicitudId,
       selectedSolicitud,
       isLoading,
+      silentLoading,
       cargandoMensajes,
       sidebarOpen,
       activeTab,
@@ -1381,7 +1539,12 @@ export default {
       tieneNuevosMensajes,
       loadSolicitudes,
       finalizarSolicitud,
-      eliminarSolicitud
+      eliminarSolicitud,
+      autoRefreshInterval,
+      esNuevaSolicitud,
+      reabrirSolicitud,
+      mostrarInformeModal,
+      onInformeGuardado
     };
   }
 };
@@ -1395,6 +1558,150 @@ export default {
   min-height: calc(100vh - 80px);
   background-color: #f8f9fa;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Botón de reabrir */
+.reopen-button {
+  background: none;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #ff9800; /* Naranja */
+}
+
+.reopen-button:hover {
+  background-color: #fff8e1; /* Naranja claro */
+  transform: scale(1.1);
+}
+
+/* Estilo para el banner de finalizada */
+.finalizada-banner {
+  padding: 10px 15px;
+  margin: 15px auto;
+  border-radius: 8px;
+  background-color: #f5f5f5;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  border-left: 3px solid #ff9800;
+  max-width: 90%;
+}
+
+.finalizada-banner i {
+  color: #ff9800;
+}
+
+/* Contenedor de reabrir en el pie de chat */
+.reabrir-container {
+  background-color: #f8f9fa;
+  padding: 15px;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reabrir-mensaje {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #555;
+  font-size: 0.9rem;
+  background-color: #fff8e1;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border-left: 3px solid #ff9800;
+}
+
+.reabrir-mensaje i {
+  color: #ff9800;
+  font-size: 1.1rem;
+}
+
+.reabrir-button {
+  background: linear-gradient(135deg, #ff9800, #f57c00);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.3s ease;
+  box-shadow: 0 3px 6px rgba(255, 152, 0, 0.25);
+  width: auto;
+  margin: 0 auto;
+}
+
+.reabrir-button:hover {
+  background: linear-gradient(135deg, #f57c00, #e65100);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 12px rgba(255, 152, 0, 0.35);
+}
+
+.reabrir-button i {
+  font-size: 1.1rem;
+  transition: transform 0.3s ease;
+}
+
+.reabrir-button:hover i {
+  transform: scale(1.1);
+}
+
+.solicitud-finalizada {
+  opacity: 0.8;
+  border-left: 3px solid #ff9800;
+}
+
+.status-finalizado {
+  font-size: 0.8rem;
+  color: #ff9800;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.status-finalizado i {
+  font-size: 0.9rem;
+}
+
+.solicitud-nueva {
+  animation: highlightNew 1.5s ease-in-out infinite alternate;
+  border-left: 3px solid #ff9800 !important;
+  background-color: #fff8e1 !important;
+}
+
+@keyframes highlightNew {
+  from { box-shadow: 0 4px 10px rgba(255, 152, 0, 0.2); }
+  to { box-shadow: 0 4px 15px rgba(255, 152, 0, 0.5); }
+}
+
+/* Estado de carga silenciosa (mostrar más discreto) */
+.solicitudes-loading.silenciosa {
+  opacity: 0.7;
+  padding: 30px 20px;
+}
+
+.solicitudes-loading.silenciosa .spinner {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 10px;
+}
+
+.solicitudes-loading.silenciosa p {
+  font-size: 0.9rem;
 }
 
 .finish-button, .delete-button {

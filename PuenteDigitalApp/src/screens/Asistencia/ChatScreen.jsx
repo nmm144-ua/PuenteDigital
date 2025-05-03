@@ -19,6 +19,8 @@ import AsistenciaService from '../../services/AsistenciaService';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MensajesService from '../../services/MensajesService';
+import RatingModal from '../../components/RatingModal';
+
 
 const ChatScreen = ({ route, navigation }) => {
   const { solicitudId, roomId } = route.params;
@@ -29,6 +31,7 @@ const ChatScreen = ({ route, navigation }) => {
   const [isTyping, setIsTyping] = useState(false);
   const [remoteUserIsTyping, setRemoteUserIsTyping] = useState(false);
   const [solicitud, setSolicitud] = useState(null);
+  const [showRatingModal, setShowRatingModal] = useState(false);
   
   // Agregar un set para rastrear mensajes procesados
   const processedMessagesRef = useRef(new Set());
@@ -374,6 +377,18 @@ const ChatScreen = ({ route, navigation }) => {
     };
   }, [handleNewMessage, handleTypingStatus, filterDuplicateMessages]);
   
+  //Verificar si se ha valorado la solicitud
+  const checkIfShouldShowRating = (solicitudData) => {
+    // Si la solicitud está finalizada y no tiene valoración, mostrar modal
+    if (solicitudData && 
+        solicitudData.estado === 'finalizada' && 
+        (solicitudData.valoracion === null || solicitudData.valoracion === 0)) {
+      console.log('Solicitud finalizada sin valoración, mostrando modal de valoración');
+      setShowRatingModal(true);
+    }
+  };
+
+
   //Efecto para el estado de la solicitud
   useEffect(() => {
     if (!solicitudId) return;
@@ -387,13 +402,24 @@ const ChatScreen = ({ route, navigation }) => {
           console.log('Estado de solicitud actualizado:', updatedSolicitud.estado);
           setSolicitud(updatedSolicitud);
           
-          // Si la solicitud se marca como finalizada, mostrar un mensaje
+          // Si la solicitud se marca como finalizada, mostrar un mensaje y verificar si debe mostrar valoración
           if (updatedSolicitud.estado === 'finalizada' && solicitud?.estado !== 'finalizada') {
             Alert.alert(
               'Solicitud finalizada',
               'Esta solicitud de asistencia ha sido finalizada por el asistente.',
-              [{ text: 'Entendido' }]
+              [{ 
+                text: 'Entendido', 
+                onPress: () => checkIfShouldShowRating(updatedSolicitud)
+              }]
             );
+          }
+        } else if (updatedSolicitud && !solicitud) {
+          // Primera carga de la solicitud
+          setSolicitud(updatedSolicitud);
+          
+          // Verificar si debe mostrar valoración (al cargar por primera vez)
+          if (updatedSolicitud.estado === 'finalizada') {
+            checkIfShouldShowRating(updatedSolicitud);
           }
         }
       } catch (error) {
@@ -410,6 +436,10 @@ const ChatScreen = ({ route, navigation }) => {
     return () => clearInterval(intervalId);
   }, [solicitudId, solicitud?.estado]);
 
+  // Manejar el cierre del modal de valoración
+  const handleRatingClose = () => {
+    setShowRatingModal(false);
+  };
 
   // Salir del chat
   const leaveChat = () => {
@@ -536,7 +566,12 @@ const ChatScreen = ({ route, navigation }) => {
         )}
       </KeyboardAvoidingView>
 
-
+      {/* Modal de valoración */}
+      <RatingModal
+        visible={showRatingModal}
+        solicitudId={solicitudId}
+        onClose={handleRatingClose}
+      />
     </SafeAreaView>
   );
 };
@@ -550,6 +585,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 15,
+    paddingTop: 25, // Aumentamos el padding superior
+    marginTop: 10, // Añadimos margen superior
     backgroundColor: 'white',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',

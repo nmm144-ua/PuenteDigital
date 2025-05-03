@@ -6,6 +6,7 @@ import { solicitudesAsistenciaService } from '../services/solicitudAsistenciaSer
 import { mensajesService } from '../services/mensajesService';
 import { asistenteService } from '../services/asistenteService';
 import loggerService from '../services/logger.service';
+import notificationService from '../services/notificacion.service';
 
 // Nombre del módulo para logging
 const LOG_MODULE = 'ChatStore';
@@ -147,6 +148,12 @@ export const useChatStore = defineStore('chat', {
         
         
         if (!isDuplicate) {
+          if (messageData.sender !== this.userName) {
+            notificationService.newMessage(
+              messageData.message, 
+              messageData.sender
+            );
+          }
           this.messages.push(messageData);
         } else {
           loggerService.debug(LOG_MODULE, 'Mensaje duplicado ignorado');

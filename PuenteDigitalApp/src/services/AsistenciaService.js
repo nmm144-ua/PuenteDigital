@@ -84,7 +84,7 @@ class AsistenciaService {
   }
   
   // Modificar también el método crearSolicitud para manejar usuarios anónimos
-  async crearSolicitud(descripcion, tipoAsistencia = 'chat') {
+  async crearSolicitud(descripcion, tipoAsistencia ) {
     try {
       // Intentar inicializar si no se ha hecho
       if (!this.userDbId && !this.deviceId) {
@@ -479,6 +479,29 @@ class AsistenciaService {
       return data[0];
     } catch (error) {
       console.error('Error al finalizar solicitud:', error);
+      throw error;
+    }
+  }
+
+  async guardarValoracion(solicitudId, valoracion) {
+    try {
+      console.log('Guardando valoración:', { solicitudId, valoracion });
+      
+      const { data, error } = await supabase
+        .from('solicitudes_asistencia')
+        .update({ valoracion })
+        .eq('id', solicitudId)
+        .select();
+      
+      if (error) {
+        console.error('Error al guardar valoración:', error);
+        throw error;
+      }
+      
+      console.log('Valoración guardada con éxito');
+      return data[0];
+    } catch (error) {
+      console.error('Error al guardar valoración:', error);
       throw error;
     }
   }

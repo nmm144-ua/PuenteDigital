@@ -205,6 +205,17 @@
                   >
                   <div v-if="errors.declaracionDNI" class="error-message">{{ errors.declaracionDNI }}</div>
                 </div>
+
+                <div class="form-group signature-field">
+                  <h4 class="form-label"><i class="bi bi-pen"></i> Firma digital</h4>
+                  <SignaturePad
+                    v-model="form.signature"
+                    :required="true"
+                    @change="onSignatureChange"
+                  />
+                  <div v-if="errors.signature" class="error-message">{{ errors.signature }}</div>
+                </div>
+
               </div>
             </div>
             
@@ -230,8 +241,12 @@ import { useAuthStore } from '@/stores/authStore';
 import { declaracionService } from '@/services/declaracionService';
 import { asistenteService } from '@/services/asistenteService';
 import { supabase } from '../../../supabase';
+import SignaturePad from '@/components/Firma/SignaturePad.vue';
 
 export default {
+  components: {
+    SignaturePad 
+  },
   setup() {
     const form = ref({
       nombre: '',
@@ -241,7 +256,8 @@ export default {
       confirmPassword: '', 
       habilidades: '',
       declaracionNombre: '',
-      declaracionDNI: ''
+      declaracionDNI: '',
+      signature:'',
     });
 
     const errors = ref({});
@@ -249,6 +265,7 @@ export default {
     const fechaActual = ref('');
     const router = useRouter();
     const authStore = useAuthStore();
+    const isSubmitting = ref(false);
 
     // Estado para mostrar/ocultar la contraseña
     const showPassword = ref(false);
@@ -272,6 +289,23 @@ export default {
       const año = fecha.getFullYear();
       fechaActual.value = `${dia}/${mes}/${año}`;
     };
+
+    const handleSignatureChange = (event) => {
+      if (event.isEmpty) {
+        errors.value.signature = 'La firma es obligatoria';
+      } else {
+        delete errors.value.signature;
+      }
+    };
+
+     // Manejar cambios en la firma
+     const onSignatureChange = (event) => {
+        if (event.isEmpty) {
+          errors.value.signature = 'La firma es obligatoria';
+        } else {
+          delete errors.value.signature;
+        }
+      };
 
     // Validar el formulario
     const validarFormulario = () => {
@@ -305,6 +339,10 @@ export default {
         errors.value.declaracionDNI = 'El DNI no es válido.';
       }
 
+      if (!form.value.signature) {
+        errors.value.signature = 'La firma es obligatoria';
+      }
+
       return Object.keys(errors.value).length === 0;
     };
 
@@ -313,9 +351,10 @@ export default {
         errorMessage.value = 'Por favor, corrige los errores en el formulario.';
         return;
       }
+      isSubmitting.value = true;
       let declaracion = null;
       let asistente = null;
-
+      
       try {
         const { data, error } = await supabase.auth.signUp({
           email: form.value.email,
@@ -347,7 +386,8 @@ export default {
           nombre: form.value.declaracionNombre,
           dni: form.value.declaracionDNI,
           fecha: new Date().toISOString()
-        });
+        },
+        form.value.signature);
 
         // Redirigir al login
         router.push('/login');
@@ -362,6 +402,9 @@ export default {
         console.error('Error en el registro:', error.message);
 
         errorMessage.value = 'Hubo un error en el registro. Por favor, inténtalo de nuevo.';
+      }
+      finally {
+        isSubmitting.value = false;
       }
     };
 
@@ -379,7 +422,9 @@ export default {
       showConfirmPassword,
       toggleShowPassword,
       toggleShowConfirmPassword,
-      handleRegister
+      handleRegister,
+      isSubmitting,
+      onSignatureChange
     };
   }
 };
@@ -406,6 +451,11 @@ export default {
   background-repeat: repeat;
   opacity: 0.1;
   z-index: -1;
+}
+
+.signature-field {
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
 }
 
 .register-card-container {

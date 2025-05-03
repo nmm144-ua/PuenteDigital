@@ -4,6 +4,7 @@ import HomePage from '../views/HomePage.vue';
 import Login from '../views/Auth/Login.vue';
 import Register from '../views/Auth/Register.vue';
 import { useAuthStore } from '../stores/authStore';
+import { activacionMiddleware } from './middleware/activacionMiddleware';
 
 const routes = [
   {
@@ -70,15 +71,71 @@ const routes = [
         })
       },
       {
+        path: '/finalizacion-llamada/:id?',
+        name: 'FinalizacionLlamada',
+        props: true,
+        component: () => import('../views/VideoCall/FinalizacionLlamadaView.vue'),
+      
+      },
+      {
         path: 'gestion-llamadas',
-        name: 'GestionLlamadas',
-        component: () => import('../views/Asistente/GestionLlamadas.vue')
+        name: 'GestionLlamadas',  
+        component: () => import('../views/Asistente/GestionLlamadas.vue'),
+        meta: {
+          requiresActivation: true, 
+        }
       },
       {
         path: 'chat',
         name: 'UsuarioChat',
-        component: () => import('../views/Chat/UserChatView.vue')
+        component: () => import('../views/Chat/UserChatView.vue'),
+        meta: {
+          requiresActivation: true, 
+        }
       },
+      // Estructura de tutoriales
+      {
+        path: 'tutoriales',
+        name: 'TutorialesHub',
+        component: () => import('../views/Asistente/Tutoriales/TutorialesHub.vue')
+      },
+      
+      {
+        path: 'mis-tutoriales',
+        name: 'MisTutoriales',
+        component: () => import('../views/Asistente/Tutoriales/TutorialesAsistente.vue')
+      },
+      {
+        path: 'todos-tutoriales',
+        name: 'TodosTutoriales',
+        component: () => import('../views/Asistente/Tutoriales/TodosTutoriales.vue')
+      },
+      {
+        path: 'tutorial-detalle/:id',
+        name: 'TutorialDetallePublico',
+        component: () => import('../views/Asistente/Tutoriales/TutorialDetallePublico.vue'),
+        props: true
+      },
+      {
+        path: 'tutoriales/nuevo',
+        name: 'NuevoTutorial',
+        component: () => import('../views/Asistente/Tutoriales/NuevoTutorial.vue')
+      },
+      {
+        path: 'tutoriales/:id',
+        name: 'DetalleTutorial',
+        component: () => import('../views/Asistente/Tutoriales/DetalleTutorial.vue'),
+        props: true
+      },
+
+      //Activacion de jornada
+      {
+        path: 'activacion',
+        name: 'activacion',
+        component: () => import('../views/Asistente/ActivacionView.vue'),
+      },
+      
+
     ]
   },
   {
@@ -155,6 +212,8 @@ const router = createRouter({
   history: createWebHistory(),
   routes
 });
+
+router.beforeEach(activacionMiddleware);
 
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();

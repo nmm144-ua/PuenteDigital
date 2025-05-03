@@ -264,6 +264,8 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingTop: 25, // Aumentamos el padding superior
+    marginTop: 10, // Añadimos margen superior
     justifyContent: 'space-between',
     padding: 15,
     backgroundColor: 'white',

@@ -57,7 +57,7 @@
         </div>
       </div>
       
-      <div v-if="isLoading" class="loading-container">
+      <div v-if="isInitialLoading" class="loading-container">
         <div class="spinner"></div>
         <p>Cargando solicitudes...</p>
       </div>
@@ -72,7 +72,12 @@
         <h2 class="section-title">Solicitudes Pendientes</h2>
         
         <div class="solicitudes-list">
-          <div v-for="solicitud in pendingSolicitudes" :key="solicitud.id" class="solicitud-card">
+          <div 
+            v-for="solicitud in pendingSolicitudes" 
+            :key="solicitud.id" 
+            class="solicitud-card"
+            :class="{'solicitud-nueva': esNuevaSolicitud(solicitud.id)}"
+          >
             <div class="solicitud-header">
               <div class="user-avatar">
                 {{ getInitials(solicitud.userName) }}
@@ -119,13 +124,14 @@
 </template>
 
 <script>
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCallStore } from '../../stores/call.store';
 import { solicitudesAsistenciaService } from '../../services/solicitudAsistenciaService';
 import { useAuthStore } from '@/stores/authStore';
 import { asistenteService } from '../../services/asistenteService';
 import { supabase } from '../../../supabase';
+import notificationService from '../../services/notificacion.service';
 
 export default {
   name: 'GestionLlamadas',
@@ -134,9 +140,38 @@ export default {
     const callStore = useCallStore();
     const { user } = useAuthStore(); // Obtener usuario autenticado
     const pendingSolicitudes = ref([]);
-    const isLoading = ref(true);
+    const isLoading = ref(false); // Cambiar a false inicialmente
+    const isInitialLoading = ref(true); // Nuevo flag para carga inicial
     const asistenteInfo = ref(null);
+    const autoRefreshInterval = ref(null);
+    const solicitudesConocidas = ref(new Set()); // Para rastrear solicitudes ya vistas
+    const nuevasSolicitudes = ref(new Set()); // Para destacar solicitudes recién llegadas
     
+    // Configurar auto-refresco cada 5 segundos (un poco más lento que antes)
+    const startAutoRefresh = () => {
+      // Limpiar intervalo existente si hay uno
+      if (autoRefreshInterval.value) {
+        clearInterval(autoRefreshInterval.value);
+      }
+      
+      // Crear nuevo intervalo
+      autoRefreshInterval.value = setInterval(() => {
+        silentRefresh(); // Usar actualización silenciosa
+      }, 5000); // 5000 ms = 5 segundos
+    };
+
+    const stopAutoRefresh = () => {
+      if (autoRefreshInterval.value) {
+        clearInterval(autoRefreshInterval.value);
+        autoRefreshInterval.value = null;
+      }
+    };
+
+    // Verificar si una solicitud es nueva (para efectos visuales)
+    const esNuevaSolicitud = (id) => {
+      return nuevasSolicitudes.value.has(id);
+    };
+
     // Estadísticas calculadas
     const waitingStats = computed(() => {
       if (pendingSolicitudes.value.length === 0) {
@@ -156,8 +191,10 @@ export default {
       };
     });
     
-    // Configuración de suscripción en tiempo real
+    // Configuración de suscripción en tiempo real 
     const setupRealtimeSubscription = () => {
+      const notificacionesProcesadas = new Set();
+
       // Inicializa la suscripción a cambios en la tabla
       const channel = supabase
         .channel('solicitudes_changes')
@@ -172,22 +209,34 @@ export default {
           (payload) => {
             // Verificar si la nueva solicitud está pendiente
             if (payload.new.estado === 'pendiente') {
-              // Transformar al formato esperado
-              const nuevaSolicitud = {
-                id: payload.new.id,
-                roomId: payload.new.room_id,
-                userName: 'Nuevo usuario', // Se actualizará al cargar solicitudes completas
-                timestamp: payload.new.created_at, 
-                description: payload.new.descripcion
-              };
+              console.log('Nueva solicitud detectada en componente:', payload.new);
+
+              // Verificar si ya procesamos esta notificación (por ID)
+              const notificationKey = `insert_${payload.new.id}`;
+              if (notificacionesProcesadas.has(notificationKey)) {
+                console.log('Notificación ya procesada, ignorando:', notificationKey);
+                return;
+              }
+
+              // Limpiar registros antiguos (mantener tamaño del Set controlado)
+              if (notificacionesProcesadas.size > 50) {
+                const firstKey = notificacionesProcesadas.values().next().value;
+                notificacionesProcesadas.delete(firstKey);
+              }
+
+              notificacionesProcesadas.add(notificationKey);
               
-              // Añadir a la lista y notificar
-              pendingSolicitudes.value.push(nuevaSolicitud);
-              // Aquí podrías añadir una notificación sonora o visual
-              playNotificationSound();
+              // Marcar como nueva solicitud para efectos visuales
+              nuevasSolicitudes.value.add(payload.new.id);
               
-              // Recargar todas las solicitudes para obtener información completa
-              loadSolicitudes();
+              // Ya no mostramos notificaciones aquí, lo hace el servicio global
+              // Solo actualizamos la UI
+              silentRefresh();
+              
+              // Programar eliminación del estado "nueva" después de 30 segundos
+              setTimeout(() => {
+                nuevasSolicitudes.value.delete(payload.new.id);
+              }, 30000);
             }
           }
         )
@@ -197,16 +246,6 @@ export default {
       return () => {
         supabase.removeChannel(channel);
       };
-    };
-
-    // Reproducir sonido de notificación
-    const playNotificationSound = () => {
-      try {
-        const audio = new Audio('/notification.mp3');
-        audio.play();
-      } catch (error) {
-        console.log('No se pudo reproducir la notificación de sonido');
-      }
     };
 
     // Obtener información del asistente actual
@@ -220,32 +259,100 @@ export default {
       }
     };
     
-    // Cargar solicitudes pendientes desde Supabase
-    const loadSolicitudes = async () => {
-      isLoading.value = true;
+    // Actualización silenciosa que no muestra indicadores de carga
+    const silentRefresh = async () => {
       try {
-        // Cargar solicitudes pendientes desde el servicio
-        const solicitudes = await solicitudesAsistenciaService.getPendienteSolicitudes();
+        // No activamos isLoading aquí para evitar parpadeos
         
-        // Transformar para que coincida con el formato esperado por la interfaz
-        pendingSolicitudes.value = solicitudes.map(s => ({
+        // Cargar solicitudes pendientes de video desde el servicio
+        const solicitudes = await solicitudesAsistenciaService.getVideoSolicitudes();
+        
+        // También cargar solicitudes pendientes de chat (para detectar nuevas, aunque no las mostremos)
+        const solicitudesChat = await solicitudesAsistenciaService.getChatSolicitudes();
+        
+        // Transformar solicitudes de video para que coincidan con el formato esperado
+        const solicitudesFormateadas = solicitudes.map(s => ({
           id: s.id,
           roomId: s.room_id,
           userName: s.usuario?.nombre || 'Usuario',
           timestamp: s.created_at,
-          description: s.descripcion
+          description: s.descripcion,
+          tipo: 'video'
         }));
+        
+        // Transformar solicitudes de chat
+        const solicitudesChatFormateadas = solicitudesChat.map(s => ({
+          id: s.id,
+          roomId: s.room_id,
+          userName: s.usuario?.nombre || 'Usuario',
+          timestamp: s.created_at,
+          description: s.descripcion,
+          tipo: 'chat'
+        }));
+        
+        // Detectar nuevas solicitudes de video que no estaban en la lista anterior
+        const nuevasIdsVideo = solicitudesFormateadas
+          .filter(s => !solicitudesConocidas.value.has(s.id))
+          .map(s => s.id);
+        
+        // Detectar nuevas solicitudes de chat que no estaban en la lista anterior
+        const nuevasIdsChat = solicitudesChatFormateadas
+          .filter(s => !solicitudesConocidas.value.has(s.id))
+          .map(s => s.id);
+        
+        // Unir todas las nuevas IDs
+        const nuevasIds = [...nuevasIdsVideo, ...nuevasIdsChat];
+        
+        // Actualizar conjunto de solicitudes conocidas para ambos tipos
+        solicitudesFormateadas.forEach(s => {
+          solicitudesConocidas.value.add(s.id);
+        });
+        
+        solicitudesChatFormateadas.forEach(s => {
+          solicitudesConocidas.value.add(s.id);
+        });
+        
+        // Añadir a la lista de nuevas solicitudes (para destacarlas visualmente)
+        // pero ya NO mostramos notificaciones aquí (lo hace el servicio global)
+        if (!isInitialLoading.value) {
+          nuevasIds.forEach(id => nuevasSolicitudes.value.add(id));
+          
+          // Programar eliminación del estado "nueva" después de 30 segundos
+          nuevasIds.forEach(id => {
+            setTimeout(() => {
+              nuevasSolicitudes.value.delete(id);
+            }, 30000);
+          });
+        }
+        
+        // Actualizar lista de solicitudes (solo videollamadas para el display)
+        pendingSolicitudes.value = solicitudesFormateadas;
+        
+      } catch (error) {
+        console.error('Error al actualizar silenciosamente las solicitudes:', error);
+      } finally {
+        // Desactivar indicador de carga inicial si estaba activo
+        isInitialLoading.value = false;
+      }
+    };
+    
+    // Cargar solicitudes pendientes desde Supabase (con indicadores de carga visibles)
+    const loadSolicitudes = async () => {
+      isLoading.value = true;
+      try {
+        await silentRefresh();
       } catch (error) {
         console.error('Error al cargar solicitudes:', error);
         // Mostrar error en la interfaz si es necesario
       } finally {
         isLoading.value = false;
+        isInitialLoading.value = false;
       }
     };
     
-    // Actualizar solicitudes
+    // Actualizar solicitudes (llamado por el botón de actualizar)
     const refreshSolicitudes = () => {
-      loadSolicitudes();
+      loadSolicitudes(); // Usamos la versión con indicadores visibles para feedback
     };
     
     // Formatear tiempo de espera
@@ -348,10 +455,26 @@ export default {
       }
     };
     
+    // Actualizar dinámicamente los tiempos de espera mostrados
+    const startTimeUpdater = () => {
+      const timeUpdater = setInterval(() => {
+        // Forzar actualización de los componentes reactivos
+        pendingSolicitudes.value = [...pendingSolicitudes.value];
+      }, 60000); // Actualizar cada minuto
+      
+      return () => clearInterval(timeUpdater);
+    };
+    
     // Cargar datos al montar el componente
     onMounted(async () => {
       await loadAsistenteInfo();
       await loadSolicitudes();
+
+      // Iniciar auto-refresco
+      startAutoRefresh();
+      
+      // Iniciar actualizador de tiempos
+      const clearTimeUpdater = startTimeUpdater();
       
       // Configurar suscripción en tiempo real
       const unsubscribe = setupRealtimeSubscription();
@@ -361,12 +484,15 @@ export default {
         if (unsubscribe && typeof unsubscribe === 'function') {
           unsubscribe();
         }
+        stopAutoRefresh();
+        clearTimeUpdater();
       });
     });
     
     return {
       pendingSolicitudes,
       isLoading,
+      isInitialLoading,
       waitingStats,
       formatWaitingTime,
       formatDate,
@@ -374,7 +500,8 @@ export default {
       getPriorityClass,
       getPriorityText,
       atenderSolicitud,
-      refreshSolicitudes
+      refreshSolicitudes,
+      esNuevaSolicitud
     };
   }
 };
@@ -625,6 +752,18 @@ h1 {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
 }
 
+/* Estilo para tarjetas de solicitudes nuevas */
+.solicitud-nueva {
+  animation: highlightNew 1.5s ease-in-out infinite alternate;
+  box-shadow: 0 10px 30px rgba(38, 108, 238, 0.2);
+  border: 2px solid #266cee;
+}
+
+@keyframes highlightNew {
+  from { box-shadow: 0 10px 30px rgba(38, 108, 238, 0.2); }
+  to { box-shadow: 0 10px 30px rgba(38, 108, 238, 0.5); }
+}
+
 .solicitud-header {
   padding: 1.5rem;
   display: flex;
@@ -784,5 +923,46 @@ h1 {
   .solicitudes-list {
     grid-template-columns: 1fr;
   }
+}
+
+/* Animaciones para notificaciones y actualizaciones suaves */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.solicitud-card {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Transiciones para cambios en la lista */
+.solicitudes-list {
+  position: relative;
+}
+
+.solicitudes-list > * {
+  transition: all 0.3s ease;
+}
+
+/* Indicador de actualización */
+.refresh-indicator {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  padding: 0.5rem 1rem;
+  background-color: rgba(38, 108, 238, 0.9);
+  color: white;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: all 0.3s ease;
+  z-index: 1000;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.refresh-indicator.active {
+  opacity: 1;
+  transform: translateY(0);
 }
 </style>

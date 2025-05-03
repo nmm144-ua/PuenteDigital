@@ -21,6 +21,7 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
   
   const timerRef = useRef(null);
   const socketConnectedRef = useRef(false);
+  const navegandoALlamadaRef = useRef(false); // Nuevo ref para controlar navegación
   
   // Formatear el tiempo de espera (minutos:segundos)
   const formatTime = (seconds) => {
@@ -44,6 +45,7 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
               // Primero abandonar la sala de socket.io
               if (socketConnectedRef.current && roomId) {
                 SocketService.leaveRoom(roomId);
+                socketConnectedRef.current = false;
               }
               
               // Luego actualizar la solicitud en la base de datos
@@ -69,12 +71,16 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
       
       // Si la solicitud ya está en proceso o completada, determinar a qué pantalla navegar
       if (data.estado === 'en_proceso' && data.asistente_id) {
+        // Marcar que estamos navegando a una llamada para evitar desconectar el socket
+        navegandoALlamadaRef.current = true;
+        
         // Verificar el tipo de asistencia
         if (data.tipo_asistencia === 'chat') {
           // Si es de tipo chat, navegar al chat
           navigation.replace('Chat', { 
             solicitudId: data.id,
-            roomId: data.room_id
+            roomId: data.room_id,
+            mantenerConexion: true // Indicar que mantenga la conexión
           });
         } else {
           // Si es videollamada o no especifica, mantener el comportamiento original
@@ -82,7 +88,8 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
             solicitudId: data.id,
             roomId: data.room_id,
             asistenteId: data.asistente_id,
-            asistenteName: data.asistente?.nombre || 'Asistente'
+            asistenteName: data.asistente?.nombre || 'Asistente',
+            mantenerConexion: true // Indicar que mantenga la conexión
           });
         }
       }
@@ -163,9 +170,12 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
       clearInterval(checkInterval);
       backHandler.remove();
       
-      // Desconectar del socket si navegamos fuera sin aceptar
-      if (socketConnectedRef.current && roomId) {
+      // IMPORTANTE: Solo desconectar si NO estamos navegando a una videollamada/chat
+      if (socketConnectedRef.current && roomId && !navegandoALlamadaRef.current) {
+        console.log('Limpieza: Abandonando sala porque no se navega a llamada/chat');
         SocketService.leaveRoom(roomId);
+      } else {
+        console.log('Limpieza: Manteniendo conexión para llamada/chat');
       }
     };
   }, []);

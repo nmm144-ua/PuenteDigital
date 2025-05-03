@@ -283,12 +283,30 @@ class WebRTCService {
     
     // Evento cuando se recibe un track del otro usuario
     this.peerConnection.ontrack = (event) => {
-      console.log('Recibido track remoto:', event.streams[0]);
+      console.log('===== TRACK REMOTO RECIBIDO =====');
+      console.log('- event.streams:', event.streams?.length);
+      
+      if (!event.streams || event.streams.length === 0) {
+        console.error('No hay streams en el evento ontrack');
+        return;
+      }
       
       const remoteStream = event.streams[0];
+      console.log('- Stream ID:', remoteStream.id);
+      console.log('- Audio tracks:', remoteStream.getAudioTracks().length);
+      console.log('- Video tracks:', remoteStream.getVideoTracks().length);
+      
+      // Verificar que el stream tenga tracks activos antes de utilizarlo
+      const hasActiveTracks = remoteStream.getTracks().some(track => track.readyState === 'live');
+      
+      if (!hasActiveTracks) {
+        console.warn('Stream remoto recibido pero no tiene tracks activos');
+      }
+      
+      // Guardar referencia al stream para cada usuario
       this.remoteStreams[this.remoteUserId] = remoteStream;
       
-      // Notificar que se ha recibido el stream remoto
+      // Notificar a través del callback
       if (this.callbacks.onRemoteStream) {
         this.callbacks.onRemoteStream(this.remoteUserId, remoteStream);
       }
@@ -413,9 +431,10 @@ class WebRTCService {
     }
     
     // Crear nueva conexión
-    this.peerConnection = new rtcAdapter.RTCPeerConnection({
+    this.peerConnection = new RTCPeerConnection({
       iceServers: this.iceServers,
-      iceCandidatePoolSize: 10
+      iceCandidatePoolSize: 10,
+      sdpSemantics: 'unified-plan' // Esto es crucial para compatibilidad
     });
     
     // Configurar listeners

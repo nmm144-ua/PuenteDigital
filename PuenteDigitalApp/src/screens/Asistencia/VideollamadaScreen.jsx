@@ -8,7 +8,8 @@ import {
   BackHandler,
   Platform,
   SafeAreaView,
-  Dimensions
+  Dimensions,
+  ActivityIndicator
 } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import SocketService from '../../services/socketService';
@@ -16,6 +17,7 @@ import WebRTCService from '../../services/WebRTCService';
 import PermissionsService from '../../services/permissions.service';
 import { RTCView } from 'react-native-webrtc';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import RatingModal from '../../components/RatingModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -31,9 +33,10 @@ const VideollamadaScreen = ({ route, navigation }) => {
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [callStatus, setCallStatus] = useState('connecting'); // 'connecting', 'connected', 'ended'
   const [callDuration, setCallDuration] = useState(0);
+  const [showRatingModal, setShowRatingModal] = useState(false);
   
   const durationTimerRef = useRef(null);
-  const webrtcInitializedRef = useRef(false);
+  const initialized = useRef(false);
   
   // Formatear el tiempo de la llamada
   const formatCallDuration = (seconds) => {
@@ -47,24 +50,42 @@ const VideollamadaScreen = ({ route, navigation }) => {
   // Función para finalizar la llamada
   const endCall = async () => {
     try {
+      console.log("endCall: Iniciando proceso de finalización");
+      
+      // Detener temporizador
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
+      
+      // Actualizar el estado primero
+      setCallStatus('ended');
+      
+      // Guardar referencia a remoteStream antes de limpiar
+      const currentRemoteStream = remoteStream;
+      
+      // Detener y liberar remoteStream explícitamente
+      if (currentRemoteStream) {
+        try {
+          currentRemoteStream.getTracks().forEach(track => {
+            track.stop();
+          });
+          setRemoteStream(null);
+        } catch (e) {
+          console.warn('Error al detener tracks remotos:', e);
+        }
+      }
+      
       // Notificar a través del socket que la llamada ha finalizado
       SocketService.endCall(roomId, asistenteId);
       
-      // Detener y liberar los streams
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-      }
-      
-      // Limpiar el servicio WebRTC
+      // Limpiar recursos WebRTC
       WebRTCService.cleanup();
       
-      // Actualizar el estado
-      setCallStatus('ended');
-      
-      // Navegar de vuelta a la pantalla anterior
-      navigation.navigate('OpcionesInicio');
+      setShowRatingModal(true);
     } catch (error) {
       console.error('Error al finalizar la llamada:', error);
+      navigation.navigate('OpcionesInicio');
     }
   };
   
@@ -74,6 +95,7 @@ const VideollamadaScreen = ({ route, navigation }) => {
       const audioTracks = localStream.getAudioTracks();
       audioTracks.forEach(track => {
         track.enabled = !track.enabled;
+        console.log(`Micrófono ${track.enabled ? 'activado' : 'desactivado'}`);
       });
       setIsMuted(!isMuted);
     }
@@ -93,98 +115,174 @@ const VideollamadaScreen = ({ route, navigation }) => {
   // Función para cambiar entre cámara frontal y trasera
   const switchCamera = async () => {
     try {
-      await WebRTCService.switchCamera(localStream);
+      await WebRTCService.switchCamera();
     } catch (error) {
       console.error('Error al cambiar de cámara:', error);
-      Alert.alert('Error', 'No se pudo cambiar la cámara');
     }
   };
   
   // Función para alternar altavoz
   const toggleSpeaker = () => {
-    // Esta funcionalidad requiere configuración adicional en Android/iOS
     WebRTCService.toggleSpeaker(!isSpeakerOn);
     setIsSpeakerOn(!isSpeakerOn);
   };
-  
-  // Función para inicializar WebRTC
-  const inicializarWebRTC = async () => {
-    try {
-      // Verificar permisos de cámara y micrófono
-      const permisos = await PermissionsService.requestCallPermissions();
-      if (!permisos) {
-        Alert.alert(
-          'Permisos requeridos',
-          'Para realizar videollamadas necesitas conceder permisos de cámara y micrófono.',
-          [{ text: 'Entendido', onPress: () => navigation.goBack() }]
-        );
-        return;
-      }
-      
-      // Inicializar el servicio WebRTC
-      await WebRTCService.init();
-      
-      // Obtener el stream local (cámara y micrófono)
-      const stream = await WebRTCService.getLocalStream();
-      setLocalStream(stream);
-      
-      // Configurar WebRTC para recibir el stream remoto
-      WebRTCService.onRemoteStream((stream) => {
-        console.log('Stream remoto recibido:', stream);
-        setRemoteStream(stream);
-        setCallStatus('connected');
-        
-        // Iniciar temporizador de duración de llamada
-        durationTimerRef.current = setInterval(() => {
-          setCallDuration(prev => prev + 1);
-        }, 1000);
-      });
-      
-      // Configurar listeners para eventos del socket
-      SocketService.onIceCandidate((data) => {
-        WebRTCService.addIceCandidate(data.candidate);
-      });
-      
-      SocketService.onOffer(async (data) => {
-        await WebRTCService.handleOffer(data.offer);
-        const answer = await WebRTCService.createAnswer();
-        SocketService.sendAnswer(answer, data.from, user?.id || 'anonymous');
-      });
-      
-      SocketService.onAnswer((data) => {
-        WebRTCService.handleAnswer(data.answer);
-      });
-      
-      SocketService.onCallEnded(() => {
-        Alert.alert('Llamada finalizada', 'El asistente ha finalizado la llamada');
-        endCall();
-      });
-      
-      // Si somos el asistente, crear oferta para iniciar la llamada
-      if (asistenteId) {
-        // Usuario común: esperar a que el asistente llame
-      } else {
-        // Lógica para cuando el asistente inicia la llamada (no necesaria aquí)
-      }
-      
-      webrtcInitializedRef.current = true;
-    } catch (error) {
-      console.error('Error al inicializar WebRTC:', error);
-      Alert.alert(
-        'Error de conexión',
-        'No se pudo establecer la videollamada. Por favor, inténtalo de nuevo.',
-        [{ text: 'Volver', onPress: () => navigation.goBack() }]
-      );
-    }
+
+  // Función para manejar el cierre del modal de valoración
+  const handleRatingClose = () => {
+    setShowRatingModal(false);
+    // Navegar a la pantalla de inicio después de un breve retraso
+    setTimeout(() => {
+      navigation.navigate('OpcionesInicio');
+    }, 300);
   };
-  
-  useEffect(() => {
-    // Inicializar WebRTC si no se ha hecho ya
-    if (!webrtcInitializedRef.current) {
-      inicializarWebRTC();
-    }
     
-    // Prevenir navegación hacia atrás sin finalizar la llamada
+  useEffect(() => {
+    console.log("Montando VideollamadaScreen...");
+    
+    const initialize = async () => {
+      if (initialized.current) return;
+      initialized.current = true;
+      
+      try {
+        // 1. Verificar permisos
+        const permisos = await PermissionsService.requestCallPermissions();
+        if (!permisos) {
+          throw new Error("Permisos de cámara/micrófono no concedidos");
+        }
+        //Configurar listeners de socket primero
+        SocketService.off('offer');
+        SocketService.off('answer');
+        SocketService.off('ice-candidate');
+        SocketService.off('call-ended');
+          
+        // 2. Configurar callbacks ANTES de cualquier inicialización
+        WebRTCService.registerCallbacks({
+          onRemoteStream: (userId, stream) => {
+            console.log("CALLBACK: Stream remoto recibido de:", userId);
+            if (stream) {
+              const audioTracks = stream.getAudioTracks();
+              const videoTracks = stream.getVideoTracks();
+              
+              console.log("Audio tracks:", audioTracks.length);
+              console.log("Video tracks:", videoTracks.length);
+              
+              // Actualizar el estado del stream remoto
+              setRemoteStream(stream);
+              
+              // Si tenemos al menos un track de video, la conexión está lista
+              if (videoTracks.length > 0) {
+                setCallStatus('connected');
+                
+                // Verificar que el track de video esté habilitado
+                if (!videoTracks[0].enabled) {
+                  console.log("Track de video desactivado, intentando activar...");
+                  try {
+                    videoTracks[0].enabled = true;
+                  } catch (e) {
+                    console.error("No se pudo activar el video:", e);
+                  }
+                }
+                
+                // Verificar que el track de video no esté silenciado
+                if (videoTracks[0].muted) {
+                  console.log("Track de video silenciado, intentando activar...");
+                  try {
+                    videoTracks[0].muted = false;
+                  } catch (e) {
+                    console.error("No se pudo desactivar mute en video:", e);
+                  }
+                }
+              } else if (audioTracks.length > 0 && callStatus !== 'connected') {
+                // Si solo tenemos audio, también mostrar connected pero seguir esperando video
+                setCallStatus('audio_only');
+              }
+
+              WebRTCService.ensureTracksEnabled(userId);
+              
+              // Iniciar temporizador solo la primera vez
+              if (!durationTimerRef.current) {
+                durationTimerRef.current = setInterval(() => {
+                  setCallDuration(prev => prev + 1);
+                }, 1000);
+              }
+            }
+          },
+          onRemoteStreamClosed: () => {
+            setCallStatus('ended');
+            if (durationTimerRef.current) {
+              clearInterval(durationTimerRef.current);
+              durationTimerRef.current = null;
+            }
+          },
+          onConnectionStateChange: (userId, state) => {
+            console.log(`Estado de conexión para ${userId}: ${state}`);
+          },
+          onError: (type, error) => {
+            console.error(`Error WebRTC (${type}):`, error);
+          }
+        });
+        
+        // 3. Configurar IDs
+        const myUserId = user?.id || 'anonymous';
+        WebRTCService.setUserIds(myUserId, asistenteId);
+        
+        // 4. Inicializar WebRTC
+        await WebRTCService.init();
+        
+        // 5. Obtener stream local
+        const stream = await WebRTCService.getLocalStream();
+        setLocalStream(stream);
+
+        // 6. Configurar listeners de socket
+        
+        SocketService.onOffer(async (data) => {
+          console.log("Oferta recibida de:", data.from);
+          await WebRTCService.handleIncomingOffer(data.offer, data.from);
+        });
+        
+        SocketService.onAnswer((data) => {
+          console.log("Respuesta recibida de:", data.from);
+          WebRTCService.handleAnswer(data.answer);
+        });
+        
+        SocketService.onIceCandidate((data) => {
+          WebRTCService.addIceCandidate(data.candidate);
+        });
+        
+        SocketService.onCallEnded(() => {
+          Alert.alert('Llamada finalizada', 'El otro usuario ha finalizado la llamada');
+          endCall();
+        });
+        
+        // 7. Verificar streams remotos existentes
+        const remoteStreams = WebRTCService.getRemoteStreams();
+        if (remoteStreams && Object.keys(remoteStreams).length > 0) {
+          // Use the first remote stream available
+          const firstStreamKey = Object.keys(remoteStreams)[0];
+          setRemoteStream(remoteStreams[firstStreamKey]);
+          setCallStatus('connected');
+          
+          // Iniciar temporizador
+          if (!durationTimerRef.current) {
+            durationTimerRef.current = setInterval(() => {
+              setCallDuration(prev => prev + 1);
+            }, 1000);
+          }
+        }
+        WebRTCService.toggleSpeaker(true);
+      } catch (error) {
+        console.error("Error en inicialización:", error);
+        Alert.alert(
+          'Error de conexión',
+          'No se pudo establecer la videollamada: ' + error.message,
+          [{ text: 'Volver', onPress: () => navigation.goBack() }]
+        );
+      }
+    };
+    
+    initialize();
+    
+    // Manejar botón de retroceso
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       Alert.alert(
         'Finalizar videollamada',
@@ -197,39 +295,63 @@ const VideollamadaScreen = ({ route, navigation }) => {
       return true;
     });
     
+    // Limpiar recursos al desmontar
     return () => {
-      // Limpiar al desmontar
+      console.log("Desmontando VideollamadaScreen...");
       backHandler.remove();
       
       if (durationTimerRef.current) {
         clearInterval(durationTimerRef.current);
       }
       
-      if (callStatus !== 'ended') {
-        endCall();
-      }
+      // Remover listeners
+      SocketService.off('offer');
+      SocketService.off('answer');
+      SocketService.off('ice-candidate');
+      SocketService.off('call-ended');
+      
+      // No limpiar WebRTC aquí para evitar problemas en la navegación
     };
   }, []);
+  
   
   return (
     <SafeAreaView style={styles.container}>
       {/* Stream remoto (pantalla completa) */}
       {remoteStream ? (
-        <RTCView
-          streamURL={remoteStream.toURL()}
-          style={styles.remoteStream}
-          objectFit="cover"
-        />
+        <View style={styles.remoteStreamContainer}>
+          {/* Un indicador de audio/video */}
+          <View style={styles.debugOverlay}>
+            <Text style={styles.debugText}>
+              Audio: {remoteStream.getAudioTracks().length > 0 ? '✓' : '✗'} 
+              Video: {remoteStream.getVideoTracks().length > 0 ? '✓' : '✗'}
+            </Text>
+          </View>
+          
+          {/* El RTCView con configuración simplificada */}
+          <RTCView
+            streamURL={remoteStream.toURL()}
+            style={styles.remoteStream}
+            objectFit="contain" // Cambiar a contain
+            mirror={true} // Probar con mirror en true
+            zOrder={1} // Cambiar a zOrder 1
+            key={Date.now()} // Forzar recreación con timestamp
+          />
+          
+          {callStatus === 'audio_only' && (
+            <View style={styles.audioOnlyOverlay}>
+              <MaterialIcons name="videocam-off" size={48} color="#fff" />
+              <Text style={styles.audioOnlyText}>Esperando video...</Text>
+            </View>
+          )}
+        </View>
       ) : (
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>
-            {callStatus === 'connecting' 
-              ? `Conectando con ${asistenteName || 'el asistente'}...` 
-              : 'Llamada finalizada'}
-          </Text>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.loadingText}>Conectando...</Text>
         </View>
       )}
-      
+
       {/* Stream local (miniatura) */}
       {localStream && (
         <View style={styles.localStreamContainer}>
@@ -237,6 +359,10 @@ const VideollamadaScreen = ({ route, navigation }) => {
             streamURL={localStream.toURL()}
             style={styles.localStream}
             objectFit="cover"
+            mirror={true}
+            zOrder={1}
+            muted={true} // Importante: silenciar el stream local para evitar eco
+            key={`local-stream-${localStream.id}`}
           />
         </View>
       )}
@@ -257,6 +383,25 @@ const VideollamadaScreen = ({ route, navigation }) => {
       
       {/* Controles de la llamada */}
       <View style={styles.controlsContainer}>
+
+        {/* Botón de diagnóstico/reparación - mostrar solo si hay problemas */}
+        {remoteStream && callStatus === 'audio_only' && (
+          <TouchableOpacity 
+            style={styles.repairButton}
+            onPress={() => {
+              // Diagnosticar y reparar
+              WebRTCService.diagnosticStreamRemote(asistenteId);
+              WebRTCService.ensureTracksEnabled(asistenteId);
+              
+              // Forzar un rerenderizado al actualizar el estado
+              setRemoteStream({...remoteStream});
+            }}
+          >
+            <MaterialIcons name="refresh" size={20} color="#fff" />
+            <Text style={styles.repairButtonText}>Reparar Video</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.controlButton} onPress={toggleMute}>
           <MaterialIcons 
             name={isMuted ? 'mic-off' : 'mic'} 
@@ -300,6 +445,13 @@ const VideollamadaScreen = ({ route, navigation }) => {
       <TouchableOpacity style={styles.endCallButton} onPress={endCall}>
         <MaterialIcons name="call-end" size={36} color="#fff" />
       </TouchableOpacity>
+      
+      {/* Modal de valoración */}
+      <RatingModal
+        visible={showRatingModal}
+        solicitudId={route.params.solicitudId}
+        onClose={handleRatingClose}
+      />
     </SafeAreaView>
   );
 };
@@ -313,6 +465,28 @@ const styles = StyleSheet.create({
     flex: 1,
     width: width,
     height: height,
+  },
+  remoteStreamContainer: {
+    flex: 1,
+    width: width,
+    height: height,
+    backgroundColor: '#000',
+  },
+  audioOnlyOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  audioOnlyText: {
+    color: '#fff',
+    fontSize: 18,
+    marginTop: 10,
+    fontWeight: 'bold',
   },
   loadingContainer: {
     flex: 1,

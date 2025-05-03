@@ -235,7 +235,7 @@ const AsistenciaScreen = ({ navigation }) => {
       }
       
       // Crear la solicitud en la base de datos
-      const solicitud = await AsistenciaService.crearSolicitud(descripcion);
+      const solicitud = await AsistenciaService.crearSolicitud(descripcion, 'video');
       
       if (solicitud && solicitud.id) {
         // Navegar a la pantalla de espera

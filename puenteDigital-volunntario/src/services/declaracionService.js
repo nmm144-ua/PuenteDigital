@@ -2,16 +2,30 @@
 import { supabase } from '../../supabase';
 
 export const declaracionService = {
-  // Crear una declaración de responsabilidad
-  async createDeclaracionResponsabilidad(declaracionData) {
-    const { data, error } = await supabase
-      .from('declaraciones_responsabilidad')
-      .insert([declaracionData]);
-    if (error) throw error;
-    return data;
+  // Crear una declaración de responsabilidad con firma como base64
+  async createDeclaracionResponsabilidad(declaracionData, signatureDataURL) {
+    try {
+      // Guardar directamente la URL de la firma en la tabla
+      // en lugar de subir a Storage
+      const datosDeclaracion = {
+        ...declaracionData,
+        firma_url: signatureDataURL // Guardar la firma como base64 directamente
+      };
+      
+      const { data, error } = await supabase
+        .from('declaraciones_responsabilidad')
+        .insert([datosDeclaracion])
+        .select();
+        
+      if (error) throw error;
+      return data[0];
+    } catch (error) {
+      console.error('Error al crear la declaración:', error);
+      throw error;
+    }
   },
 
-  // Obtener una declaración por ID (si es necesario)
+  // Obtener una declaración por ID
   async getDeclaracionById(declaracionId) {
     const { data, error } = await supabase
       .from('declaraciones_responsabilidad')
@@ -24,12 +38,18 @@ export const declaracionService = {
 
   // Eliminar una declaración por ID
   async deleteDeclaracionById(declaracionId) {
-    const { data, error } = await supabase
-      .from('declaraciones_responsabilidad')
-      .delete()
-      .eq('id', declaracionId);
-    if (error) throw error;
-    return data;
+    try {
+      const { error } = await supabase
+        .from('declaraciones_responsabilidad')
+        .delete()
+        .eq('id', declaracionId);
+        
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error al eliminar la declaración:', error);
+      throw error;
+    }
   },
 
   // Obtener todas las declaraciones de un asistente

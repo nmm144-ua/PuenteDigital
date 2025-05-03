@@ -71,9 +71,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { asistenteService } from '../../services/asistenteService';
 import { jornadasService } from '@/services/jornadasService';
+import { useAuthStore } from '@/stores/authStore';
 
 const props = defineProps({
   userId: {
@@ -87,6 +88,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['estadoCambiado']);
+const authStore = useAuthStore();
 const estaActivo = ref(props.estadoInicial);
 const loading = ref(false);
 const error = ref('');
@@ -96,18 +98,33 @@ const startTime = ref(null);
 const tiempoTranscurrido = ref('00:00:00');
 let timerInterval = null;
 
+
+watch(() => authStore.jornadaActiva, (nuevaJornada) => {
+  jornada.value = nuevaJornada;
+  estaActivo.value = !!nuevaJornada;
+  
+  if (nuevaJornada) {
+    startTime.value = new Date(nuevaJornada.inicio);
+    iniciarTemporizador();
+  } else {
+    detenerTemporizador();
+  }
+});
+
 // Cargar jornada actual si el asistente está activo
 const cargarJornadaActual = async () => {
-  if (!estaActivo.value) return;
-  
   try {
-    const asistente = await asistenteService.getAsistenteByUserId(props.userId);
-    const jornadaActual = await jornadasService.getJornadaActiva(asistente.id);
+    // Verificar jornada activa en el AuthStore
+    await authStore.verificarJornadaActiva();
     
-    if (jornadaActual) {
-      jornada.value = jornadaActual;
-      startTime.value = new Date(jornadaActual.inicio);
+    // Si hay jornada activa, actualizar el componente
+    if (authStore.jornadaActiva) {
+      jornada.value = authStore.jornadaActiva;
+      estaActivo.value = true;
+      startTime.value = new Date(authStore.jornadaActiva.inicio);
       iniciarTemporizador();
+    } else {
+      estaActivo.value = false;
     }
   } catch (err) {
     console.error('Error al cargar jornada actual:', err);
@@ -158,39 +175,28 @@ const toggleActivacion = async () => {
     mensajeExito.value = '';
     
     const nuevoEstado = !estaActivo.value;
-    await asistenteService.actualizarEstadoAsistente(props.userId, nuevoEstado);
+    
+    if (nuevoEstado) {
+      // Iniciar jornada usando el AuthStore
+      const success = await authStore.iniciarJornada();
+      if (!success) throw new Error('No se pudo iniciar la jornada');
+      
+      mensajeExito.value = 'Te has activado correctamente. Ya puedes recibir solicitudes de ayuda.';
+    } else {
+      // Finalizar jornada usando el AuthStore
+      const success = await authStore.finalizarJornada();
+      if (!success) throw new Error('No se pudo finalizar la jornada');
+      
+      mensajeExito.value = 'Te has desactivado correctamente. No recibirás solicitudes de ayuda.';
+    }
+    
+    // Actualizar estado local
     estaActivo.value = nuevoEstado;
     
-    // Mostrar mensaje de éxito temporalmente
-    mensajeExito.value = nuevoEstado
-      ? 'Te has activado correctamente. Ya puedes recibir solicitudes de ayuda.'
-      : 'Te has desactivado correctamente. No recibirás solicitudes de ayuda.';
-    
+    // Ocultar mensaje de éxito después de un tiempo
     setTimeout(() => {
       mensajeExito.value = '';
     }, 5000);
-    
-    // Gestionar jornada
-    if (nuevoEstado) {
-      // Iniciar nueva jornada
-      const asistente = await asistenteService.getAsistenteByUserId(props.userId);
-      const nuevaJornada = await jornadasService.createJornada({
-        asistente_id: asistente.id,
-        inicio: new Date().toISOString(),
-      });
-      jornada.value = nuevaJornada;
-      startTime.value = new Date();
-      iniciarTemporizador();
-    } else {
-      // Terminar jornada actual
-      if (jornada.value) {
-        await jornadasService.terminarJornada(jornada.value.id, {
-          fin: new Date().toISOString(),
-        });
-        jornada.value = null;
-        detenerTemporizador();
-      }
-    }
     
     emit('estadoCambiado', nuevoEstado);
   } catch (err) {

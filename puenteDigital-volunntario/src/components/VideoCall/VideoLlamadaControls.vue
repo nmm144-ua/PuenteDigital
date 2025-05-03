@@ -21,6 +21,7 @@
           :remote-streams="remoteStreams" 
           :participants="participants" 
           @video-dimension="handleVideoDimension"
+          ref="videoGrid"
         />
       </div>
       
@@ -44,6 +45,13 @@
         @toggle-video="toggleVideo"
         @end-call="endCall"
       />
+    </div>
+
+    <!-- Botón de diagnóstico -->
+    <div v-if="isInCall" class="diagnostic-controls">
+      <button @click="diagnoseStreams" class="diagnostic-button">
+        <i class="fas fa-stethoscope"></i>
+      </button>
     </div>
     
     <!-- Pantalla de carga -->
@@ -110,7 +118,9 @@ export default {
       // Control de intentos de reconexión
       reconnectionAttempts: {},
       // Monitor de conexión
-      connectionCheckInterval: null
+      connectionCheckInterval: null,
+      // Flag para controlar la inicialización
+      streamCheckTimer: null
     };
   },
   computed: {
@@ -139,6 +149,26 @@ export default {
       return this.callStore.userRole === 'asistente';
     }
   },
+  watch: {
+    // Vigilar cambios en los streams remotos para verificar su reproducción
+    remoteStreams: {
+      deep: true,
+      handler(newStreams, oldStreams) {
+        // Verificar si hay nuevos streams o si cambió alguno existente
+        const hasNewStreams = Object.keys(newStreams).some(
+          userId => !oldStreams[userId] || oldStreams[userId] !== newStreams[userId]
+        );
+        
+        if (hasNewStreams) {
+          console.log('Nuevos streams detectados, verificando reproducción...');
+          // Dar tiempo para que los componentes se actualicen
+          this.$nextTick(() => {
+            this.checkAndFixStreams();
+          });
+        }
+      }
+    }
+  },
   async created() {
     this.loading = true;
     
@@ -163,15 +193,23 @@ export default {
   mounted() {
     // Iniciar monitoreo de conexiones
     this.startConnectionMonitoring();
+    
+    // Iniciar verificación periódica de streams
+    this.startStreamChecking();
   },
   beforeUnmount() {
     window.removeEventListener('beforeunload', this.cleanupBeforeUnload);
-    this.callStore.cleanup();
     
-    // Limpiar intervalos
+    // Limpiar todos los intervalos
     if (this.connectionCheckInterval) {
       clearInterval(this.connectionCheckInterval);
     }
+    
+    if (this.streamCheckTimer) {
+      clearInterval(this.streamCheckTimer);
+    }
+    
+    this.callStore.cleanup();
   },
   methods: {
     async startCall() {
@@ -201,19 +239,63 @@ export default {
     
     toggleAudio() {
       this.callStore.toggleAudio();
+      console.log(`Micrófono ${this.audioEnabled ? 'activado' : 'desactivado'}`);
     },
     
     toggleVideo() {
       this.callStore.toggleVideo();
+      console.log(`Cámara ${this.videoEnabled ? 'activada' : 'desactivada'}`);
     },
     
     endCall() {
+      // Primero detener los streams remotos para evitar errores de reproducción
+      if (this.$refs.videoGrid) {
+        this.$refs.videoGrid.stopAllVideoPlayback();
+      }
+       // Asegurarnos de que tenemos la información de la solicitud actual
+      const solicitudId = this.callStore.currentRequest?.id;
+      console.log('ID de solicitud antes de finalizar llamada:', solicitudId);
+      
+      // Si no tenemos ID pero estamos en una ruta con ID
+      if (!solicitudId && this.$route.params.id) {
+        // Intentar actualizar la solicitud desde los parámetros de ruta
+        const routeId = parseInt(this.$route.params.id);
+        if (routeId) {
+          console.log('Usando ID de la ruta como respaldo:', routeId);
+          // Actualizar manualmente el store con el ID de la ruta
+          this.callStore.setCurrentRequest({
+            id: routeId,
+            roomId: this.roomId,
+            userName: this.userName
+          });
+        }
+      }
+      
       this.callStore.endCall();
+      
+
+      // Redirigir a la vista de finalización con el ID como parámetro
+        const finalId = this.callStore.currentRequest?.id;
+        if (finalId) {
+          this.$router.push(`/finalizacion-llamada/${finalId}`);
+        } else {
+          // Sin ID, enviamos sin parámetro
+          this.$router.push('/finalizacion-llamada');
+        }
+      
     },
     
     leaveRoom() {
-      this.callStore.cleanup();
-      this.$router.push('/');
+      // Detener reproducción de videos antes de salir
+      if (this.$refs.videoGrid) {
+        this.$refs.videoGrid.stopAllVideoPlayback();
+      }
+      
+      // Pequeña pausa antes de la limpieza
+      setTimeout(() => {
+        this.callStore.cleanup();
+        this.$router.push('/');
+      }, 100);
     },
     
     cleanupBeforeUnload() {
@@ -251,6 +333,95 @@ export default {
           });
         }
       }, 5000); // Verificar cada 5 segundos
+    },
+    
+    // Iniciar verificación periódica de streams
+    startStreamChecking() {
+      this.streamCheckTimer = setInterval(() => {
+        if (this.isInCall && Object.keys(this.remoteStreams).length > 0) {
+          this.checkAndFixStreams();
+        }
+      }, 3000); // Verificar cada 3 segundos
+    },
+    
+    // Verificar y arreglar problemas de reproducción de streams
+    checkAndFixStreams() {
+      if (!this.$refs.videoGrid) return;
+      
+      // Pedir al VideoGrid que verifique y repare sus videos
+      this.$refs.videoGrid.checkAndRestartVideos();
+    },
+    
+    // Función de diagnóstico para verificar streams
+    diagnoseStreams() {
+      console.log('===== DIAGNÓSTICO DE STREAMS =====');
+      console.log('Este componente está', this.isInCall ? 'en llamada' : 'no en llamada');
+      
+      // Verificar stream local
+      if (this.localStream) {
+        console.log('STREAM LOCAL:', this.localStream.id);
+        console.log('- ID:', this.localStream.id);
+        console.log('- Audio tracks:', this.localStream.getAudioTracks().length);
+        console.log('- Video tracks:', this.localStream.getVideoTracks().length);
+        
+        const audioTracks = this.localStream.getAudioTracks();
+        const videoTracks = this.localStream.getVideoTracks();
+        
+        if (audioTracks.length > 0) {
+          console.log('- Audio track principal:', {
+            enabled: audioTracks[0].enabled,
+            muted: audioTracks[0].muted,
+            readyState: audioTracks[0].readyState
+          });
+        }
+        
+        if (videoTracks.length > 0) {
+          console.log('- Video track principal:', {
+            enabled: videoTracks[0].enabled,
+            muted: videoTracks[0].muted,
+            readyState: videoTracks[0].readyState
+          });
+        }
+      } else {
+        console.log('NO HAY STREAM LOCAL');
+      }
+      
+      // Verificar streams remotos
+      const remoteStreamsCount = Object.keys(this.remoteStreams).length;
+      console.log(`HAY ${remoteStreamsCount} STREAMS REMOTOS:`);
+      
+      Object.entries(this.remoteStreams).forEach(([userId, stream]) => {
+        console.log(`STREAM REMOTO (${userId}):`);
+        console.log('- ID:', stream.id);
+        console.log('- Audio tracks:', stream.getAudioTracks().length);
+        console.log('- Video tracks:', stream.getVideoTracks().length);
+        
+        const audioTracks = stream.getAudioTracks();
+        const videoTracks = stream.getVideoTracks();
+        
+        if (audioTracks.length > 0) {
+          console.log('- Audio track principal:', {
+            enabled: audioTracks[0].enabled,
+            muted: audioTracks[0].muted,
+            readyState: audioTracks[0].readyState
+          });
+        }
+        
+        if (videoTracks.length > 0) {
+          console.log('- Video track principal:', {
+            enabled: videoTracks[0].enabled,
+            muted: videoTracks[0].muted,
+            readyState: videoTracks[0].readyState
+          });
+        }
+      });
+      
+      console.log('=================================');
+      
+      // Si hay un componente VideoGrid, pedirle que también corra un diagnóstico
+      if (this.$refs.videoGrid) {
+        this.$refs.videoGrid.diagnoseVideos();
+      }
     },
     
     // Manejar problemas de conexión
@@ -358,6 +529,32 @@ export default {
   align-items: center;
   background-color: rgba(255, 255, 255, 0.8);
   border-top: 1px solid #E0E0E0;
+}
+
+/* Controles de diagnóstico */
+.diagnostic-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 15;
+}
+
+.diagnostic-button {
+  background-color: rgba(0, 0, 0, 0.5);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.diagnostic-button:hover {
+  background-color: rgba(0, 0, 0, 0.7);
 }
   
 .loading-overlay, .reconnecting-overlay {

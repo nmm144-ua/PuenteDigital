@@ -2,7 +2,7 @@
   "expo": {
     "name": "PuenteDigital",
     "slug": "puentedigitalapp",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/PuenteDigital.jpg",
     "userInterfaceStyle": "light",

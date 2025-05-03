@@ -1,7 +1,7 @@
 // src/services/socketService.js - Versión optimizada y corregida
 import { io } from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import WebRTCService from './WebRTCService'
 
 class SocketService {
   constructor() {
@@ -13,7 +13,7 @@ class SocketService {
     this.connectionAttempts = 0;
     
     // Server URL - cambiar a la URL real de tu servidor
-    this.serverUrl = 'http://192.168.1.99:3001';
+    this.serverUrl = 'http://192.168.1.50:3001';
     
     // Evitar duplicación de listeners
     this.registeredEvents = new Set();
@@ -152,6 +152,29 @@ class SocketService {
       // Intentar una reconexión manual
       setTimeout(() => this.connect(), 5000);
     });
+
+    this.socket.on('offer', async ({ offer, to, from }) => {
+      console.log(`Oferta recibida de ${from} para ${to}`);
+      
+      const toSocketId = userSocketMap.get(to);
+      if (toSocketId) {
+        // Añadir información de restricciones de medios
+        const mediaConstraints = {
+          video: {
+            width: { min: 320, ideal: 640, max: 1280 },
+            height: { min: 240, ideal: 480, max: 720 },
+            frameRate: { ideal: 24 }
+          },
+          audio: true
+        };
+        
+        io.to(toSocketId).emit('offer', { 
+          offer, 
+          from,
+          mediaConstraints // Incluir restricciones de medios
+        });
+      }
+    });
   }
   
   // Método para intentar reconectar manualmente
@@ -170,6 +193,7 @@ class SocketService {
   // Desconectar del servidor
   disconnect() {
     console.log('Desconectando socket...');
+    console.trace("Traza de llamada a disconnect"); // Traza para encontrar el origen
     if (this.socket) {
       // Si estamos en una sala, salir primero
       if (this.currentRoom) {
@@ -252,7 +276,55 @@ class SocketService {
     this.on('room-users', (users) => {
       console.log('Usuarios en la sala:', users);
     });
+
+    // Configurar listener para ofertas entrantes
+    this.on('offer', (data) => {
+      console.log('***** OFERTA RECIBIDA VÍA SOCKET *****');
+      console.log('De usuario:', data.from);
+      console.log('Tipo de oferta:', typeof data.offer);
+      
+      console.log('WebRTCService disponible:', !!WebRTCService);
+      console.log('handleIncomingOffer existe:', WebRTCService && typeof WebRTCService.handleIncomingOffer === 'function');
+      
+      // Intento directo
+      if (WebRTCService && typeof WebRTCService.handleIncomingOffer === 'function') {
+        try {
+          console.log('Intentando llamar a handleIncomingOffer directamente');
+          WebRTCService.handleIncomingOffer(data.offer, data.from)
+            .then(result => console.log('Resultado de handleIncomingOffer:', result))
+            .catch(error => console.error('Error en handleIncomingOffer:', error));
+        } catch (error) {
+          console.error('Error al llamar handleIncomingOffer:', error);
+        }
+      }
+    });
+
+     // Configurar listener para respuestas
+    this.on('answer', (data) => {
+      console.log('***** RESPUESTA RECIBIDA VÍA SOCKET *****');
+      console.log('De usuario:', data.from);
+    });
     
+    // Configurar listener para candidatos ICE
+    this.on('ice-candidate', (data) => {
+      console.log('Candidato ICE recibido de:', data.from);
+    });
+    
+    // Configurar listener para solicitudes de llamada
+    this.on('call-requested', (data) => {
+      console.log('Solicitud de llamada recibida de:', data.from);
+    });
+    
+    // Configurar listener para finalización de llamada
+    this.on('call-ended', (data) => {
+      console.log('Llamada finalizada por:', data.from);
+    });
+    
+    // Listeners básicos de sala
+    this.on('user-joined', (participant) => {
+      console.log('Usuario unido a la sala:', participant);
+    });
+  
     // Los demás listeners se configurarán a través del método 'on'
     // según sea necesario por otros servicios
   }
@@ -263,7 +335,8 @@ class SocketService {
     
     if (this.socket && this.isConnected && roomId) {
       console.log(`Abandonando sala: ${roomId}`);
-      
+      console.trace("Traza de llamada a leaveRoom"); // Agregado para detectar el origen
+
       // Enviar evento para abandonar la sala
       this.socket.emit('leave-room', { roomId });
       this.currentRoom = null;
@@ -334,7 +407,9 @@ class SocketService {
     // Usar fromUserId proporcionado o fallback a this.userId
     const senderId = fromUserId || this.userId || 'unknown';
     
-    console.log(`Enviando respuesta a ${toUserId} desde ${senderId}`);
+    console.log(`***** ENVIANDO RESPUESTA SDP *****`);
+    console.log(`De: ${senderId} a: ${toUserId}`);
+    console.log('Tipo de respuesta:', typeof answer);
     
     try {
       // Asegurar que la respuesta es serializable
@@ -386,10 +461,6 @@ class SocketService {
   }
   
   // Enviar mensaje de chat
- // Modificar en socketService.js para evitar envío de mensajes duplicados
-
-// Dentro de la clase SocketService, modificar el método sendMessage:
-
   sendMessage(roomId, message, senderName) {
     if (!this.socket || !this.isConnected) {
       console.error('No hay conexión con el servidor al enviar mensaje');
@@ -528,10 +599,50 @@ class SocketService {
     }
   }
   
-  // Métodos de conveniencia (alias)
-  
   onOffer(callback) {
-    this.on('offer', callback);
+    this.on('offer', async (data) => {
+      console.log('***** OFERTA RECIBIDA EN onOffer *****');
+      console.log('De usuario:', data.from);
+      console.log('A usuario:', data.to);
+      
+      // Verificar datos de la oferta
+      if (data.offer && typeof data.offer === 'object') {
+        console.log('Oferta válida recibida');
+        
+        try {
+          // Actualizar el ID remoto antes de procesar la oferta
+          WebRTCService.setRemoteUserId(data.from);
+          
+          // Procesar la oferta
+          const result = await WebRTCService.handleIncomingOffer(data.offer, data.from);
+          console.log('Resultado de handleIncomingOffer:', result);
+          
+          // Si hubo un error, se puede intentar reiniciar
+          if (!result) {
+            console.log('Intento fallido, reiniciando WebRTC...');
+            // Limpieza completa
+            WebRTCService.cleanup();
+            
+            // Esperar un momento
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Volver a inicializar
+            await WebRTCService.init();
+            
+            // Segundo intento
+            const secondResult = await WebRTCService.handleIncomingOffer(data.offer, data.from);
+            console.log('Resultado de segundo intento:', secondResult);
+          }
+        } catch (error) {
+          console.error('Error al manejar oferta directamente:', error);
+        }
+      } else {
+        console.error('Oferta inválida recibida:', data.offer);
+      }
+      
+      // Llamar al callback original
+      callback(data);
+    });
   }
   
   onAnswer(callback) {
@@ -587,6 +698,56 @@ class SocketService {
       socketId: this.socket?.id
     };
   }
+
+  // Añadir después de getStatus()
+  checkWebRTCState() {
+    console.log('======== DIAGNÓSTICO DE SOCKET.IO ========');
+    console.log('Socket conectado:', this.isConnected);
+    console.log('ID de socket:', this.socket?.id);
+    console.log('Sala actual:', this.currentRoom);
+    console.log('Usuario ID:', this.userId);
+    console.log('Eventos registrados:');
+    
+    for (const [event, handlers] of Object.entries(this.eventListeners)) {
+      console.log(`- ${event}: ${handlers.length} listeners`);
+    }
+    
+    // Verificar específicamente los listeners WebRTC
+    const webrtcEvents = ['offer', 'answer', 'ice-candidate'];
+    webrtcEvents.forEach(event => {
+      const hasListeners = this.eventListeners[event]?.length > 0;
+      console.log(`- ${event} está ${hasListeners ? 'REGISTRADO' : 'NO REGISTRADO'}`);
+    });
+    
+    console.log('=========================================');
+  }
+
+  //PARTE DE VIDEOLLAMADAS
+
+  //Finalizar llamada
+  endCall(roomId, toUserId) {
+    if (!this.socket || !this.isConnected) {
+      console.error('No hay conexión con el servidor al finalizar llamada');
+      return false;
+    }
+    
+    console.log(`Enviando evento de finalización de llamada en sala ${roomId} a ${toUserId || 'todos'}`);
+    
+    try {
+      // Cambiar a end-call para coincidir con el servidor
+      this.socket.emit('end-call', {
+        roomId: roomId,
+        to: toUserId || null,
+        from: this.userId || 'unknown'
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Error al enviar evento de finalización de llamada:', error);
+      return false;
+    }
+  }
+
 }
 
 // Exportar una instancia única

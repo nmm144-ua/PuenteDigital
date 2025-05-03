@@ -19,6 +19,11 @@ import EsperaAsistenciaScreen from '../screens/Asistencia/EsperaAsistenciaScreen
 import VideollamadaScreen from '../screens/Asistencia/VideollamadaScreen';
 import ChatScreen from '../screens/Asistencia/ChatScreen'; 
 import MisSolicitudesScreen from '../screens/Asistencia/MisSolicitudesScreen';
+import MisMensajesScreen from '../screens/Asistencia/MisMensajesScreen'; 
+
+// Pantallas de tutoriales
+import TutorialesScreen from '../screens/Tutoriales/TutorialesScreen';
+import DetalleTutorialScreen from '../screens/Tutoriales/DetalleTutorialScreen';
 
 const Stack = createStackNavigator();
 
@@ -54,8 +59,12 @@ const MainNavigator = () => {
     >
       <Stack.Screen name="Inicio" component={InicioScreen} />
       <Stack.Screen name="OpcionesInicio" component={OpcionesInicioScreen} />
-      <Stack.Screen name="Tutoriales" component={NoDisponibleScreen} />
-      <Stack.Screen name="Mensajes" component={NoDisponibleScreen} />
+     {/* Pantallas de tutoriales */}
+     <Stack.Screen name="Tutoriales" component={TutorialesScreen} />
+      <Stack.Screen name="DetalleTutorial" component={DetalleTutorialScreen} />
+
+
+      <Stack.Screen name="Mensajes" component={MisMensajesScreen} />
       
       {/* Pantallas de asistencia */}
       <Stack.Screen name="Asistencia" component={AsistenciaScreen} />
@@ -66,7 +75,9 @@ const MainNavigator = () => {
         component={VideollamadaScreen}
         options={{
           headerShown: false,
-          gestureEnabled: false
+          gestureEnabled: false,
+          animationEnabled: false,
+          presentation: "card"
         }}
       />
       
