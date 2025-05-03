@@ -77,6 +77,10 @@
                 <h6 v-if="declaraciones.length > 1">Declaración {{ index + 1 }}</h6>
                 <p><strong>Fecha:</strong> {{ formatDate(declaracion.fecha) }}</p>
                 <p><strong>Declaración:</strong> {{ declaracion.nombre }} {{ declaracion.dni }}</p>
+                <div class="mt-4">
+                  <p><strong>Firma Digital:</strong></p>
+                  <FirmaViewer :firma_url="declaracion.firma_url" />
+                </div>
               </div>
             </div>
           </div>
@@ -97,6 +101,7 @@ import { asistenteService } from '@/services/asistenteService'
 import { Modal } from 'bootstrap'
 import { jornadasService } from '@/services/jornadasService'
 import { declaracionService } from '@/services/declaracionService'
+import FirmaViewer from '@/components/Firma/FirmaViewer.vue'
 
 const asistentes = ref([])
 const loading = ref(false)
