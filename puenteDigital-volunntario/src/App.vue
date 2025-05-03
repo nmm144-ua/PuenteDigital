@@ -6,6 +6,7 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { Dropdown } from 'bootstrap';
 import { Toaster } from 'vue-sonner';
 import globalNotificationService from './services/globalNotificationService';
+import JornadaWatcher from './components/Global/JornadaWatcher.vue'; // Importar el componente JornadaWatcher
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -13,6 +14,14 @@ const route = useRoute();
 
 const hideNavAndFooter = computed(() => ['NotFound', 'NoDisponible'].includes(route.name));
 const showDropdown = ref(false);
+
+// Verificar estado de activación al iniciar sesión pero SIN redirecciones automáticas
+const verificarEstadoActivacion = async () => {
+  if (authStore.isAuthenticated && authStore.isAsistente) {
+    await authStore.verificarJornadaActiva();
+    // No redirigimos automáticamente, solo verificamos el estado
+  }
+};
 
 const handleLogout = async () => {
   await authStore.logout();
@@ -30,11 +39,15 @@ watch(() => authStore.isAuthenticated, (isAuthenticated) => {
     // Solo inicializar si el usuario es un asistente (no un admin)
     if (!authStore.isAdmin) {
       globalNotificationService.initialize();
+      verificarEstadoActivacion(); // Verificar estado de activación cuando el usuario inicia sesión
     }
   } else {
     globalNotificationService.cleanup();
   }
 }, { immediate: true });
+
+// NO usamos watch para redirigir automáticamente cuando cambia el estado
+// Esto evita el bucle infinito de redirecciones
 
 onMounted(() => {
   const dropdownElement = document.getElementById('dropdownMenuButton');
@@ -42,8 +55,11 @@ onMounted(() => {
     new Dropdown(dropdownElement);
   }
   // Inicializar notificaciones si ya está autenticado al montar el componente
-  if (authStore.isAuthenticated && !authStore.isAdmin) {
-    globalNotificationService.initialize();
+  if (authStore.isAuthenticated) {
+    if (!authStore.isAdmin) {
+      globalNotificationService.initialize();
+    }
+    verificarEstadoActivacion(); // Verificar estado de activación al montar el componente
   }
 });
 
@@ -51,7 +67,6 @@ onUnmounted(() => {
   // Limpiar el servicio de notificaciones al desmontar la aplicación
   globalNotificationService.cleanup();
 });
-
 </script>
 
 <template>
@@ -79,52 +94,67 @@ onUnmounted(() => {
                 <router-link class="nav-link" to="/admin/asistentes">Asistentes</router-link>
                 <router-link class="nav-link" to="/admin/suspendidos">Solicitudes Suspensión</router-link>
                 <router-link class="nav-link" to="/admin/usuariosAppMovil">Usuarios App</router-link>
-
               </template>
               <template v-else>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente">Mi Panel</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/historial">Historial</router-link></li>
                 <li class="nav-item"><router-link class="nav-link" to="/asistente/estado">Estado</router-link></li>
-                 <li class="nav-item"><router-link class="nav-link" to="/asistente/gestion-llamadas">VideoLlamadas</router-link></li>
-                 <li class="nav-item"><router-link class="nav-link" to="/asistente/chat">ChatTexto</router-link></li>
-                 <li class="nav-item"><router-link class="nav-link" to="/asistente/tutoriales">Tutoriales</router-link></li>
+                <!-- Siempre mostramos los enlaces, pero el middleware de ruta se encargará de redirigir si es necesario -->
+                <li class="nav-item"><router-link class="nav-link" to="/asistente/gestion-llamadas">VideoLlamadas</router-link></li>
+                <li class="nav-item"><router-link class="nav-link" to="/asistente/chat">ChatTexto</router-link></li>
+                <li class="nav-item"><router-link class="nav-link" to="/asistente/tutoriales">Tutoriales</router-link></li>
               </template>
             </template>
           </ul>
           <ul class="navbar-nav ms-auto">
-          <template v-if="authStore.isAuthenticated">
-            <li class="nav-item">
-              <div class="dropdown">
-                <img 
-                  src="@/assets/avatar.png" 
-                  alt="Avatar" 
-                  class="rounded-circle dropdown-toggle ms-3"
-                  id="dropdownMenuButton" 
-                  data-bs-toggle="dropdown" 
-                  aria-expanded="false"
-                />
-                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdownMenuButton">
-                  <template v-if="authStore.isAdmin">
-                    <li><router-link class="dropdown-item" to="/admin/perfil">Perfil</router-link></li>
-                  </template>
-                  <template v-else>
-                    <li><router-link class="dropdown-item" to="/asistente/perfil">Perfil</router-link></li>
-                  </template>
-                  <li><a class="dropdown-item" href="#" @click.prevent="handleLogout">Cerrar Sesión</a></li>
-                </ul>
-              </div>
-            </li>
-          </template>
-          <template v-else>
-            <li class="nav-item">
-              <router-link class="nav-link" to="/login">Iniciar Sesión</router-link>
-            </li>
-            <li class="nav-item">
-              <router-link class="nav-link" to="/register">Registrarse</router-link>
-            </li>
-          </template>
-        </ul>
-      </div>
+            <!-- Indicador de estado para asistentes -->
+            <template v-if="authStore.isAuthenticated && authStore.isAsistente">
+              <li class="nav-item">
+                <router-link class="nav-link" :to="'/asistente/activacion'" :class="{'text-success': !authStore.asistenteBloqueado, 'text-danger': authStore.asistenteBloqueado}">
+                  <i :class="['fas', !authStore.asistenteBloqueado ? 'fa-circle text-success' : 'fa-circle text-danger']"></i>
+                  {{ !authStore.asistenteBloqueado ? 'Activo' : 'Inactivo' }}
+                </router-link>
+              </li>
+            </template>
+            <template v-if="authStore.isAuthenticated">
+              <li class="nav-item">
+                <div class="dropdown">
+                  <img 
+                    src="@/assets/avatar.png" 
+                    alt="Avatar" 
+                    class="rounded-circle dropdown-toggle ms-3"
+                    id="dropdownMenuButton" 
+                    data-bs-toggle="dropdown" 
+                    aria-expanded="false"
+                  />
+                  <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdownMenuButton">
+                    <template v-if="authStore.isAdmin">
+                      <li><router-link class="dropdown-item" to="/admin/perfil">Perfil</router-link></li>
+                    </template>
+                    <template v-else>
+                      <li><router-link class="dropdown-item" to="/asistente/perfil">Perfil</router-link></li>
+                      <!-- Opción de activación/desactivación en el menú -->
+                      <li>
+                        <router-link class="dropdown-item" to="/asistente/activacion">
+                          {{ authStore.asistenteBloqueado ? 'Activar Asistencia' : 'Desactivar Asistencia' }}
+                        </router-link>
+                      </li>
+                    </template>
+                    <li><a class="dropdown-item" href="#" @click.prevent="handleLogout">Cerrar Sesión</a></li>
+                  </ul>
+                </div>
+              </li>
+            </template>
+            <template v-else>
+              <li class="nav-item">
+                <router-link class="nav-link" to="/login">Iniciar Sesión</router-link>
+              </li>
+              <li class="nav-item">
+                <router-link class="nav-link" to="/register">Registrarse</router-link>
+              </li>
+            </template>
+          </ul>
+        </div>
     </nav>
   </template>
 
@@ -132,8 +162,10 @@ onUnmounted(() => {
   <main class="main-container">
     <Toaster />
     <div class="router-view-container">
-    <router-view></router-view>
-  </div>
+      <!-- Componente de vigilancia de jornada activa -->
+      <JornadaWatcher v-if="authStore.isAuthenticated && authStore.isAsistente" />
+      <router-view></router-view>
+    </div>
   </main>
 
   <template v-if="!hideNavAndFooter">
@@ -148,7 +180,6 @@ onUnmounted(() => {
 
 <style scoped>
 /* Ajustes de la navbar */
-
 .brand-title {
   font-size: 2rem;
   font-weight: bold;
@@ -202,7 +233,6 @@ body {
   z-index: -1;
 }
 
-
 .main-container {
   min-height: calc(100vh - 160px); /* Ajusta según el tamaño de navbar y footer */
   display: flex;
@@ -220,5 +250,29 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
+}
+
+/* Estilos para el indicador de estado */
+.text-success {
+  color: #28a745 !important;
+}
+
+.text-danger {
+  color: #dc3545 !important;
+}
+
+.text-warning {
+  color: #ffc107 !important;
+}
+
+/* Animación para el indicador de estado activo */
+@keyframes pulse {
+  0% { opacity: 0.7; }
+  50% { opacity: 1; }
+  100% { opacity: 0.7; }
+}
+
+.fa-circle.text-success {
+  animation: pulse 2s infinite;
 }
 </style>

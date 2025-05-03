@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { supabase } from '../../supabase'; // Importar el cliente de Supabase
 import { asistenteService } from '@/services/asistenteService';
 import { usuarioAppService } from '@/services/usuarioAppService';
+import { jornadasService } from '@/services/jornadasService';
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null, // Usuario autenticado
@@ -10,8 +11,91 @@ export const useAuthStore = defineStore('auth', {
     isLoading: false, // Estado de carga
     error: null, // Mensaje de error
     userRole: null, // New state for user role
+    asistenteInfo: null, // Información completa del asistente
+    jornadaActiva: null, // Jornada activa del asistente
+    asistenteBloqueado: true, // Estado bloqueado por defecto
   }),
+  getters: {
+    isAuthenticated: (state) => !!state.user,
+    isAdmin: (state) => state.userRole === 'admin',
+    currentRole: (state) => state.userRole,
+    isAsistente: (state) => state.userRole === 'asistente',
+    canProvideAssistance: (state) => !state.asistenteBloqueado && state.jornadaActiva !== null,
+  },
   actions: {
+
+    // Verificar si el asistente tiene una jornada activa
+    async verificarJornadaActiva() {
+      if (!this.user || !this.isAsistente) return false;
+      
+      try {
+        const asistente = await asistenteService.getAsistenteByUserId(this.user.id);
+        this.asistenteInfo = asistente;
+        
+        // Buscar jornada activa (sin fecha de fin)
+        const jornadas = await jornadasService.getJornadasByAsistenteId(asistente.id);
+        const jornadaActiva = jornadas.find(j => !j.fin);
+        
+        this.jornadaActiva = jornadaActiva || null;
+        this.asistenteBloqueado = !jornadaActiva;
+        
+        return !!jornadaActiva;
+      } catch (error) {
+        console.error('Error al verificar jornada activa:', error);
+        this.jornadaActiva = null;
+        this.asistenteBloqueado = true;
+        return false;
+      }
+    },
+    
+    // Iniciar jornada para el asistente
+    async iniciarJornada() {
+      if (!this.user || !this.isAsistente || this.jornadaActiva) return false;
+      
+      try {
+        const asistente = this.asistenteInfo || await asistenteService.getAsistenteByUserId(this.user.id);
+        
+        // Crear nueva jornada
+        const nuevaJornada = await jornadasService.createJornada({
+          asistente_id: asistente.id,
+          inicio: new Date().toISOString(),
+        });
+        
+        this.jornadaActiva = nuevaJornada;
+        this.asistenteBloqueado = false;
+        
+        // Actualizar estado del asistente en la base de datos
+        await asistenteService.actualizarEstadoAsistente(this.user.id, true);
+        
+        return true;
+      } catch (error) {
+        console.error('Error al iniciar jornada:', error);
+        return false;
+      }
+    },
+    
+    // Finalizar jornada del asistente
+    async finalizarJornada() {
+      if (!this.jornadaActiva) return false;
+      
+      try {
+        await jornadasService.terminarJornada(this.jornadaActiva.id);
+        
+        // Actualizar estado del asistente en la base de datos
+        if (this.user) {
+          await asistenteService.actualizarEstadoAsistente(this.user.id, false);
+        }
+        
+        this.jornadaActiva = null;
+        this.asistenteBloqueado = true;
+        
+        return true;
+      } catch (error) {
+        console.error('Error al finalizar jornada:', error);
+        return false;
+      }
+    },
+
     // Iniciar sesión
     async login(email, password) {
 
@@ -73,25 +157,35 @@ export const useAuthStore = defineStore('auth', {
         this.isLoading = false;
       }
     },
+    
     // Cerrar sesión
     async logout() {
       this.isLoading = true;
       this.error = null;
       try {
+        // Finalizar jornada activa si existe
+        if (this.jornadaActiva) {
+          await this.finalizarJornada();
+        }
+        
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
+        
         // Limpiar el estado
         this.user = null;
         this.asistenteID = null;
-
         this.session = null;
         this.userRole = null;
+        this.asistenteInfo = null;
+        this.jornadaActiva = null;
+        this.asistenteBloqueado = true;
       } catch (error) {
         this.error = error.message;
       } finally {
         this.isLoading = false;
       }
     },
+    
     // Verificar la sesión al cargar la aplicación
     async checkSession() {
       this.isLoading = true;
@@ -99,8 +193,9 @@ export const useAuthStore = defineStore('auth', {
       try {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
+        
         if (data.session?.user) {
-          // Get user role from asistentes table
+          // Obtener información del asistente
           const { data: asistente } = await supabase
             .from('asistentes')
             .select('*')
@@ -108,18 +203,30 @@ export const useAuthStore = defineStore('auth', {
             .single();
           
           this.userRole = asistente?.rol || 'asistente';
+          this.user = data.session.user || null;
+          this.session = data.session || null;
+          
+          // Verificar jornada activa si es asistente
+          if (this.userRole === 'asistente') {
+            await this.verificarJornadaActiva();
+          } else {
+            // Si es admin, no necesita jornada
+            this.asistenteBloqueado = false;
+          }
+        } else {
+          this.user = null;
+          this.session = null;
+          this.userRole = null;
+          this.jornadaActiva = null;
+          this.asistenteBloqueado = true;
         }
-        
-        this.user = data.session?.user || null;
-        this.asistenteID = data.session.id || null;
-
-        this.session = data.session || null;
       } catch (error) {
         this.error = error.message;
       } finally {
         this.isLoading = false;
       }
     },
+
     // Registro de nuevo usuario
     async register(email, password) {
       this.isLoading = true;

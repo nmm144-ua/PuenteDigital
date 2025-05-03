@@ -4,6 +4,7 @@ import HomePage from '../views/HomePage.vue';
 import Login from '../views/Auth/Login.vue';
 import Register from '../views/Auth/Register.vue';
 import { useAuthStore } from '../stores/authStore';
+import { activacionMiddleware } from './middleware/activacionMiddleware';
 
 const routes = [
   {
@@ -79,12 +80,18 @@ const routes = [
       {
         path: 'gestion-llamadas',
         name: 'GestionLlamadas',  
-        component: () => import('../views/Asistente/GestionLlamadas.vue')
+        component: () => import('../views/Asistente/GestionLlamadas.vue'),
+        meta: {
+          requiresActivation: true, 
+        }
       },
       {
         path: 'chat',
         name: 'UsuarioChat',
-        component: () => import('../views/Chat/UserChatView.vue')
+        component: () => import('../views/Chat/UserChatView.vue'),
+        meta: {
+          requiresActivation: true, 
+        }
       },
       // Estructura de tutoriales
       {
@@ -120,6 +127,15 @@ const routes = [
         component: () => import('../views/Asistente/Tutoriales/DetalleTutorial.vue'),
         props: true
       },
+
+      //Activacion de jornada
+      {
+        path: 'activacion',
+        name: 'activacion',
+        component: () => import('../views/Asistente/ActivacionView.vue'),
+      },
+      
+
     ]
   },
   {
@@ -196,6 +212,8 @@ const router = createRouter({
   history: createWebHistory(),
   routes
 });
+
+router.beforeEach(activacionMiddleware);
 
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
