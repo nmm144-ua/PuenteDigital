@@ -54,19 +54,13 @@ const routes = [
         name: 'DetallesAsistente',
         component: () => import('../components/DetallesAsistente.vue')
       },
-      // Actualiza las rutas de videollamada para usar VideollamadaView
       {
-        path: 'call',
-        name: 'HomeCall',
-        component: () => import('../views/VideoCall/HomeCallView.vue')
-      },
-      {
-        path: 'videollamada/:id',  // Nueva ruta para el nuevo componente
+        path: 'videollamada/:id', 
         name: 'VideollamadaView',
         component: () => import('../views/VideoCall/VideoLlamadaView.vue'),
         props: route => ({
           roomId: route.params.id,
-          role: 'asistente',  // Por defecto es asistente en esta ruta
+          role: 'asistente',  
           userName: useAuthStore().user?.nombre || 'Asistente'
         })
       },
