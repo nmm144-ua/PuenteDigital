@@ -4,11 +4,11 @@
     "slug": "puentedigitalapp",
     "version": "1.1.0",
     "orientation": "portrait",
-    "icon": "./assets/PuenteDigital.jpg",
+    "icon": "./assets/ic_launcher.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/PuenteDigital.jpg",
+      "image": "./assets/PuenteDigital.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -24,10 +24,7 @@
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/PuenteDigital.jpg",
-        "backgroundColor": "#ffffff"
-      },
+      "icon": "./assets/ic_launcher.png",
       "package": "com.puentedigital.app",
       "permissions": [
         "ACCESS_NETWORK_STATE",
@@ -48,7 +45,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/PuenteDigital.jpg"
+      "favicon": "./assets/ic_launcher.png"
     },
     "plugins": [
       [
