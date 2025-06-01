@@ -327,14 +327,7 @@ const VideollamadaScreen = ({ route, navigation }) => {
               Video: {remoteStream.getVideoTracks().length > 0 ? '✓' : '✗'}
             </Text>
           </View>
-          {remoteStream && (
-            console.log("🧪 STREAM ANTES DE RTCView:", {
-              streamId: remoteStream.id,
-              streamURL: remoteStream.toURL(),
-              active: remoteStream.active,
-              videoTracks: remoteStream.getVideoTracks().length
-            })
-          )}
+          
           {/* El RTCView con configuración simplificada */}
           <RTCView
             streamURL={remoteStream.toURL()}
