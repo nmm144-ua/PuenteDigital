@@ -66,30 +66,36 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
   // Cargar información de la solicitud
   const cargarSolicitud = async () => {
     try {
+      // Si ya estamos navegando, no hacer nada
+      if (navegandoALlamadaRef.current) {
+        console.log('Ya navegando a videollamada, saltando verificación');
+        return;
+      }
+      
       const data = await AsistenciaService.obtenerSolicitud(solicitudId);
       setSolicitud(data);
       
-      // Si la solicitud ya está en proceso o completada, determinar a qué pantalla navegar
-      if (data.estado === 'en_proceso' && data.asistente_id) {
-        // Marcar que estamos navegando a una llamada para evitar desconectar el socket
+      // Si la solicitud ya está en proceso y NO hemos navegado aún
+      if (data.estado === 'en_proceso' && data.asistente_id && !navegandoALlamadaRef.current) {
+        // Marcar que estamos navegando ANTES de navegar
         navegandoALlamadaRef.current = true;
+        
+        console.log('Estado en_proceso detectado, navegando a videollamada...');
         
         // Verificar el tipo de asistencia
         if (data.tipo_asistencia === 'chat') {
-          // Si es de tipo chat, navegar al chat
-          navigation.replace('Chat', { 
+          navigation.navigate('Chat', { 
             solicitudId: data.id,
             roomId: data.room_id,
-            mantenerConexion: true // Indicar que mantenga la conexión
+            mantenerConexion: true
           });
         } else {
-          // Si es videollamada o no especifica, mantener el comportamiento original
-          navigation.replace('Videollamada', { 
+          navigation.navigate('Videollamada', {  // ⬅️ CAMBIAR A navigate
             solicitudId: data.id,
             roomId: data.room_id,
             asistenteId: data.asistente_id,
             asistenteName: data.asistente?.nombre || 'Asistente',
-            mantenerConexion: true // Indicar que mantenga la conexión
+            mantenerConexion: true
           });
         }
       }
@@ -156,7 +162,10 @@ const EsperaAsistenciaScreen = ({ route, navigation }) => {
     
     // Consultar cada 10 segundos si la solicitud fue aceptada
     const checkInterval = setInterval(() => {
-      cargarSolicitud();
+      // Solo verificar si no estamos navegando
+      if (!navegandoALlamadaRef.current) {
+        cargarSolicitud();
+      }
     }, 10000);
     
     // Prevenir navegación hacia atrás sin cancelar la solicitud

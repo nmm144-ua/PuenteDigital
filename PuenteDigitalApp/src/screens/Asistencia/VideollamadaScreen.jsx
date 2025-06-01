@@ -332,10 +332,10 @@ const VideollamadaScreen = ({ route, navigation }) => {
           <RTCView
             streamURL={remoteStream.toURL()}
             style={styles.remoteStream}
-            objectFit="contain" // Cambiar a contain
-            mirror={true} // Probar con mirror en true
-            zOrder={1} // Cambiar a zOrder 1
-            key={Date.now()} // Forzar recreación con timestamp
+            objectFit="contain"  // Cambiar a contain
+            mirror={false}       
+            zOrder={1}          // Cambiar a 1
+            key={remoteStream.id} // Forzar recreación
           />
           
           {callStatus === 'audio_only' && (

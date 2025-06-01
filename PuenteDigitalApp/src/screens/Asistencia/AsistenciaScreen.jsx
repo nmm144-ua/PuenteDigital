@@ -7,7 +7,8 @@ import {
   TextInput,
   ScrollView,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Platform
 } from 'react-native';
 import AsistenciaService from '../../services/AsistenciaService';
 import ChatService from '../../services/ChatService';
