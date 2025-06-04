@@ -154,17 +154,30 @@ export default {
     remoteStreams: {
       deep: true,
       handler(newStreams, oldStreams) {
-        // Verificar si hay nuevos streams o si cambió alguno existente
-        const hasNewStreams = Object.keys(newStreams).some(
-          userId => !oldStreams[userId] || oldStreams[userId] !== newStreams[userId]
-        );
+        // ✅ VERIFICACIÓN INTELIGENTE: Solo procesar cambios reales
+        const hasRealChanges = Object.keys(newStreams).some(userId => {
+          const newStream = newStreams[userId];
+          const oldStream = oldStreams ? oldStreams[userId] : null;
+          
+          // Verificar si es un stream completamente nuevo o cambió el ID
+          return !oldStream || oldStream.id !== newStream.id;
+        });
         
-        if (hasNewStreams) {
+        if (hasRealChanges) {
           console.log('Nuevos streams detectados, verificando reproducción...');
-          // Dar tiempo para que los componentes se actualicen
-          this.$nextTick(() => {
-            this.checkAndFixStreams();
-          });
+          
+          // ✅ DEBOUNCE: Evitar múltiples llamadas consecutivas
+          if (this._streamCheckTimeout) {
+            clearTimeout(this._streamCheckTimeout);
+          }
+          
+          this._streamCheckTimeout = setTimeout(() => {
+            this.$nextTick(() => {
+              this.checkAndFixStreams();
+            });
+          }, 500); // Esperar 500ms antes de verificar
+        } else {
+          console.log('Sin cambios reales en streams, omitiendo verificación');
         }
       }
     }
@@ -338,18 +351,37 @@ export default {
     // Iniciar verificación periódica de streams
     startStreamChecking() {
       this.streamCheckTimer = setInterval(() => {
-        if (this.isInCall && Object.keys(this.remoteStreams).length > 0) {
+        // ✅ SOLO verificar si hay streams Y no hay verificación en curso
+        if (this.isInCall && 
+            Object.keys(this.remoteStreams).length > 0 && 
+            !this._isCheckingStreams) {
+          this._isCheckingStreams = true;
+          
           this.checkAndFixStreams();
+          
+          // Liberar flag después de un tiempo
+          setTimeout(() => {
+            this._isCheckingStreams = false;
+          }, 2000);
         }
-      }, 3000); // Verificar cada 3 segundos
+      }, 10000); // ✅ REDUCIR frecuencia: verificar cada 10 segundos en lugar de 3
     },
     
     // Verificar y arreglar problemas de reproducción de streams
     checkAndFixStreams() {
-      if (!this.$refs.videoGrid) return;
+      if (!this.$refs.videoGrid || this._isFixingStreams) return;
       
-      // Pedir al VideoGrid que verifique y repare sus videos
-      this.$refs.videoGrid.checkAndRestartVideos();
+      this._isFixingStreams = true;
+      
+      try {
+        // Pedir al VideoGrid que verifique y repare sus videos
+        this.$refs.videoGrid.checkAndRestartVideos();
+      } finally {
+        // Liberar flag después de procesar
+        setTimeout(() => {
+          this._isFixingStreams = false;
+        }, 1000);
+      }
     },
     
     // Función de diagnóstico para verificar streams

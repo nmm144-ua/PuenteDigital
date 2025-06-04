@@ -216,6 +216,7 @@ class WebRTCService {
     }
     
     // Evento cuando se recibe un track del otro usuario
+
     this.peerConnection.ontrack = (event) => {
       console.log('***** TRACK REMOTO RECIBIDO *****');
       
@@ -236,78 +237,65 @@ class WebRTCService {
         return;
       }
       
-      // Comprobar si ya tenemos un stream guardado para este usuario
+      // ✅ ARREGLO PRINCIPAL: Verificar si ya procesamos este stream
       if (!this.remoteStreams) {
         this.remoteStreams = {};
       }
       
       const existingStream = this.remoteStreams[this.remoteUserId];
       
-      // Si ya tenemos un stream para este usuario, usamos el mismo objeto
-      // para evitar rerenderizaciones innecesarias
+      // Solo procesar si es un stream completamente nuevo
       if (existingStream && existingStream.id === remoteStream.id) {
-        console.log('Actualizando stream existente con nuevos tracks');
-        // El stream ya está guardado y se actualizará automáticamente
+        console.log('Stream ya procesado anteriormente, verificando tracks...');
         
+        // Solo notificar si hay cambios significativos en tracks
+        const existingAudio = existingStream.getAudioTracks().length;
+        const existingVideo = existingStream.getVideoTracks().length;
+        const newAudio = remoteStream.getAudioTracks().length;
+        const newVideo = remoteStream.getVideoTracks().length;
+        
+        if (existingAudio !== newAudio || existingVideo !== newVideo) {
+          console.log('Cambio en número de tracks detectado, actualizando...');
+          
+          // Actualizar la referencia (el stream se actualiza automáticamente)
+          this.remoteStreams[this.remoteUserId] = remoteStream;
+          
+          // Notificar solo si es un cambio significativo
+          if (this.callbacks && typeof this.callbacks.onRemoteStream === 'function') {
+            this.callbacks.onRemoteStream(this.remoteUserId, remoteStream);
+          }
+        } else {
+          console.log('Sin cambios significativos, ignorando evento ontrack duplicado');
+          return; // ⭐ SALIR TEMPRANO - Esto evita el procesamiento duplicado
+        }
       } else {
-        // Es un nuevo stream, guardarlo
+        // Es un stream completamente nuevo
         console.log('Guardando nuevo stream remoto');
         this.remoteStreams[this.remoteUserId] = remoteStream;
-      }
-
-       // Asegurarnos de que los tracks estén habilitados
-       remoteStream.getTracks().forEach(track => {
-        if (!track.enabled) {
-          console.log(`Habilitando track de ${track.kind} que estaba deshabilitado`);
-          track.enabled = true;
-        }
-      });
-      
-      // Verificar si el stream tiene tanto audio como video antes de notificar
-      const hasAudio = remoteStream.getAudioTracks().length > 0;
-      const hasVideo = remoteStream.getVideoTracks().length > 0;
-      console.log(`Stream tiene audio: ${hasAudio}, video: ${hasVideo}`);
-      
-      // Notificar siempre al recibir un nuevo track para mantener la UI actualizada
-      if (this.callbacks && typeof this.callbacks.onRemoteStream === 'function') {
-        console.log('Llamando callback onRemoteStream con:', this.remoteUserId);
-        try {        
-          // Primero llamar inmediatamente para mostrar el audio
-          this.callbacks.onRemoteStream(this.remoteUserId, remoteStream);
-          
-          // Luego volver a llamar después de un breve retraso para actualizar con video si está disponible
-          setTimeout(() => {
+        
+        // Asegurarnos de que los tracks estén habilitados
+        remoteStream.getTracks().forEach(track => {
+          if (!track.enabled) {
+            console.log(`Habilitando track de ${track.kind} que estaba deshabilitado`);
+            track.enabled = true;
+          }
+        });
+        
+        // Verificar contenido del stream
+        const hasAudio = remoteStream.getAudioTracks().length > 0;
+        const hasVideo = remoteStream.getVideoTracks().length > 0;
+        console.log(`Stream tiene audio: ${hasAudio}, video: ${hasVideo}`);
+        
+        // Notificar inmediatamente para el nuevo stream
+        if (this.callbacks && typeof this.callbacks.onRemoteStream === 'function') {
+          console.log('Llamando callback onRemoteStream con:', this.remoteUserId);
+          try {
             this.callbacks.onRemoteStream(this.remoteUserId, remoteStream);
-          }, 500);
-
-        } catch (error) {
-          console.error('Error en callback onRemoteStream:', error);
+          } catch (error) {
+            console.error('Error en callback onRemoteStream:', error);
+          }
         }
       }
-      
-      // Monitorear cambios en el stream durante un breve período
-      let monitorsLeft = 5; // Monitorear 5 veces
-      const monitorStreamInterval = setInterval(() => {
-        if (monitorsLeft <= 0 || !this.remoteStreams[this.remoteUserId]) {
-          clearInterval(monitorStreamInterval);
-          return;
-        }
-        
-        const currentStream = this.remoteStreams[this.remoteUserId];
-        const currentAudio = currentStream.getAudioTracks().length > 0;
-        const currentVideo = currentStream.getVideoTracks().length > 0;
-        
-        console.log(`Monitor stream [${5-monitorsLeft}]: Audio: ${currentAudio}, Video: ${currentVideo}`);
-        
-        // Si hay algún cambio, notificar de nuevo
-        if ((hasAudio !== currentAudio || hasVideo !== currentVideo) && 
-            this.callbacks && typeof this.callbacks.onRemoteStream === 'function') {
-          console.log('Cambio detectado en tracks, actualizando UI');
-          this.callbacks.onRemoteStream(this.remoteUserId, currentStream);
-        }
-        
-        monitorsLeft--;
-      }, 1000);
     };
   }
 
