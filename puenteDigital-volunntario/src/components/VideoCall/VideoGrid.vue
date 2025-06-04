@@ -13,7 +13,6 @@
           ref="videoElements" 
           autoplay 
           playsinline
-          muted="false"
           preload="auto"
           class="remote-video"
           :data-user-id="userId"
@@ -47,7 +46,12 @@ export default {
     return {
       videoOrientations: {},
       streamPlayIntervals: {},
-      streamTimers: {}
+      streamTimers: {},
+      _checkingVideos: false,        // Control de verificaciones
+      _streamUpdateTimeout: null,     // Control de debounce
+      _lastCheckTime: 0,             // Control de tiempo
+      _processedStreams: new Set(),   // Control de streams ya procesados
+      _updatingVideo: {}             // ✅ NUEVO: Control de actualizaciones por usuario
     };
   },
   computed: {
@@ -65,33 +69,41 @@ export default {
       handler(newStreams, oldStreams) {
         console.log('🔄 Cambio detectado en remoteStreams');
         
-        // Limpiar timeout previo
+        // ✅ DEBOUNCE: Evitar múltiples ejecuciones consecutivas
         if (this._streamUpdateTimeout) {
           clearTimeout(this._streamUpdateTimeout);
         }
         
-        // Procesar inmediatamente los streams nuevos/cambiados
-        Object.keys(newStreams).forEach(userId => {
-          if (!oldStreams || !oldStreams[userId] || oldStreams[userId] !== newStreams[userId]) {
-            console.log(`🆕 Stream nuevo o cambiado para usuario ${userId}`);
+        this._streamUpdateTimeout = setTimeout(() => {
+          // Procesar solo streams nuevos o que cambiaron realmente
+          Object.keys(newStreams).forEach(userId => {
+            const newStream = newStreams[userId];
+            const oldStream = oldStreams ? oldStreams[userId] : null;
             
-            if (this.isValidMediaStream(newStreams[userId])) {
-              // ASIGNAR INMEDIATAMENTE sin delays
-              this.$nextTick(() => {
-                this.updateVideoStreamForUser(userId);
-              });
+            // ✅ VERIFICACIÓN ESTRICTA: Solo procesar si cambió el ID del stream
+            if (!oldStream || oldStream.id !== newStream.id) {
+              console.log(`🆕 Stream nuevo o cambiado para usuario ${userId} (${newStream.id})`);
+              
+              if (this.isValidMediaStream(newStream)) {
+                // Procesar inmediatamente el nuevo stream
+                this.$nextTick(() => {
+                  this.updateVideoStreamForUser(userId);
+                });
+              } else {
+                console.warn(`❌ Stream inválido para usuario ${userId}`);
+              }
             } else {
-              console.warn(`❌ Stream inválido para usuario ${userId}`);
+              console.log(`✅ Stream ${newStream.id} ya procesado para ${userId}`);
             }
-          }
-        });
-        
-        // Limpiar streams eliminados
-        Object.keys(this.videoOrientations).forEach(userId => {
-          if (!newStreams[userId]) {
-            this.cleanupUserResources(userId);
-          }
-        });
+          });
+          
+          // Limpiar streams eliminados
+          Object.keys(this.videoOrientations).forEach(userId => {
+            if (!newStreams[userId]) {
+              this.cleanupUserResources(userId);
+            }
+          });
+        }, 100); // Debounce de 100ms
       },
       deep: true,
       immediate: true
@@ -102,43 +114,12 @@ export default {
     isValidMediaStream(stream) {
       if (!stream || typeof stream !== 'object') return false;
       
-      // Verificar que el stream tiene al menos algunas propiedades esperadas
       return (
-        // Verificamos por la propiedad 'id' que debería estar en cualquier MediaStream
         (stream.id && typeof stream.id === 'string') ||
-        // O verificamos si tiene algún método típico de MediaStream
         (typeof stream.getTracks === 'function') ||
         (typeof stream.getVideoTracks === 'function') ||
         (typeof stream.getAudioTracks === 'function')
       );
-    },
-    
-    // Verificar si un MediaStream está activo
-    isMediaStreamActive(stream) {
-      if (!stream) return false;
-      
-      try {
-        // Primero intentamos usar la propiedad 'active' nativa
-        if (typeof stream.active === 'boolean') {
-          return stream.active;
-        }
-        
-        // Si no hay propiedad 'active', verificamos los tracks
-        if (typeof stream.getTracks === 'function') {
-          const tracks = stream.getTracks();
-          return tracks.length > 0 && tracks.some(track => track.enabled);
-        }
-        
-        // Intentamos con video y audio tracks por separado
-        const videoTracks = typeof stream.getVideoTracks === 'function' ? stream.getVideoTracks() : [];
-        const audioTracks = typeof stream.getAudioTracks === 'function' ? stream.getAudioTracks() : [];
-        
-        return (videoTracks.length > 0 || audioTracks.length > 0);
-      } catch (error) {
-        console.warn('Error al verificar si el stream está activo:', error);
-        // Asumimos que está activo como último recurso
-        return true;
-      }
     },
     
     // Limpiar recursos para un usuario específico
@@ -162,129 +143,241 @@ export default {
       
       console.log(`Recursos limpiados para usuario ${userId}`);
     },
-    
-    // Actualizar stream para un usuario específico
-    async updateVideoStreamForUser(userId) {
-      const videoElements = this.$refs.videoElements;
-      if (!videoElements) return;
-      
-      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
-      const video = videos.find(v => v.getAttribute('data-user-id') === userId);
-      
-      if (!video) {
-        console.warn(`No se encontró elemento de video para usuario ${userId}`);
+
+   async updateVideoStreamForUser(userId) {
+      // ✅ PREVENIR MÚLTIPLES EJECUCIONES SIMULTÁNEAS
+      if (this._updatingVideo && this._updatingVideo[userId]) {
+        console.log(`⏭️ Ya actualizando video para ${userId}, omitiendo...`);
         return;
       }
       
-      const stream = this.remoteStreams[userId];
-      if (!stream) {
-        console.warn(`No hay stream para usuario ${userId}`);
-        return;
+      if (!this._updatingVideo) {
+        this._updatingVideo = {};
       }
+      this._updatingVideo[userId] = true;
       
-      console.log(`🔧 ASIGNANDO STREAM a video de ${userId}`, {
-        streamId: stream.id,
-        audioTracks: stream.getAudioTracks().length,
-        videoTracks: stream.getVideoTracks().length,
-        active: stream.active
-      });
-      
-      // ASIGNACIÓN DIRECTA Y SEGURA
       try {
-        // Primero pausar cualquier reproducción existente
-        video.pause();
+        const videoElements = this.$refs.videoElements;
+        if (!videoElements) return;
         
-        // Limpiar srcObject anterior
-        video.srcObject = null;
+        const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
+        const video = videos.find(v => v.getAttribute('data-user-id') === userId);
         
-        // Esperar un frame para que se limpie
-        await new Promise(resolve => requestAnimationFrame(resolve));
+        if (!video) {
+          console.warn(`No se encontró elemento de video para usuario ${userId}`);
+          return;
+        }
         
-        // Asignar el nuevo stream
-        video.srcObject = stream;
+        const stream = this.remoteStreams[userId];
+        if (!stream) {
+          console.warn(`No hay stream para usuario ${userId}`);
+          return;
+        }
         
-        // Configurar propiedades ANTES de cargar
-        video.muted = false;
-        video.autoplay = true;
-        video.playsInline = true; // ¡IMPORTANTE para navegadores móviles!
+        console.log(`🔧 ASIGNANDO STREAM a video de ${userId}`, {
+          streamId: stream.id,
+          audioTracks: stream.getAudioTracks().length,
+          videoTracks: stream.getVideoTracks().length,
+          active: stream.active
+        });
         
-        // FORZAR CARGA DEL VIDEO
-        video.load();
+        // ✅ VERIFICAR SI YA TIENE EL STREAM CORRECTO
+        if (video.srcObject && video.srcObject.id === stream.id) {
+          console.log(`✅ Video para ${userId} ya tiene el stream correcto, omitiendo asignación`);
+          
+          // Solo verificar si está reproduciéndose
+          if (video.paused) {
+            console.log(`▶️ Video para ${userId} pausado, intentando reproducir...`);
+            this.playVideoSimple(video, userId);
+          }
+          return;
+        }
         
-        console.log(`✅ Stream asignado correctamente a ${userId}`);
+        // ✅ MÉTODO SIMPLE Y SEGURO (SIN RECREAR ELEMENTO)
+        console.log(`🎯 Asignando stream de forma segura para ${userId}`);
         
-        // Intentar reproducir después de un breve delay
-        setTimeout(() => {
-          this.playVideo(video, userId);
-        }, 300);
+        try {
+          // Limpiar primero
+          video.pause();
+          video.srcObject = null;
+          
+          // Esperar un frame
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          
+          // Configurar antes de asignar
+          video.muted = true;
+          video.autoplay = true;
+          video.playsInline = true;
+          video.controls = false;
+          
+          // Asignar stream
+          video.srcObject = stream;
+          
+          // Forzar carga
+          video.load();
+          
+          console.log(`✅ Stream asignado correctamente a ${userId}`);
+          
+          // Intentar reproducir inmediatamente
+          setTimeout(() => {
+            this.playVideoSimple(video, userId);
+          }, 200);
+          
+        } catch (error) {
+          console.error(`❌ Error asignando stream a ${userId}:`, error);
+        }
         
-      } catch (error) {
-        console.error(`❌ Error asignando stream a ${userId}:`, error);
+      } finally {
+        // ✅ LIBERAR FLAG SIEMPRE
+        if (this._updatingVideo) {
+          delete this._updatingVideo[userId];
+        }
       }
     },
-    
-    // Reproducir video con manejo de errores
-    playVideo(video, userId) {
-      if (!video || video._isPlaying) return;
-      
-      // Verificar si ya hay un intento de reproducción en curso
-      if (video._playAttemptInProgress) {
-        console.log(`Ya hay un intento de reproducción en curso para ${userId}`);
+
+    // ✅ MÉTODO DE REPRODUCCIÓN SIMPLIFICADO
+    playVideoSimple(video, userId) {
+      if (!video || video._isPlaying || video._playAttemptInProgress) {
+        console.log(`⏭️ Saltando reproducción para ${userId}`);
         return;
       }
       
-      // Asegurarnos de que haya un stream
       if (!video.srcObject) {
-        console.warn(`Video para ${userId} no tiene srcObject`);
+        console.warn(`❌ Video para ${userId} no tiene srcObject`);
         return;
       }
       
-      console.log(`Intentando reproducir video para ${userId}...`);
+      console.log(`▶️ Reproduciendo video para ${userId}...`);
       
-      // Marcar que hay un intento en progreso
+      // ✅ DIAGNÓSTICO COMPLETO ANTES DE REPRODUCIR
+      console.log(`🔍 Estado PRE-PLAY para ${userId}:`, {
+        srcObject: !!video.srcObject,
+        streamId: video.srcObject?.id,
+        readyState: video.readyState,
+        networkState: video.networkState,
+        paused: video.paused,
+        muted: video.muted,
+        autoplay: video.autoplay,
+        playsInline: video.playsInline,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        currentTime: video.currentTime,
+        duration: video.duration,
+        error: video.error ? {
+          code: video.error.code,
+          message: video.error.message
+        } : null,
+        // Verificar visibilidad
+        offsetWidth: video.offsetWidth,
+        offsetHeight: video.offsetHeight,
+        // Verificar tracks del stream
+        audioTracks: video.srcObject?.getAudioTracks?.()?.length || 0,
+        videoTracks: video.srcObject?.getVideoTracks?.()?.length || 0
+      });
+      
       video._playAttemptInProgress = true;
+      video.muted = true; // CRÍTICO para Chrome
       
-      // Configurar propiedades básicas
-      video.muted = false;
-      video.volume = 1.0;
+      console.log(`🎵 Iniciando play() para ${userId} con muted=true...`);
       
-      // Reproducir con manejo de errores robusto
       const playPromise = video.play();
+      
+      console.log(`🔍 Tipo de retorno de play():`, typeof playPromise, playPromise !== undefined);
       
       if (playPromise !== undefined) {
         playPromise.then(() => {
-          console.log(`✅ Video para ${userId} comenzó a reproducirse correctamente`);
-          console.log(`📊 Estado del video:`, {
+          console.log(`✅ Video para ${userId} reproduciéndose`);
+          
+          // ✅ DIAGNÓSTICO COMPLETO POST-PLAY
+          console.log(`🔍 Estado POST-PLAY para ${userId}:`, {
             paused: video.paused,
             currentTime: video.currentTime,
+            readyState: video.readyState,
             videoWidth: video.videoWidth,
             videoHeight: video.videoHeight,
-            readyState: video.readyState
+            networkState: video.networkState,
+            played: video.played.length > 0 ? `${video.played.start(0)}-${video.played.end(0)}` : 'none'
           });
+          
           video._playAttemptInProgress = false;
           video._isPlaying = true;
+          video._playbackSuccessful = true;
+          
+          // ✅ VERIFICAR QUE REALMENTE ESTÁ REPRODUCIÉNDOSE
+          setTimeout(() => {
+            console.log(`🕒 Verificación 1s después para ${userId}:`, {
+              paused: video.paused,
+              currentTime: video.currentTime,
+              videoWidth: video.videoWidth,
+              videoHeight: video.videoHeight
+            });
+            
+            if (video.currentTime > 0 || (!video.paused && video.readyState >= 2)) {
+              console.log(`🎬 CONFIRMADO: Video ${userId} está realmente reproduciéndose`);
+              
+              // Intentar unmute
+              setTimeout(() => {
+                if (!video.paused && video._isPlaying) {
+                  video.muted = false;
+                  console.log(`🔊 Audio activado para ${userId}`);
+                }
+              }, 1000);
+            } else {
+              console.warn(`⚠️ Video ${userId} dice que reproduce pero no hay evidencia`);
+              
+              // ✅ DIAGNÓSTICO DE FALLO
+              console.log(`🚨 DIAGNÓSTICO DE FALLO para ${userId}:`, {
+                paused: video.paused,
+                currentTime: video.currentTime,
+                readyState: video.readyState,
+                networkState: video.networkState,
+                error: video.error,
+                ended: video.ended,
+                seeking: video.seeking
+              });
+            }
+          }, 1000);
           
         }).catch(err => {
-          console.warn(`❌ Fallo al reproducir video de ${userId}:`, err.message);
+          console.error(`❌ Error reproduciendo ${userId}:`, {
+            name: err.name,
+            message: err.message,
+            code: err.code
+          });
+          
           video._playAttemptInProgress = false;
           
-          // Solo un reintento con muted si no se ha intentado antes
-          if (!video._mutedRetryAttempted) {
-            video._mutedRetryAttempted = true;
-            video.muted = true;
-            
+          // ✅ DIAGNÓSTICO DEL ERROR
+          console.log(`🔍 Estado en ERROR para ${userId}:`, {
+            readyState: video.readyState,
+            networkState: video.networkState,
+            error: video.error ? {
+              code: video.error.code,
+              message: video.error.message
+            } : null,
+            paused: video.paused,
+            muted: video.muted
+          });
+          
+          // Si falla, intentar fallbacks específicos
+          if (err.name === 'NotAllowedError') {
+            console.log(`🚫 NotAllowedError para ${userId} - política de autoplay estricta`);
+            video._playbackFailed = true;
+          } else {
+            console.log(`🔄 Intentando fallback con reintento para ${userId}`);
             setTimeout(() => {
+              video.muted = true;
+              video.load(); // Reload element
+              
               const retryPromise = video.play();
               if (retryPromise !== undefined) {
                 retryPromise.then(() => {
-                  console.log(`✅ Video para ${userId} funcionó con muted`);
+                  console.log(`✅ Fallback exitoso para ${userId}`);
+                  video._playbackSuccessful = true;
                   video._isPlaying = true;
-                  // Intentar quitar muted después de 2 segundos
-                  setTimeout(() => {
-                    video.muted = false;
-                  }, 2000);
-                }).catch(e => {
-                  console.error(`❌ Falló último intento para ${userId}:`, e.message);
+                }).catch(retryErr => {
+                  console.error(`❌ Falló reintento para ${userId}:`, retryErr);
+                  video._playbackFailed = true;
                 });
               }
             }, 1000);
@@ -292,29 +385,268 @@ export default {
         });
       } else {
         video._playAttemptInProgress = false;
+        console.error(`❌ CRÍTICO: play() no devolvió promesa para ${userId}`);
+        video._playbackFailed = true;
+      }
+    },
+
+    // ✅ MÉTODO FALLBACK
+    fallbackVideoAssignment(video, stream, userId) {
+      try {
+        console.log(`🔄 Usando método fallback para ${userId}`);
+        
+        video.pause();
+        video.srcObject = null;
+        
+        // Forzar limpieza
+        video.load();
+        
+        // Configurar antes de asignar
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        
+        // Asignar stream
+        video.srcObject = stream;
+        
+        // Intentar cargar
+        video.load();
+        
+        console.log(`🎯 Stream asignado por fallback para ${userId}`);
+        
+        // Esperar un poco y reproducir
+        setTimeout(() => {
+          video.play().then(() => {
+            console.log(`✅ Fallback exitoso para ${userId}`);
+            video._playbackSuccessful = true;
+          }).catch(err => {
+            console.error(`❌ Fallback falló para ${userId}:`, err);
+            video._playbackFailed = true;
+          });
+        }, 500);
+        
+      } catch (fallbackError) {
+        console.error(`❌ Error en fallback para ${userId}:`, fallbackError);
       }
     },
         
-    // Actualizar todos los streams de video
-    updateVideoStreams() {
-      const videoElements = this.$refs.videoElements;
-      if (!videoElements) return;
+    // ✅ REPRODUCIR VIDEO - Versión mejorada sin loops
+    playVideo(video, userId) {
+      if (!video || video._isPlaying || video._playAttemptInProgress) {
+        console.log(`⏭️ Saltando reproducción para ${userId} - ya en progreso`);
+        return;
+      }
       
-      // Convertir a array si no lo es
-      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
+      if (!video.srcObject) {
+        console.warn(`❌ Video para ${userId} no tiene srcObject para reproducir`);
+        return;
+      }
       
-      // Para cada video, verificar su stream
-      videos.forEach(video => {
-        if (!video) return;
+      // ✅ VERIFICAR QUE EL VIDEO ESTÉ LISTO PARA CHROME
+      if (video.readyState < 1) {
+        console.warn(`⚠️ Video para ${userId} no está listo (readyState: ${video.readyState}), esperando...`);
         
-        const userId = video.getAttribute('data-user-id');
-        if (!userId || !this.remoteStreams[userId]) return;
+        const waitAndRetry = () => {
+          setTimeout(() => {
+            if (video.readyState >= 1) {
+              console.log(`✅ Video para ${userId} ahora está listo, reintentando...`);
+              this.playVideo(video, userId);
+            } else if (video.readyState < 1) {
+              console.warn(`⚠️ Video para ${userId} sigue sin estar listo después de esperar`);
+            }
+          }, 1000);
+        };
         
-        // Si el video no tiene un stream asignado o es diferente, actualizarlo
-        if (!video.srcObject || video.srcObject !== this.remoteStreams[userId]) {
-          this.updateVideoStreamForUser(userId);
-        }
+        waitAndRetry();
+        return;
+      }
+      
+      console.log(`▶️ Intentando reproducir video para ${userId}...`);
+      console.log(`📊 Estado inicial del video:`, {
+        paused: video.paused,
+        muted: video.muted,
+        volume: video.volume,
+        readyState: video.readyState,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        currentSrc: video.currentSrc,
+        networkState: video.networkState
       });
+      
+      video._playAttemptInProgress = true;
+      
+      // ✅ CONFIGURACIÓN CRÍTICA PARA CHROME
+      video.muted = true;
+      video.volume = 1.0;
+      video.autoplay = true;
+      video.playsInline = true;
+      
+      console.log(`🎵 Iniciando reproducción con muted=true para ${userId}`);
+      
+      // ✅ VERIFICAR VISIBILIDAD DEL ELEMENTO
+      const rect = video.getBoundingClientRect();
+      console.log(`📐 Dimensiones del video para ${userId}:`, {
+        width: rect.width,
+        height: rect.height,
+        visible: rect.width > 0 && rect.height > 0
+      });
+      
+      const playPromise = video.play();
+      
+      if (playPromise !== undefined) {
+        playPromise.then(() => {
+          console.log(`✅ Video para ${userId} comenzó a reproducirse con muted`);
+          console.log(`📊 Estado después de play():`, {
+            paused: video.paused,
+            currentTime: video.currentTime,
+            videoWidth: video.videoWidth,
+            videoHeight: video.videoHeight,
+            readyState: video.readyState
+          });
+          
+          video._playAttemptInProgress = false;
+          video._isPlaying = true;
+          video._playbackSuccessful = true;
+          
+          // ✅ VERIFICAR QUE REALMENTE ESTÁ REPRODUCIÉNDOSE
+          setTimeout(() => {
+            if (video.currentTime > 0 || !video.paused) {
+              console.log(`🎬 Confirmado: Video para ${userId} está reproduciéndose (currentTime: ${video.currentTime})`);
+              
+              // Intentar quitar muted después de confirmar reproducción
+              setTimeout(() => {
+                if (!video.paused && video._isPlaying) {
+                  console.log(`🔊 Intentando activar audio para ${userId}`);
+                  video.muted = false;
+                  
+                  setTimeout(() => {
+                    if (!video.muted) {
+                      console.log(`✅ Audio activado correctamente para ${userId}`);
+                    } else {
+                      console.log(`⚠️ Audio sigue muted para ${userId} (política del navegador)`);
+                    }
+                  }, 500);
+                }
+              }, 1500);
+            } else {
+              console.warn(`⚠️ Video para ${userId} dice que reproduce pero currentTime=0 y paused=${video.paused}`);
+            }
+          }, 1000);
+          
+        }).catch(err => {
+          console.error(`❌ Error crítico al reproducir video de ${userId}:`, err);
+          console.log(`🔍 Detalles del error:`, {
+            name: err.name,
+            message: err.message,
+            code: err.code
+          });
+          console.log(`📊 Estado en error:`, {
+            paused: video.paused,
+            muted: video.muted,
+            readyState: video.readyState,
+            networkState: video.networkState,
+            error: video.error ? {
+              code: video.error.code,
+              message: video.error.message
+            } : null
+          });
+          
+          video._playAttemptInProgress = false;
+          
+          // ✅ DIAGNÓSTICO Y REINTENTO ESPECÍFICO
+          if (err.name === 'NotAllowedError') {
+            console.log(`🚫 NotAllowedError para ${userId} - política de autoplay`);
+            video._playbackFailed = true;
+          } else if (err.name === 'AbortError') {
+            console.log(`⏹️ AbortError para ${userId} - reproducción interrumpida, reintentando...`);
+            setTimeout(() => {
+              video.load();
+              video.muted = true;
+              this.playVideo(video, userId);
+            }, 1000);
+          } else {
+            console.log(`🔄 Error desconocido para ${userId}, intentando reseteo completo...`);
+            setTimeout(() => {
+              video.load();
+              video.muted = true;
+              video.play().then(() => {
+                console.log(`✅ Reseteo exitoso para ${userId}`);
+                video._playbackSuccessful = true;
+                video._playbackFailed = false;
+              }).catch(finalErr => {
+                console.error(`❌ Reseteo falló para ${userId}:`, finalErr);
+                video._playbackFailed = true;
+              });
+            }, 1500);
+          }
+        });
+      } else {
+        console.warn(`⚠️ Play() no devolvió promesa para ${userId}`);
+        video._playAttemptInProgress = false;
+        video._playbackFailed = true;
+      }
+    },
+    
+    // ✅ VERIFICAR VIDEOS - Sin loop infinito
+    checkAndRestartVideos() {
+      const now = Date.now();
+      if (this._checkingVideos || (now - this._lastCheckTime) < 3000) {
+        console.log('🚫 Verificación bloqueada - en curso o muy reciente');
+        return;
+      }
+      
+      this._checkingVideos = true;
+      this._lastCheckTime = now;
+      console.log('🔍 Verificación única de videos...');
+      
+      try {
+        const videoElements = this.$refs.videoElements;
+        if (!videoElements) {
+          console.log('No hay elementos de video para verificar');
+          return;
+        }
+        
+        const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
+        let needsProcessing = false;
+        
+        videos.forEach(video => {
+          if (!video) return;
+          
+          const userId = video.getAttribute('data-user-id');
+          if (!userId || !this.remoteStreams[userId]) return;
+          
+          // ✅ SKIP: Si ya tuvo éxito o falló completamente
+          if (video._playbackSuccessful || video._playbackFailed) {
+            console.log(`⏭️ Video para ${userId} ya procesado (${video._playbackSuccessful ? 'éxito' : 'falló'})`);
+            return;
+          }
+          
+          // Verificar que el video tenga srcObject
+          if (!video.srcObject) {
+            console.log(`⚠️ Video para ${userId} no tiene srcObject, asignando...`);
+            this.updateVideoStreamForUser(userId);
+            needsProcessing = true;
+            return;
+          }
+          
+          // Solo intentar reproducir si está pausado Y no ha fallado antes
+          if (video.paused && !video._playAttemptInProgress && !video._playbackFailed) {
+            console.log(`▶️ Video para ${userId} pausado, intento de reproducción`);
+            this.playVideo(video, userId);
+            needsProcessing = true;
+          }
+        });
+        
+        if (!needsProcessing) {
+          console.log('✅ Todos los videos están funcionando correctamente');
+        }
+        
+      } finally {
+        // ✅ LIBERAR después de 5 segundos para evitar loops
+        setTimeout(() => {
+          this._checkingVideos = false;
+        }, 5000);
+      }
     },
     
     getParticipantName(userId) {
@@ -322,66 +654,7 @@ export default {
       return participant ? participant.userName : 'Usuario';
     },
 
-    checkAndRestartVideos() {
-      console.log('🔍 Verificación única de videos...');
-      
-      const videoElements = this.$refs.videoElements;
-      if (!videoElements) return;
-      
-      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
-      
-      videos.forEach(video => {
-        if (!video) return;
-        
-        const userId = video.getAttribute('data-user-id');
-        if (!userId || !this.remoteStreams[userId]) return;
-
-        
-        // ✅ VERIFICAR que el video tenga srcObject antes de intentar reproducir
-        if (!video.srcObject) {
-          console.log(`⚠️ Video para ${userId} no tiene srcObject, asignando...`);
-          this.updateVideoStreamForUser(userId);
-          return; // No intentar reproducir aún
-        }
-        
-        // Solo intentar reproducir si tiene srcObject y está pausado
-        if (video.paused && !video._playAttemptInProgress) {
-          console.log(`▶️ Video para ${userId} pausado, intento de reproducción`);
-          this.playVideo(video, userId);
-        }
-      });
-    },
-
-    // Método para detener todos los videos antes de la limpieza
-    stopAllVideoPlayback() {
-      console.log('Deteniendo todos los videos antes de la limpieza...');
-      
-      const videoElements = this.$refs.videoElements;
-      if (!videoElements) return;
-      
-      // Convertir a array si no lo es
-      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
-      
-      // Para cada video, detener reproducción
-      videos.forEach(video => {
-        if (!video) return;
-        
-        try {
-          video.pause();
-          video.srcObject = null;
-        } catch (e) {
-          console.warn('Error al detener video:', e);
-        }
-      });
-      
-      // Limpiar intervalos
-      Object.keys(this.streamPlayIntervals).forEach(userId => {
-        clearInterval(this.streamPlayIntervals[userId]);
-      });
-      this.streamPlayIntervals = {};
-    },
-
-    // Método para diagnóstico completo de videos
+    // ✅ DIAGNÓSTICO COMPLETO
     diagnoseVideos() {
       console.log('===== DIAGNÓSTICO DE VIDEOS EN VIDEOGRID =====');
       
@@ -391,92 +664,9 @@ export default {
         return;
       }
       
-      // Convertir a array si no lo es
       const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
-      
       console.log(`Encontrados ${videos.length} elementos de video`);
       
-      // Para cada video, verificar su estado
-      videos.forEach(video => {
-        if (!video) return;
-        
-        const userId = video.getAttribute('data-user-id');
-        if (!userId) {
-          console.log('Video sin userId');
-          return;
-        }
-        
-        console.log(`VIDEO PARA ${userId}:`);
-        console.log('- Pausado:', video.paused);
-        console.log('- Terminado:', video.ended);
-        console.log('- Tiempo actual:', video.currentTime);
-        console.log('- Muted:', video.muted);
-        console.log('- Volumen:', video.volume);
-        console.log('- Ancho/Alto:', video.videoWidth, 'x', video.videoHeight);
-        
-        // Verificar srcObject
-        if (video.srcObject) {
-          const stream = video.srcObject;
-          console.log('- Stream asignado:', stream.id);
-          console.log('- Audio tracks:', stream.getAudioTracks().length);
-          console.log('- Video tracks:', stream.getVideoTracks().length);
-          
-          // Verificar la conexión entre el stream asignado y el stream en remoteStreams
-          const storedStream = this.remoteStreams[userId];
-          console.log('- ¿Coincide con remoteStreams?', storedStream === stream);
-        } else {
-          console.log('- NO TIENE STREAM ASIGNADO');
-        }
-      });
-      
-      console.log('============================================');
-    },
-
-    // Método para detener todos los videos antes de la limpieza
-    stopAllVideoPlayback() {
-      console.log('Pausando todos los videos antes de la limpieza...');
-      
-      const videoElements = this.$refs.videoElements;
-      if (!videoElements) return;
-      
-      // Convertir a array si no lo es
-      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
-      
-      // Para cada video, detener reproducción PERO NO eliminar srcObject
-      videos.forEach(video => {
-        if (!video) return;
-        
-        try {
-          // Solo pausar, no eliminar srcObject
-          video.pause();
-        } catch (e) {
-          console.warn('Error al pausar video:', e);
-        }
-      });
-      
-      // Limpiar intervalos
-      Object.keys(this.streamPlayIntervals).forEach(userId => {
-        clearInterval(this.streamPlayIntervals[userId]);
-        delete this.streamPlayIntervals[userId];
-      });
-    },
-
-    // Método para diagnóstico completo de videos
-    diagnoseVideos() {
-      console.log('===== DIAGNÓSTICO DE VIDEOS EN VIDEOGRID =====');
-      
-      const videoElements = this.$refs.videoElements;
-      if (!videoElements) {
-        console.log('No hay elementos de video para diagnosticar');
-        return;
-      }
-      
-      // Convertir a array si no lo es
-      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
-      
-      console.log(`Encontrados ${videos.length} elementos de video`);
-      
-      // Para cada video, verificar su estado
       videos.forEach(video => {
         if (!video) return;
         
@@ -494,8 +684,9 @@ export default {
         console.log('- Volumen:', video.volume);
         console.log('- Ancho/Alto:', video.videoWidth, 'x', video.videoHeight);
         console.log('- Ready State:', video.readyState);
+        console.log('- _playbackSuccessful:', video._playbackSuccessful);
+        console.log('- _playbackFailed:', video._playbackFailed);
         
-        // Verificar srcObject
         if (video.srcObject) {
           const stream = video.srcObject;
           console.log('- Stream asignado:', stream.id);
@@ -503,7 +694,6 @@ export default {
           console.log('- Audio tracks:', stream.getAudioTracks().length);
           console.log('- Video tracks:', stream.getVideoTracks().length);
           
-          // Verificar tracks
           const videoTracks = stream.getVideoTracks();
           if (videoTracks.length > 0) {
             console.log('- Video track principal:', {
@@ -512,14 +702,8 @@ export default {
             });
           }
           
-          // Verificar la conexión entre el stream asignado y el stream en remoteStreams
           const storedStream = this.remoteStreams[userId];
           console.log('- ¿Coincide con remoteStreams?', storedStream === stream);
-          
-          // Verificar si hay problemas de congelamiento
-          if (video.currentTime === 0 && !video.paused) {
-            console.log('- POSIBLE CONGELAMIENTO: currentTime=0 pero video no pausado');
-          }
         } else {
           console.log('- NO TIENE STREAM ASIGNADO');
         }
@@ -528,18 +712,60 @@ export default {
       console.log('============================================');
     },
 
+    // ✅ DETENER VIDEOS
+    stopAllVideoPlayback() {
+      console.log('Pausando todos los videos antes de la limpieza...');
+      
+      const videoElements = this.$refs.videoElements;
+      if (!videoElements) return;
+      
+      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
+      
+      videos.forEach(video => {
+        if (!video) return;
+        
+        try {
+          video.pause();
+        } catch (e) {
+          console.warn('Error al pausar video:', e);
+        }
+      });
+      
+      // Limpiar intervalos
+      Object.keys(this.streamPlayIntervals).forEach(userId => {
+        clearInterval(this.streamPlayIntervals[userId]);
+        delete this.streamPlayIntervals[userId];
+      });
+    }
   },
+  
   mounted() {
-    // Iniciar con los streams actuales
+    this.updateVideoStreams = () => {
+      const videoElements = this.$refs.videoElements;
+      if (!videoElements) return;
+      
+      const videos = Array.isArray(videoElements) ? videoElements : [videoElements];
+      
+      videos.forEach(video => {
+        if (!video) return;
+        
+        const userId = video.getAttribute('data-user-id');
+        if (!userId || !this.remoteStreams[userId]) return;
+        
+        if (!video.srcObject || video.srcObject !== this.remoteStreams[userId]) {
+          this.updateVideoStreamForUser(userId);
+        }
+      });
+    };
+    
     this.updateVideoStreams();
   },
+  
   beforeDestroy() {
-    // Limpiar timeout de debounce
     if (this._streamUpdateTimeout) {
       clearTimeout(this._streamUpdateTimeout);
     }
     
-    // Limpiar todos los intervalos y temporizadores
     Object.keys(this.streamPlayIntervals).forEach(userId => {
       clearInterval(this.streamPlayIntervals[userId]);
     });
@@ -552,6 +778,7 @@ export default {
 </script>
 
 <style scoped>
+/* ... mantienes el mismo CSS que tenías ... */
 .video-grid-container {
   width: 100%;
   height: 100%;
@@ -607,14 +834,12 @@ export default {
   align-items: center;
 }
 
-/* Manejo de videos en modo portrait directamente en el grid */
 .grid-item.portrait-video .remote-video {
   width: auto !important;
   height: 100% !important;
   max-height: 100%;
 }
 
-/* Videos landscape (por defecto) */
 .remote-video {
   width: 100% !important;
   height: auto !important;
@@ -647,7 +872,6 @@ export default {
   padding: 20px;
 }
 
-/* Media queries para adaptarse a diferentes pantallas */
 @media (min-width: 1200px) {
   .grid-item {
     min-height: 250px;

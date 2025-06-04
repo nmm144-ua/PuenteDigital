@@ -159,69 +159,87 @@ const VideollamadaScreen = ({ route, navigation }) => {
         WebRTCService.registerCallbacks({
           onRemoteStream: (userId, stream) => {
             console.log("CALLBACK: Stream remoto recibido de:", userId);
-            if (stream) {
-              const audioTracks = stream.getAudioTracks();
-              const videoTracks = stream.getVideoTracks();
+            
+            if (!stream) {
+              console.warn("Stream recibido es null o undefined");
+              return;
+            }
+            
+            const audioTracks = stream.getAudioTracks();
+            const videoTracks = stream.getVideoTracks();
+            
+            console.log("Audio tracks:", audioTracks.length);
+            console.log("Video tracks:", videoTracks.length);
+            
+            // ✅ VERIFICAR: Solo actualizar si el stream es diferente
+            if (remoteStream && remoteStream.id === stream.id) {
+              console.log("Mismo stream, verificando si hay cambios...");
               
-              console.log("Audio tracks:", audioTracks.length);
-              console.log("Video tracks:", videoTracks.length);
+              const currentAudio = remoteStream.getAudioTracks().length;
+              const currentVideo = remoteStream.getVideoTracks().length;
               
-              // Actualizar el estado del stream remoto
-              setRemoteStream(stream);
-              
-              // Si tenemos al menos un track de video, la conexión está lista
-              if (videoTracks.length > 0) {
-                setCallStatus('connected');
-                
-                // Verificar que el track de video esté habilitado
-                if (!videoTracks[0].enabled) {
-                  console.log("Track de video desactivado, intentando activar...");
-                  try {
-                    videoTracks[0].enabled = true;
-                  } catch (e) {
-                    console.error("No se pudo activar el video:", e);
-                  }
-                }
-                
-                // Verificar que el track de video no esté silenciado
-                if (videoTracks[0].muted) {
-                  console.log("Track de video silenciado, intentando activar...");
-                  try {
-                    videoTracks[0].muted = false;
-                  } catch (e) {
-                    console.error("No se pudo desactivar mute en video:", e);
-                  }
-                }
-              } else if (audioTracks.length > 0 && callStatus !== 'connected') {
-                // Si solo tenemos audio, también mostrar connected pero seguir esperando video
-                setCallStatus('audio_only');
-              }
-
-              WebRTCService.ensureTracksEnabled(userId);
-              
-              // Iniciar temporizador solo la primera vez
-              if (!durationTimerRef.current) {
-                durationTimerRef.current = setInterval(() => {
-                  setCallDuration(prev => prev + 1);
-                }, 1000);
+              // Solo actualizar si hay cambios reales
+              if (currentAudio === audioTracks.length && currentVideo === videoTracks.length) {
+                console.log("Sin cambios reales en tracks, omitiendo actualización");
+                return;
               }
             }
+            
+            // Actualizar el estado del stream remoto
+            console.log("Actualizando remoteStream con nuevo stream");
+            setRemoteStream(stream);
+            
+            // Determinar estado de la llamada
+            if (videoTracks.length > 0) {
+              console.log("Video disponible, estableciendo estado 'connected'");
+              setCallStatus('connected');
+              
+              // Verificar que el track de video esté habilitado
+              videoTracks.forEach((track, index) => {
+                if (!track.enabled) {
+                  console.log(`Habilitando video track ${index}`);
+                  track.enabled = true;
+                }
+                if (track.muted) {
+                  console.log(`Desactivando mute en video track ${index}`);
+                  track.muted = false;
+                }
+              });
+            } else if (audioTracks.length > 0 && callStatus !== 'connected') {
+              console.log("Solo audio disponible, estableciendo estado 'audio_only'");
+              setCallStatus('audio_only');
+            }
+            
+            // Asegurar que todos los tracks estén habilitados
+            WebRTCService.ensureTracksEnabled(userId);
+            
+            // ✅ INICIAR TEMPORIZADOR SOLO UNA VEZ
+            if (!durationTimerRef.current && (videoTracks.length > 0 || audioTracks.length > 0)) {
+              console.log("Iniciando temporizador de duración");
+              durationTimerRef.current = setInterval(() => {
+                setCallDuration(prev => prev + 1);
+              }, 1000);
+            }
           },
+          
           onRemoteStreamClosed: () => {
+            console.log("Stream remoto cerrado");
             setCallStatus('ended');
             if (durationTimerRef.current) {
               clearInterval(durationTimerRef.current);
               durationTimerRef.current = null;
             }
           },
+          
           onConnectionStateChange: (userId, state) => {
             console.log(`Estado de conexión para ${userId}: ${state}`);
           },
+          
           onError: (type, error) => {
             console.error(`Error WebRTC (${type}):`, error);
           }
         });
-        
+                
         // 3. Configurar IDs
         const myUserId = user?.id || 'anonymous';
         WebRTCService.setUserIds(myUserId, asistenteId);

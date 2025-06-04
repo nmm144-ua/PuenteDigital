@@ -303,10 +303,24 @@ export const useCallStore = defineStore('call', {
     // Manejar stream remoto recibido
     handleRemoteStream(userId, stream) {
       console.log(`Stream remoto recibido de ${userId}`);
-      this.remoteStreams = {
-        ...this.remoteStreams,
-        [userId]: stream
-      };
+      
+      // ✅ VERIFICAR: Solo actualizar si el stream es diferente
+      const existingStream = this.remoteStreams[userId];
+      
+      if (existingStream && existingStream.id === stream.id) {
+        console.log(`Stream ${stream.id} ya existe para ${userId}, omitiendo actualización`);
+        return; // ⭐ SALIR TEMPRANO - Evita re-renderizaciones innecesarias
+      }
+      
+      console.log(`Actualizando remoteStreams con nuevo stream para ${userId}:`, stream.id);
+      
+      // ✅ ACTUALIZACIÓN DIRECTA sin spread operator para evitar reactividad excesiva
+      this.remoteStreams[userId] = stream;
+      
+      // ✅ FORZAR ACTUALIZACIÓN reactiva solo cuando es necesario
+      this.$patch({
+        remoteStreams: { ...this.remoteStreams }
+      });
     },
     
     // Manejar cierre de stream remoto
