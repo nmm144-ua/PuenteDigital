@@ -368,8 +368,21 @@ class WebRTCService {
         audio: true,
         video: {
           facingMode: 'user',
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          width: { 
+            min: 320, 
+            ideal: 640, 
+            max: 1280 
+          },
+          height: { 
+            min: 240, 
+            ideal: 480, 
+            max: 720 
+          },
+          frameRate: { 
+            min: 15, 
+            ideal: 24, 
+            max: 30 
+          }
         }
       };
       

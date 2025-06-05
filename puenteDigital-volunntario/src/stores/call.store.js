@@ -303,24 +303,15 @@ export const useCallStore = defineStore('call', {
     // Manejar stream remoto recibido
     handleRemoteStream(userId, stream) {
       console.log(`Stream remoto recibido de ${userId}`);
+      console.log(`Actualizando remoteStreams con stream para ${userId}:`, stream.id);
       
-      // ✅ VERIFICAR: Solo actualizar si el stream es diferente
-      const existingStream = this.remoteStreams[userId];
-      
-      if (existingStream && existingStream.id === stream.id) {
-        console.log(`Stream ${stream.id} ya existe para ${userId}, omitiendo actualización`);
-        return; // ⭐ SALIR TEMPRANO - Evita re-renderizaciones innecesarias
-      }
-      
-      console.log(`Actualizando remoteStreams con nuevo stream para ${userId}:`, stream.id);
-      
-      // ✅ ACTUALIZACIÓN DIRECTA sin spread operator para evitar reactividad excesiva
+      // ✅ SIEMPRE actualizar el stream (sin verificación de duplicados)
       this.remoteStreams[userId] = stream;
       
-      // ✅ FORZAR ACTUALIZACIÓN reactiva solo cuando es necesario
-      this.$patch({
-        remoteStreams: { ...this.remoteStreams }
-      });
+      // ✅ FORZAR reactividad para que Vue detecte el cambio
+      this.remoteStreams = { ...this.remoteStreams };
+      
+      console.log('Stream remoto actualizado en store');
     },
     
     // Manejar cierre de stream remoto

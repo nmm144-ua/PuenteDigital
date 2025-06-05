@@ -489,6 +489,7 @@ const styles = StyleSheet.create({
     width: width,
     height: height,
     backgroundColor: '#000',
+    zIndex: 1, // Menor que el local para que esté debajo
   },
   audioOnlyOverlay: {
     position: 'absolute',
@@ -518,14 +519,23 @@ const styles = StyleSheet.create({
   },
   localStreamContainer: {
     position: 'absolute',
-    top: 60,
-    right: 20,
-    width: 120,
-    height: 160,
-    borderRadius: 10,
+    top: 80, // Más abajo del callInfo para no solaparse
+    right: 15,
+    width: 70, // Más pequeño
+    height: 95, // Más pequeño
+    borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 2,
-    borderColor: '#fff',
+    borderColor: '#4CAF50', // Verde para destacar que es el local
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.4,
+    shadowRadius: 5,
+    elevation: 15, // MÁS ALTO para asegurar que esté por encima del remoto
+    zIndex: 20, // MÁS ALTO que el remoto para garantizar superposición
   },
   localStream: {
     width: '100%',

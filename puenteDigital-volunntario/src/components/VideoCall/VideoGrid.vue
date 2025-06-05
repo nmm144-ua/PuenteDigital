@@ -182,7 +182,7 @@ export default {
         });
         
         // ✅ VERIFICAR SI YA TIENE EL STREAM CORRECTO
-        if (video.srcObject && video.srcObject.id === stream.id) {
+        /*if (video.srcObject && video.srcObject.id === stream.id) {
           console.log(`✅ Video para ${userId} ya tiene el stream correcto, omitiendo asignación`);
           
           // Solo verificar si está reproduciéndose
@@ -190,8 +190,8 @@ export default {
             console.log(`▶️ Video para ${userId} pausado, intentando reproducir...`);
             this.playVideoSimple(video, userId);
           }
-          return;
-        }
+          //return;
+        }*/
         
         // ✅ MÉTODO SIMPLE Y SEGURO (SIN RECREAR ELEMENTO)
         console.log(`🎯 Asignando stream de forma segura para ${userId}`);
@@ -217,7 +217,68 @@ export default {
           video.load();
           
           console.log(`✅ Stream asignado correctamente a ${userId}`);
+          // ✅ DIAGNÓSTICO DETALLADO DEL STREAM
+          const videoTracks = stream.getVideoTracks();
+          const audioTracks = stream.getAudioTracks();
+
+          console.log(`🔬 DIAGNÓSTICO COMPLETO DEL STREAM para ${userId}:`);
+          console.log('- Stream activo:', stream.active);
+          console.log('- Stream ID:', stream.id);
+
+          if (videoTracks.length > 0) {
+            const videoTrack = videoTracks[0];
+            console.log('- Video track:', {
+              enabled: videoTrack.enabled,
+              muted: videoTrack.muted,
+              readyState: videoTrack.readyState,
+              label: videoTrack.label,
+              kind: videoTrack.kind
+            });
+          } else {
+            console.warn('❌ NO HAY VIDEO TRACKS en el stream');
+          }
+
+          if (audioTracks.length > 0) {
+            const audioTrack = audioTracks[0];
+            console.log('- Audio track:', {
+              enabled: audioTrack.enabled,
+              muted: audioTrack.muted,
+              readyState: audioTrack.readyState,
+              label: audioTrack.label
+            });
+          } else {
+            console.warn('❌ NO HAY AUDIO TRACKS en el stream');
+          }
+
+          // ✅ DIAGNÓSTICO DEL ELEMENTO VIDEO
+          console.log('🔬 DIAGNÓSTICO DEL ELEMENTO VIDEO:');
+          console.log('- srcObject asignado:', !!video.srcObject);
+          console.log('- srcObject ID:', video.srcObject?.id);
+          console.log('- autoplay:', video.autoplay);
+          console.log('- muted:', video.muted);
+          console.log('- playsInline:', video.playsInline);
+          console.log('- controls:', video.controls);
           
+          if (videoTracks.length > 0) {
+            const videoTrack = videoTracks[0];
+            if (videoTrack.muted) {
+              console.log(`🔧 Video track está muted, intentando unmute...`);
+              
+              // Intentar unmute (aunque esto generalmente no funciona en tracks remotos)
+              videoTrack.enabled = false;
+              setTimeout(() => {
+                videoTrack.enabled = true;
+                console.log(`🔄 Video track reactivado para ${userId}`);
+              }, 100);
+            }
+          }
+
+          // ✅ SOLUCIÓN ALTERNATIVA: Verificar que el stream no esté muted globalmente
+          if (stream.muted) {
+            console.log(`🔧 Stream completo está muted, intentando unmute...`);
+            stream.muted = false;
+          }
+
           // Intentar reproducir inmediatamente
           setTimeout(() => {
             this.playVideoSimple(video, userId);
@@ -320,7 +381,14 @@ export default {
                 if (!video.paused && video._isPlaying) {
                   video.muted = false;
                   console.log(`🔊 Audio activado para ${userId}`);
-                }
+                  // ✅ AÑADIR AQUÍ: Verificar y corregir videos microscópicos
+                  setTimeout(() => {
+                    const isTinyVideo = this.checkAndFixTinyVideo(video, userId);
+                    if (isTinyVideo) {
+                      console.log(`🎯 Video microscópico detectado y corregido para ${userId}`);
+                    }
+                  }, 500); // Esperar un poco más para que las dimensiones se establezcan
+                  }
               }, 1000);
             } else {
               console.warn(`⚠️ Video ${userId} dice que reproduce pero no hay evidencia`);
@@ -526,6 +594,45 @@ export default {
                       console.log(`⚠️ Audio sigue muted para ${userId} (política del navegador)`);
                     }
                   }, 500);
+
+                  // ✅ DIAGNÓSTICO DE DIMENSIONES
+                  setTimeout(() => {
+                    console.log(`🔍 DIAGNÓSTICO FINAL DE DIMENSIONES para ${userId}:`, {
+                      videoWidth: video.videoWidth,
+                      videoHeight: video.videoHeight,
+                      
+                      // Dimensiones del elemento DOM
+                      elementWidth: video.offsetWidth,
+                      elementHeight: video.offsetHeight,
+                      
+                      // CSS aplicado
+                      computedStyle: {
+                        width: getComputedStyle(video).width,
+                        height: getComputedStyle(video).height,
+                        objectFit: getComputedStyle(video).objectFit
+                      },
+                      
+                      // Track settings
+                      videoTrackSettings: stream.getVideoTracks()[0]?.getSettings ? 
+                        stream.getVideoTracks()[0].getSettings() : 'getSettings no disponible'
+                    });
+                    
+                     // ✅ AÑADIR AQUÍ: Verificar y corregir videos microscópicos
+                    const isTinyVideo = this.checkAndFixTinyVideo(video, userId);
+                    if (isTinyVideo) {
+                      console.log(`🎯 Video microscópico detectado y corregido para ${userId}`);
+                    }
+
+                    // Si las dimensiones son microscópicas
+                    if (video.videoWidth <= 10 || video.videoHeight <= 10) {
+                      console.error(`❌ PROBLEMA CONFIRMADO: React Native envía video con dimensiones ${video.videoWidth}x${video.videoHeight}`);
+                      console.log(`💡 SOLUCIÓN: Verificar constraints de video en React Native`);
+                      console.log(`💡 SOLUCIÓN: Verificar permisos de cámara en React Native`);
+                      console.log(`💡 SOLUCIÓN: Verificar que la cámara no esté siendo usada por otra app`);
+                    }
+                  }, 3000);
+                } else {
+                  console.warn(`⚠️ Video para ${userId} dice que reproduce pero sigue paused=${video.paused}`);
                 }
               }, 1500);
             } else {
@@ -736,8 +843,59 @@ export default {
         clearInterval(this.streamPlayIntervals[userId]);
         delete this.streamPlayIntervals[userId];
       });
+    },
+
+
+    checkAndFixTinyVideo(video, userId) {
+      if (!video || !video.videoWidth || !video.videoHeight) return;
+      
+      console.log(`🔍 Verificando dimensiones de video para ${userId}:`, {
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight
+      });
+      
+      // Si las dimensiones son microscópicas
+      if (video.videoWidth <= 10 || video.videoHeight <= 10) {
+        console.warn(`🚨 VIDEO MICROSCÓPICO DETECTADO para ${userId}: ${video.videoWidth}x${video.videoHeight}`);
+        
+        // ✅ SOLUCIÓN 1: Aplicar clase CSS especial
+        video.classList.add('tiny-video');
+        
+        // ✅ SOLUCIÓN 2: Forzar estilos específicos
+        video.style.objectFit = 'fill';
+        video.style.transform = 'scale(2)';
+        video.style.minWidth = '100%';
+        video.style.minHeight = '100%';
+        video.style.width = '100%';
+        video.style.height = '100%';
+        
+        console.log(`🔧 Aplicados estilos correctivos para video microscópico de ${userId}`);
+        
+        // ✅ SOLUCIÓN 3: Forzar recarga del video
+        setTimeout(() => {
+          console.log(`🔄 Forzando recarga de video microscópico para ${userId}`);
+          const currentSrc = video.srcObject;
+          video.srcObject = null;
+          setTimeout(() => {
+            video.srcObject = currentSrc;
+            video.load();
+            
+            setTimeout(() => {
+              console.log(`📐 Dimensiones después de recarga:`, {
+                videoWidth: video.videoWidth,
+                videoHeight: video.videoHeight
+              });
+            }, 1000);
+          }, 100);
+        }, 2000);
+        
+        return true; // Indica que se aplicaron correcciones
+      }
+      
+      return false;
     }
   },
+
   
   mounted() {
     this.updateVideoStreams = () => {
@@ -825,14 +983,18 @@ export default {
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 200px;
+  min-height: 300px; /* ✅ AUMENTAR altura mínima */
   background-color: #1a1a1a;
   border-radius: 8px;
   overflow: hidden;
   display: flex;
   justify-content: center;
   align-items: center;
+  
+  /* ✅ NUEVO: Debugging visual */
+  border: 2px solid #333; /* Para ver el contenedor */
 }
+
 
 .grid-item.portrait-video .remote-video {
   width: auto !important;
@@ -842,10 +1004,40 @@ export default {
 
 .remote-video {
   width: 100% !important;
-  height: auto !important;
+  height: 100% !important; /* ✅ CAMBIO: Forzar altura completa */
   max-width: 100%;
-  object-fit: contain;
+  max-height: 100%;
+  object-fit: cover; /* ✅ CAMBIO: De contain a cover para videos pequeños */
   background-color: #000;
+  
+  /* ✅ NUEVO: Forzar dimensiones mínimas */
+  min-width: 200px;
+  min-height: 150px;
+}
+
+.remote-video.tiny-video {
+  object-fit: fill !important;
+  transform: scale(20) !important; /* ✅ ESCALAR 20X en lugar de 2X */
+  transform-origin: center center !important;
+  filter: contrast(2) brightness(1.5) !important;
+  border: 5px solid #ff0000 !important; /* Borde rojo muy visible */
+  background-color: #ff00ff !important; /* Fondo magenta para debug */
+  z-index: 999 !important;
+  
+  /* Forzar dimensiones específicas */
+  width: 400px !important;
+  height: 300px !important;
+  min-width: 400px !important;
+  min-height: 300px !important;
+  max-width: none !important;
+  max-height: none !important;
+  
+  /* Centrar el video escalado */
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  margin-left: -200px !important; /* -width/2 */
+  margin-top: -150px !important;  /* -height/2 */
 }
 
 .username-label {
@@ -871,6 +1063,8 @@ export default {
   border-radius: 8px;
   padding: 20px;
 }
+
+
 
 @media (min-width: 1200px) {
   .grid-item {
