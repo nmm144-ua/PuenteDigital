@@ -281,7 +281,7 @@ class WebRTCService {
       console.log('Signaling State:', this.peerConnection.signalingState);
     };
     
-    // ✅ EVENTO ONTRACK CORREGIDO - Sin duplicados
+    // ✅ EVENTO ONTRACK 
     this.peerConnection.ontrack = (event) => {
       console.log('===== TRACK REMOTO RECIBIDO =====');
       console.log('- event.streams:', event.streams?.length);
@@ -296,41 +296,23 @@ class WebRTCService {
       console.log('- Audio tracks:', remoteStream.getAudioTracks().length);
       console.log('- Video tracks:', remoteStream.getVideoTracks().length);
       
-      // ✅ VERIFICAR: Solo procesar si es un stream nuevo o cambió
-      const existingStream = this.remoteStreams[this.remoteUserId];
-      
-      if (existingStream && existingStream.id === remoteStream.id) {
-        console.log('Stream ya procesado anteriormente, verificando tracks...');
-        
-        // Solo notificar si hay cambios significativos en tracks
-        const existingAudio = existingStream.getAudioTracks().length;
-        const existingVideo = existingStream.getVideoTracks().length;
-        const newAudio = remoteStream.getAudioTracks().length;
-        const newVideo = remoteStream.getVideoTracks().length;
-        
-        if (existingAudio === newAudio && existingVideo === newVideo) {
-          console.log('Sin cambios significativos, ignorando evento ontrack duplicado');
-          return; // ⭐ SALIR TEMPRANO
-        } else {
-          console.log('Cambio en número de tracks detectado, actualizando...');
-        }
-      } else {
-        console.log('Nuevo stream detectado, procesando...');
-      }
-      
-      // Verificar que el stream tenga tracks activos antes de utilizarlo
+      // ✅ SIMPLIFICADO: Verificar que el stream tenga tracks activos
       const hasActiveTracks = remoteStream.getTracks().some(track => track.readyState === 'live');
       
       if (!hasActiveTracks) {
         console.warn('Stream remoto recibido pero no tiene tracks activos');
+        return;
       }
       
-      // Guardar referencia al stream para cada usuario
+      // ✅ SIEMPRE actualizar el stream (eliminar lógica de duplicados problemática)
+      console.log('Procesando stream remoto...');
+      
+      // Guardar referencia al stream
       this.remoteStreams[this.remoteUserId] = remoteStream;
       
-      // ✅ NOTIFICAR SOLO UNA VEZ por stream único
+      // ✅ SIEMPRE notificar (permitir que el componente decida si procesar o no)
       if (this.callbacks.onRemoteStream) {
-        console.log('Notificando nuevo/actualizado stream remoto');
+        console.log('Notificando stream remoto a callback');
         this.callbacks.onRemoteStream(this.remoteUserId, remoteStream);
       }
     };
